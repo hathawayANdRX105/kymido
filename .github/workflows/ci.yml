@@ -11,7 +11,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # Full history on purpose: the scope step diffs against origin/main
+      # and `git diff A...B` needs a merge base, which the default depth-1
+      # checkout does not have (run 36297455244: "no merge base", exit 128).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps (ripgrep for tools tests)
@@ -33,7 +38,7 @@ jobs:
             echo "packages=__ALL__" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git fetch --no-tags --depth=1 origin main
+          git fetch --no-tags origin main
           git diff --name-only "origin/main...HEAD" > "$RUNNER_TEMP/changed.txt"
           cat "$RUNNER_TEMP/changed.txt"
           export METADATA="$RUNNER_TEMP/metadata.json"
