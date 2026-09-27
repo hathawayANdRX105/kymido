@@ -1,4 +1,4 @@
-//! Agent-loop config carrier for the omenic harness.
+//! Agent-loop config carrier for the kymido harness.
 //!
 //! Holds only [`LoopEngine`], the runtime config the composition root
 //! registers under `"harness.loop"`. The live agent loop is

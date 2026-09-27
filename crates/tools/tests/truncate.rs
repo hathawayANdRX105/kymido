@@ -20,7 +20,7 @@ fn marked_lines(n: usize, mark: &str) -> String {
 
 /// Pull the spill path out of a truncated-output message.
 ///
-/// Message shape: `[output truncated: ... full output: /tmp/oi-output-...]\n...`
+/// Message shape: `[output truncated: ... full output: /tmp/kymido-output-...]\n...`
 fn spill_path_from(msg: &str) -> std::path::PathBuf {
     let start = msg
         .find("full output: ")
@@ -90,7 +90,7 @@ fn two_overflows_do_not_collide() {
 
 #[test]
 fn spill_file_name_encodes_pid_and_rising_seq() {
-    let prefix = format!("oi-output-{}-", id());
+    let prefix = format!("kymido-output-{}-", id());
     let msg_a = truncate_output(&marked_lines(300, "NAME-A")).expect("truncate succeeds");
     let msg_b = truncate_output(&marked_lines(300, "NAME-B")).expect("truncate succeeds");
 

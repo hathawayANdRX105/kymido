@@ -38,7 +38,7 @@ pub const MAX_LIMIT: u32 = 1000;
 /// generation is attributable to this feature and auditable as one family —
 /// the ledger keeps history, this label says which rows were discarded and
 /// preserved.
-pub const SNAPSHOT_IDENTITY: &str = "OMENIC T13 Rewind";
+pub const SNAPSHOT_IDENTITY: &str = "KYMIDO T13 Rewind";
 
 // -----------------------------------------------------------------------------
 // Errors

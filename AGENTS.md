@@ -30,10 +30,10 @@ gate 自动做创建前校验(规则在 `.githooks/spec/`)+ 创建后现实校�
 
 验证节奏：本地 `fmt --check` + 单 crate `cargo check` → push → **CI 出结果才算验证过**。CI 红了看日志改，不要在本地复现。
 
-**唯一例外**是 web UI 需要肉眼确认时的 `cargo build --bin oi-web`（见下文启动序列），必须套 `cpulimit -l 65 -i --`：
+**唯一例外**是 web UI 需要肉眼确认时的 `cargo build --bin kymido-web`（见下文启动序列），必须套 `cpulimit -l 65 -i --`：
 
 ```bash
-cpulimit -l 65 -i -- cargo build --bin oi-web
+cpulimit -l 65 -i -- cargo build --bin kymido-web
 ```
 
 ## 禁改区
@@ -42,17 +42,17 @@ cpulimit -l 65 -i -- cargo build --bin oi-web
 
 ## Demo 验证沙盒
 
-验证 issue/PR 流程、gh-gate 拦截、规则改动时，**不要在本仓库(omenic)直接创建 demo issue/PR**，使用专用沙盒：
+验证 issue/PR 流程、gh-gate 拦截、规则改动时，**不要在本仓库(kymido)直接创建 demo issue/PR**，使用专用沙盒：
 
 - 仓库：https://github.com/hathawayANdRX105/demo-githooks(本地 `~/projects/demo-githooks`)
-- 用途：验证 epic/sub/PR 链路、checkbox 强制、双向关联(GT-04b)、审查强制等，避免污染 omenic
-- .githooks 与 omenic 同步；规则改动后先在此仓库验证，再同步到其他项目(deskctl / new-api)
+- 用途：验证 epic/sub/PR 链路、checkbox 强制、双向关联(GT-04b)、审查强制等，避免污染 kymido
+- .githooks 与 kymido 同步；规则改动后先在此仓库验证，再同步到其他项目(deskctl / new-api)
 
-## TUI（oi tui）
+## TUI（kymido tui）
 
-TUI 已重新落地（epic #423；旧「已删除」状态 2026-09-25 起不再成立）：`crates/tui/` 存在，`oi tui` 按 `--tui auto|enhanced|inline|linear` 四档渲染——enhanced 为全屏 alternate screen（transcript + composer dock + 历史/中断键），inline 为终端原生 scrollback 轨（#455），探针门要求 TTY、颜色、≥44×12 且非 tmux/Screen/Zellij，不合格自动回落 linear（auto 永不选 inline）。交付（契约测试 140 条 / 25 文件，`crates/tui/tests/`）：批次 1（epic #423）T1 linear 基线 #425、T2 enhanced 外壳与接线 #430/#438、T3 工具卡/问题面板/footer #447/#449、T4 会话导航 picker #448/#451、T5 文档收口 #453；批次 2（epic #458）T6 in-app 滚动 #462、T7 滚轮 #468、T8 inline dock #469、T9 斜杠面板 #476、T10 运行中排队 #479、T11 转录搜索 #486、T12 消息操作 #493、T13 逐轮回退 #498、T14 daemon 自启 #504、T15 完成通知 #505、T16 会话管理 picker 新建/改名/删除、T17 主题配置（`[tui] theme` + `/theme` 面板）、T18 PTY smoke。验证口径：测试与 smoke 走 CI（`tui_pty_smoke` 已上线并在 smoke job 内跑真 pty：进 alternate screen、`/` 面板、Ctrl+K picker、Ctrl+D 干净退出），肉眼交互验收按 P2 路 B 推迟；渲染契约正本在 `todo/tui/route-tui.md`（local-only，不入 git）。前端验证分工：web 走上文「Web（oi-web）启动与样式缺失排查」「Web UI 契约验收」两节，TUI 走本节。
+TUI 已重新落地（epic #423；旧「已删除」状态 2026-09-25 起不再成立）：`crates/tui/` 存在，`kymido tui` 按 `--tui auto|enhanced|inline|linear` 四档渲染——enhanced 为全屏 alternate screen（transcript + composer dock + 历史/中断键），inline 为终端原生 scrollback 轨（#455），探针门要求 TTY、颜色、≥44×12 且非 tmux/Screen/Zellij，不合格自动回落 linear（auto 永不选 inline）。交付（契约测试 140 条 / 25 文件，`crates/tui/tests/`）：批次 1（epic #423）T1 linear 基线 #425、T2 enhanced 外壳与接线 #430/#438、T3 工具卡/问题面板/footer #447/#449、T4 会话导航 picker #448/#451、T5 文档收口 #453；批次 2（epic #458）T6 in-app 滚动 #462、T7 滚轮 #468、T8 inline dock #469、T9 斜杠面板 #476、T10 运行中排队 #479、T11 转录搜索 #486、T12 消息操作 #493、T13 逐轮回退 #498、T14 daemon 自启 #504、T15 完成通知 #505、T16 会话管理 picker 新建/改名/删除、T17 主题配置（`[tui] theme` + `/theme` 面板）、T18 PTY smoke。验证口径：测试与 smoke 走 CI（`tui_pty_smoke` 已上线并在 smoke job 内跑真 pty：进 alternate screen、`/` 面板、Ctrl+K picker、Ctrl+D 干净退出），肉眼交互验收按 P2 路 B 推迟；渲染契约正本在 `todo/tui/route-tui.md`（local-only，不入 git）。前端验证分工：web 走上文「Web（kymido-web）启动与样式缺失排查」「Web UI 契约验收」两节，TUI 走本节。
 
-## Web（oi-web）启动与样式缺失排查
+## Web（kymido-web）启动与样式缺失排查
 
 **症状**：Web UI 打开后是「裸文本」——没有暗色主题、没有卡片/气泡样式，文字堆在一起（如 "搜索会话⌘K / 工作区 / Spaces" 全是素文本），但 JS 功能正常（能发消息、minimap 逻辑在跑）。这是**二进制里嵌进去的 CSS 为空**，不是前端没渲染、也不是没合并代码。
 
@@ -70,9 +70,9 @@ cd bin/web && npm install                # 确保 node_modules/.bin/tailwindcss 
 #   node_modules/.bin/tailwindcss -i .tailwind.gen-input.css -o /tmp/t.css
 cd <仓库根>
 touch bin/web/assets/tailwind-input.css   # 强制重跑 build.rs
-cargo build --bin oi-web                  # 不是 -p web；二进制在 bin/web（oi-web）
-pkill -x oi-web; sleep 1
-nohup ./target/debug/oi-web > /tmp/oi-web.log 2>&1 &      # 起在默认 8026（PORT 可覆盖）
+cargo build --bin kymido-web                  # 不是 -p web；二进制在 bin/web（kymido-web）
+pkill -x kymido-web; sleep 1
+nohup ./target/debug/kymido-web > /tmp/kymido-web.log 2>&1 &      # 起在默认 8026（PORT 可覆盖）
 # 验样式：页面内联 <style> 块的字节数（2026-09-16 实测 40005，含 .flex/.mx-auto/padding-left）
 curl -s localhost:8026/ | python3 -c 'import sys,re;h=sys.stdin.read();m=re.search(r"<style>(.*?)</style>",h,re.S);print("style bytes:",len(m.group(1)) if m else "NONE")'
 ```
@@ -89,9 +89,9 @@ web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.gith
 
 **契约测试**：`bin/web/tests/ui_contract.rs`，**由 CI 跑，本地不跑**（见上文「构建与验证」）。本地只做静态核对：改了组件 class 就同步改 `.githooks/spec/` 下对应 UI 契约 yaml 的 `find` 锚点，用 grep 确认锚点字符串在实现文件里真实存在。
 
-**yaml 字段约定**：`name`（契约名）/ `target`（omenic 实现文件，相对仓库根）/ `description` / `anchors`（锚点列表，每项 `key` + `find`（源码中稳定 class 片段或静态字面量）+ `expect`（预期形态）+ `source`（omenic 实现位置 + dsh 出处）+ 可选 `file`（锚点级实现文件覆盖，默认用 target））/ `notes`。测试两类断言：① 每个 yaml 可被 serde_yaml 解析且字段齐全；② 每个 `find` 关键字在对应实现文件中出现。新增 spec 必须同步登记 `tests/ui_contract.rs` 的 `SPEC_FILES`。
+**yaml 字段约定**：`name`（契约名）/ `target`（kymido 实现文件，相对仓库根）/ `description` / `anchors`（锚点列表，每项 `key` + `find`（源码中稳定 class 片段或静态字面量）+ `expect`（预期形态）+ `source`（kymido 实现位置 + dsh 出处）+ 可选 `file`（锚点级实现文件覆盖，默认用 target））/ `notes`。测试两类断言：① 每个 yaml 可被 serde_yaml 解析且字段齐全；② 每个 `find` 关键字在对应实现文件中出现。新增 spec 必须同步登记 `tests/ui_contract.rs` 的 `SPEC_FILES`。
 
-**起服**：按上文「正确启动序列」起 oi-web（记得 npm install + touch css + 重建重启，浏览器硬刷新）。
+**起服**：按上文「正确启动序列」起 kymido-web（记得 npm install + touch css + 重建重启，浏览器硬刷新）。
 
 **浏览器抽查点**（每屏挑核心）：
 
@@ -103,4 +103,4 @@ web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.gith
 - `quick-switcher.yaml`——⌘K/Ctrl+K 弹出 560px 顶部对齐面板；输入 h44、会话行 h40；ESC 退出。
 - `taskpanel.yaml`——composer 上方 dock 卡宽随消息列（≤780）；进度条 1px 品牌蓝；filter chip h26 r7；任务卡 r10。
 
-**已知偏差（记录不改）**：dsh 消息列 748px，omenic 消息列与 composer 统一 `max-w-[780px]`（chat.yaml notes）。
+**已知偏差（记录不改）**：dsh 消息列 748px，kymido 消息列与 composer 统一 `max-w-[780px]`（chat.yaml notes）。

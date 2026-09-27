@@ -3,7 +3,7 @@
 //!
 //! Each constant is the entire contents of the corresponding `.md`
 //! file (frontmatter included). Fragments are injected by the calling
-//! agent loop in a specific order; omenic currently has no per-fragment
+//! agent loop in a specific order; kymido currently has no per-fragment
 //! conditional gating (no `prep` step like omp
 //! `system-prompt.ts:666 buildSystemPrompt`), so the exposed
 //! constants are raw `&str` references for callers to compose at the

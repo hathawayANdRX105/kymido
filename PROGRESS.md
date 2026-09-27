@@ -1,4 +1,4 @@
-# omenic PROGRESS（功能账与规划）
+# kymido PROGRESS（功能账与规划）
 
 > 本文只讲两件事：**已实现的功能**、**没实现的功能（队列与计划）**。
 >
@@ -9,7 +9,7 @@
 
 ## 当前位置（2026-09-27）
 
-main `03fccc5`（**TUI 批次 2 全部收口**，epic #458）。daemon / web / CLI / TUI（`oi tui`）**四入口**均可构建运行（CI 证实；main run 36304078814 test + smoke 全绿，211 秒）。**TUI 现为四档 `--tui auto|enhanced|inline|linear`**，批次 1（epic #423，T1–T5）+ 批次 2（epic #458，T6–T18）共 18 个任务全部落地，契约测试 140 条；CI 侧新增真 pty smoke（`smoke` job 的 `TUI enhanced pty smoke` 步骤：进 alternate screen、`/` 面板、Ctrl+K picker、Ctrl+D 干净退出）。**CI 已按 diff 限定范围**（`cargo metadata` + path scope + `git diff`，含反向依赖闭包）——改 `crates/tui/**` 只跑 2 个 crate 而非全仓 29 个，根 manifest / lockfile / workflow 改动回落全量。web 本地停用中，复起：`hub start omenic-daemon`（`./target/debug/daemon`，**cwd=仓库根**读 `.oi/config.toml`）+ `hub start oi-web`（`./target/debug/oi-web`，端口 8026；daemon 重启后先发一条预热消息避开 known-issue 1）。结构收口已落地：p3 #452（JSONL 原语提取 + God 文件拆分）与 p4 #457（fully-flat 26-crate 树，`crates/agent/orbit` → `crates/agent-loop/src/orbit`、`agent-loop/compaction|instruction` 拍平进父 crate）+ web 前端四 crate 合并为 `crates/web-ui`。
+main `03fccc5`（**TUI 批次 2 全部收口**，epic #458）。daemon / web / CLI / TUI（`kymido tui`）**四入口**均可构建运行（CI 证实；main run 36304078814 test + smoke 全绿，211 秒）。**TUI 现为四档 `--tui auto|enhanced|inline|linear`**，批次 1（epic #423，T1–T5）+ 批次 2（epic #458，T6–T18）共 18 个任务全部落地，契约测试 140 条；CI 侧新增真 pty smoke（`smoke` job 的 `TUI enhanced pty smoke` 步骤：进 alternate screen、`/` 面板、Ctrl+K picker、Ctrl+D 干净退出）。**CI 已按 diff 限定范围**（`cargo metadata` + path scope + `git diff`，含反向依赖闭包）——改 `crates/tui/**` 只跑 2 个 crate 而非全仓 29 个，根 manifest / lockfile / workflow 改动回落全量。web 本地停用中，复起：`hub start kymido-daemon`（`./target/debug/daemon`，**cwd=仓库根**读 `.kymido/config.toml`）+ `hub start kymido-web`（`./target/debug/kymido-web`，端口 8026；daemon 重启后先发一条预热消息避开 known-issue 1）。结构收口已落地：p3 #452（JSONL 原语提取 + God 文件拆分）与 p4 #457（fully-flat 26-crate 树，`crates/agent/orbit` → `crates/agent-loop/src/orbit`、`agent-loop/compaction|instruction` 拍平进父 crate）+ web 前端四 crate 合并为 `crates/web-ui`。
 
 ## 已实现（能力级）
 
@@ -21,7 +21,7 @@ main `03fccc5`（**TUI 批次 2 全部收口**，epic #458）。daemon / web / C
 | compaction + AGENTS.md 注入 | 插件化压缩与指令注入，**生产路径已生效**（非仅测试口径） |
 | web 界面全真数据 | 聊天流式 + tool 折叠卡 / 侧栏谱系树 / 任务看板 / 统计 / 设置页（TOML 往返） |
 | 附件（图片）全链路 | composer 选图 → base64 随消息入队 → sqlite 落库 → resume 回放 → OpenAI 多模态 content 数组；daemon 侧 media type 白名单 + 严格 base64 + 体积上限 |
-| TUI（`oi tui`，第三 daemon 客户端） | `--tui auto\|enhanced\|inline\|linear` 探针门四档：linear 线性回显（管道 / dumb / 无色 / 复用器内自动回落）+ enhanced 全屏 alternate screen（transcript + composer dock + 历史/中断键）+ inline 终端原生 scrollback 轨（#455，auto 永不选）+ `--reduced-motion` 降动效。**批次 1**（epic #423）T1 #425、T2 #430/#438、T3 #447/#449、T4 #448/#451、T5 #453；**批次 2**（epic #458）T6 #462 transcript 滚动 + tail follow、T7 #468 鼠标滚轮、T8 #469 inline dock、T9 #476 斜杠面板 + `/help`、T10 #479 运行中排队（首行 Up 召回）、T11 #486 转录搜索 overlay、T12 #493 消息操作 retry/edit/copy（OSC52）、T13 #498 逐轮回退 rewind（ledger 快照）、T14 #504 daemon 自启动、T15 #505 完成通知（响铃/OSC9）、T16 会话管理 picker（`n` 新建 / `r` 改名 / `d` 删除二次确认，**活跃会话不可删**）、T17 主题配置（`[tui] theme` + `/theme` 面板，亮/暗双 scheme）、T18 PTY smoke（CI 真 pty 驱动）。契约测试 **140 条**（`crates/tui/tests/`，25 文件） |
+| TUI（`kymido tui`，第三 daemon 客户端） | `--tui auto\|enhanced\|inline\|linear` 探针门四档：linear 线性回显（管道 / dumb / 无色 / 复用器内自动回落）+ enhanced 全屏 alternate screen（transcript + composer dock + 历史/中断键）+ inline 终端原生 scrollback 轨（#455，auto 永不选）+ `--reduced-motion` 降动效。**批次 1**（epic #423）T1 #425、T2 #430/#438、T3 #447/#449、T4 #448/#451、T5 #453；**批次 2**（epic #458）T6 #462 transcript 滚动 + tail follow、T7 #468 鼠标滚轮、T8 #469 inline dock、T9 #476 斜杠面板 + `/help`、T10 #479 运行中排队（首行 Up 召回）、T11 #486 转录搜索 overlay、T12 #493 消息操作 retry/edit/copy（OSC52）、T13 #498 逐轮回退 rewind（ledger 快照）、T14 #504 daemon 自启动、T15 #505 完成通知（响铃/OSC9）、T16 会话管理 picker（`n` 新建 / `r` 改名 / `d` 删除二次确认，**活跃会话不可删**）、T17 主题配置（`[tui] theme` + `/theme` 面板，亮/暗双 scheme）、T18 PTY smoke（CI 真 pty 驱动）。契约测试 **140 条**（`crates/tui/tests/`，25 文件） |
 | 插件面 | 服务容器 + 事件总线 + 生命周期 + 注册表（重名拒绝）；`assemble()` 装配 Compaction/Instruction 两核心插件，daemon bind 前消费 |
 | MCP | stdio + Streamable HTTP 双传输、重连监督（指数退避 + 熔断）、per-server timeout/cwd |
 | session resume | daemon 重启后按 session 回放最近 50 条 user/assistant（dedupe + 切换清 ctx） |
@@ -35,7 +35,7 @@ main `03fccc5`（**TUI 批次 2 全部收口**，epic #458）。daemon / web / C
 | guard | repeat-tool-reminder + timeout-policy 两插件，`config["guard"]` 切片调参，缺省静默降级 |
 | skill | 有界发现 + catalog 服务 + skill 元工具（cwd 发现，注册进 harness.tools） |
 | DeepSeek adapter | agent/adaptor 内方言适配（OpenAI 兼容端点之外的模型特性入口） |
-| boot/bundle profiles | `profiles/boot.toml` + `profiles/bundle.toml` 内嵌于 CLI，`oi profile list\|apply` 写入 `.oi/config.toml`（不覆盖）；声明式起点，非热切换 |
+| boot/bundle profiles | `profiles/boot.toml` + `profiles/bundle.toml` 内嵌于 CLI，`kymido profile list\|apply` 写入 `.kymido/config.toml`（不覆盖）；声明式起点，非热切换 |
 
 ## 没实现（队列，按「打开 web 用时哪里卡」排）
 
@@ -76,12 +76,12 @@ session telemetry+OTel（~2–3 天）/ token-meter（~1 天，C8 裁定不做�
 
 | 项 | 原因 |
 |---|---|
-| 元工具重子集：lsp / schedule / hooks / workflow | 体验增益小或方向相反（dsh workflow 是模型运行时自写编排，omenic 的 task 是 RPC 任务模型） |
+| 元工具重子集：lsp / schedule / hooks / workflow | 体验增益小或方向相反（dsh workflow 是模型运行时自写编排，kymido 的 task 是 RPC 任务模型） |
 | core scope + agent-tool-presentation | dsh 作用域隔离与工具结果呈现策略，不与主线耦合 |
-| C7（tag omenic-harness-v0.1.0 + ferrite 接线） | 前置全满足，**等用户拍板时机**，不占批次 |
+| C7（tag kymido-harness-v0.1.0 + ferrite 接线） | 前置全满足，**等用户拍板时机**，不占批次 |
 | C8 interaction + token-meter | 已裁定不做 |
 
-**独有功能保护区**（omenic 独有、dsh 无对应物，只读或单向依赖，不当缺口塞）：`crates/infra/memory`、`crates/agent/task`、`crates/evidence/spec` 的模板层。Gate 正本已迁至 Canon；omenic 只保留 `.githooks/spec/` 项目规则与 hook 接线，不再保留 Gate 源码或仓库内二进制。
+**独有功能保护区**（kymido 独有、dsh 无对应物，只读或单向依赖，不当缺口塞）：`crates/infra/memory`、`crates/agent/task`、`crates/evidence/spec` 的模板层。Gate 正本已迁至 Canon；kymido 只保留 `.githooks/spec/` 项目规则与 hook 接线，不再保留 Gate 源码或仓库内二进制。
 
 ## 接下来可并发推进
 
@@ -107,7 +107,7 @@ session telemetry+OTel（~2–3 天）/ token-meter（~1 天，C8 裁定不做�
 - **工作目录**：`.wt/<branch>`（git worktree add 必须在仓库根执行，防嵌套）
 - **PR-only**：2026-09-15 裁定只开 PR 不开 issue；缺 `Fixes #` 只是 WARN 不阻塞
 - **测试一律不在本地跑**：`cargo test` / `clippy` / 全量 `cargo build` / `npm install` 全部交给 PR 的 CI。本地只允许 `cargo fmt --check`、单 crate `cargo check -p <crate>`（**不得**加 `--workspace` / `--all-targets`）、grep/read/git/读写
-- **唯一例外**：web UI 需要肉眼确认时的 `cpulimit -l 65 -i -- cargo build --bin oi-web`
+- **唯一例外**：web UI 需要肉眼确认时的 `cpulimit -l 65 -i -- cargo build --bin kymido-web`
 - **提交前必跑** `cargo fmt --all`（commit checklist hook 拦不合格的 rust）
 - **测试放同层 `tests/`**，不在 src/ 写 `#[cfg(test)]`（gate 规则 `rust_tests_in_tests_dir`）
 - **`git commit` 退出码要显式查**：`git commit ... | tail -1` 会吞 pre-commit hook 失败，随后 `--amend` 会修错 HEAD（2026-09-21 踩过）

@@ -1,4 +1,4 @@
-//! omenic-web-ui：Web 前端（dioxus LiveView），按 Dioxus 社区惯例分层。
+//! kymido-web-ui：Web 前端（dioxus LiveView），按 Dioxus 社区惯例分层。
 //!
 //! - [`components`]：可复用 UI 组件（chat / sidebar / ui atoms / icons / taskpanel）
 //! - [`views`]：页面级组合（workspace / config / stats）

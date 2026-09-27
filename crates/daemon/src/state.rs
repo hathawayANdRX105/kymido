@@ -237,7 +237,7 @@ fn run_ledger_path(socket_path: &Path) -> PathBuf {
 /// chart width is stable across ranges.
 pub const STATS_BUCKETS: usize = 12;
 
-/// Metric keys the stats page asks for but that **no persisted omenic data
+/// Metric keys the stats page asks for but that **no persisted kymido data
 /// backs today**.  Returned verbatim in [`StatsSummary::unavailable`] so the
 /// UI can hide those cards instead of rendering a fabricated zero.
 ///

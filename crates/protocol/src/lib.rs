@@ -1,6 +1,6 @@
-//! Shared types for the omenic agent harness.
+//! Shared types for the kymido agent harness.
 //!
-//! Aligns with `omenic agent/orbit` event semantics (`TurnStop`, `AgentEvent`)
+//! Aligns with `kymido agent/orbit` event semantics (`TurnStop`, `AgentEvent`)
 //! and `dsh core/session` `SessionStore` lifecycle. These types are the
 //! common vocabulary for every crate in `crates/harness/`.
 
@@ -55,7 +55,7 @@ impl StepId {
     }
 }
 
-/// Cooperative abort signal. Reference: `omenic agent/orbit` uses
+/// Cooperative abort signal. Reference: `kymido agent/orbit` uses
 /// `AtomicBool` directly; this wrapper adds a `notify` hook for
 /// `dsh`-style event-driven cancellation.
 #[derive(Debug, Clone, Default)]
@@ -75,7 +75,7 @@ impl AbortSignal {
         self.flag.load(Ordering::SeqCst)
     }
     /// Shared flag clone: lets adapters hand the same `AtomicBool` to
-    /// `omenic tools::Tool::execute`, which polls it directly.
+    /// `kymido tools::Tool::execute`, which polls it directly.
     pub fn flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.flag)
     }
@@ -89,7 +89,7 @@ impl AbortSignal {
 }
 
 /// A single LLM conversation message. Mirrors `llm::Message` shape
-/// without the omenic dependency.
+/// without the kymido dependency.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
@@ -168,7 +168,7 @@ impl Display for LlmError {
 impl std::error::Error for LlmError {}
 
 /// Tool spec: API-facing definition. Mirrors `dsh ToolDefinition:222`
-/// and `omenic llm::ToolDef`.
+/// and `kymido llm::ToolDef`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub name: String,
@@ -219,7 +219,7 @@ pub trait Tool: Send + Sync {
 
 /// Create a new empty run.
 ///
-/// Reference: `omenic agent/orbit/src/lib.rs:617` (`run_agent` wrapper)
+/// Reference: `kymido agent/orbit/src/lib.rs:617` (`run_agent` wrapper)
 /// and `dsh core/session/src/index.ts:792` (`SessionStore.create`).
 /// Constraint: `Run` must start with zero steps; `RunStatus` is set by
 /// the first `run_agent_loop` call.

@@ -15,7 +15,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
-use omenic_tui::autostart::{AutostartError, AutostartStage, StartOutcome, ensure_ready};
+use kymido_tui::autostart::{AutostartError, AutostartStage, StartOutcome, ensure_ready};
 
 /// 探活节拍与总超时：桩不真等 daemon，压到毫秒级（核心逻辑把两者当参数
 /// 收，常量只属于生产接线）。超时留 200ms 是给 CI 满载时的调度抖动余量
@@ -24,7 +24,7 @@ const TICK: Duration = Duration::from_millis(1);
 const TIMEOUT: Duration = Duration::from_millis(200);
 
 /// 传给 `ensure_ready` 的假路径：spawn 是桩，路径只进事件账本与错误文案。
-const BIN: &str = "/omenic/daemon";
+const BIN: &str = "/kymido/daemon";
 
 /// 共享桩：探活脚本 + spawn 结果 + 事件账本。事件按发生顺序落账，时序类
 /// 断言（Ready 前不返回、spawn 只发生一次）都读这一本账。
@@ -143,7 +143,7 @@ fn cold_start_spawns_then_waits_until_probe_answers() {
         [
             "probe:dead",
             "probe:dead",
-            "spawn:/omenic/daemon",
+            "spawn:/kymido/daemon",
             "probe:dead",
             "probe:alive",
         ],
@@ -177,7 +177,7 @@ fn unready_gate_never_hands_off() {
 #[test]
 fn spawn_failure_reports_stage_and_reason() {
     let mut stub = Stub::dead();
-    stub.spawn_error = Some("failed to spawn /omenic/daemon: broken executable".to_string());
+    stub.spawn_error = Some("failed to spawn /kymido/daemon: broken executable".to_string());
     let stub = Rc::new(RefCell::new(stub));
 
     let err = run(&stub).expect_err("spawn 失败必须返回 Err");

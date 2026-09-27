@@ -8,8 +8,8 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 
-use omenic_tui::app::App;
-use omenic_tui::ui;
+use kymido_tui::app::App;
+use kymido_tui::ui;
 use web_state::ui_state::AgentEvent;
 
 /// TestBackend 缓冲 → 逐行文本（同 dsh `tests/chat_flow.rs` 的取样法）。

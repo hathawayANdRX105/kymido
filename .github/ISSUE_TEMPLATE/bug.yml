@@ -1,5 +1,5 @@
 name: Bug
-description: 可复现的 omenic 故障或回归问题
+description: 可复现的 kymido 故障或回归问题
 labels: ["bug"]
 body:
   - type: markdown
@@ -17,7 +17,7 @@ body:
 
         - 已搜索已有 Issue，并会在“相关 Issue”中说明相近但不同的问题。
         - 已准备可复现步骤和完整环境信息。
-        - 已在本机 omenic 安装版本中复现或说明无法复现的原因。
+        - 已在本机 kymido 安装版本中复现或说明无法复现的原因。
 
         **填写要求**
 
@@ -89,13 +89,13 @@ body:
       label: Environment
       description: 提供足够复现问题的环境信息。
       value: |
-        - omenic 版本（git rev-parse HEAD）：
+        - kymido 版本（git rev-parse HEAD）：
         - 工作区 / 分支：
         - 安装方式：源码 / cargo install / 其他：
         - 操作系统 / 架构：
         - Rust toolchain（rustc + cargo 版本）：
         - task 目录数据（如有）：任务 id / deps：
-        - 执行的 omenic 命令 / 输入参数：
+        - 执行的 kymido 命令 / 输入参数：
         - 配置或 fixture（已脱敏）：
     validations:
       required: true

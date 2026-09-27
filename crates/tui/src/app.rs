@@ -2109,7 +2109,7 @@ fn spawn_question_sub(client: &WebDaemon, tx: mpsc::Sender<()>) -> Result<(), Tu
         return Ok(());
     };
     std::thread::Builder::new()
-        .name("oi-tui-questions".into())
+        .name("kymido-tui-questions".into())
         .spawn(move || {
             loop {
                 match sub.next_event(crate::pump::KEEPALIVE) {
@@ -2180,7 +2180,7 @@ fn spawn_prompt(
     let sid = sid.to_string();
     let run_id = run_id.to_string();
     std::thread::Builder::new()
-        .name("oi-tui-prompt".into())
+        .name("kymido-tui-prompt".into())
         .spawn(move || {
             let res = client
                 .worker_prompt_run(&sid, &run_id, &msg, &[])

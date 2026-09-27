@@ -2,7 +2,7 @@
 //! `goal_list`（route §3 T4）。
 //!
 //! **只读展示**：TUI 零写路径——todo/goal 的写方是模型侧工具、task 的写方
-//! 是 `oi task` CLI（handoff F3），本模块连按键都不接。
+//! 是 `kymido task` CLI（handoff F3），本模块连按键都不接。
 //!
 //! 渲染位置由调用方（`app.rs` 的 draw 接缝）决定：[`render`] 自己按
 //! [`layout::split`] 算出可见 transcript 区（扣除 T3 问题面板 + footer +

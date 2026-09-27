@@ -1,6 +1,6 @@
 //! `[[subagent.providers]]` — parse, defaults, validation, merge-boundary trim.
 //!
-//! `Config::load` reads `./.oi/config.toml` against the *process* cwd, so the
+//! `Config::load` reads `./.kymido/config.toml` against the *process* cwd, so the
 //! cases that switch directories serialize on the same lock as
 //! `mcp_config_validate.rs`: a sibling test's `set_current_dir` would land the
 //! loader in a directory that never held this case's entry.
@@ -17,13 +17,13 @@ fn cwd_lock() -> std::sync::MutexGuard<'static, ()> {
 fn load(body: &str) -> Result<config::Config, config::ConfigError> {
     let _serialized = cwd_lock();
     let dir = tempfile::tempdir().expect("tempdir");
-    let oi_dir = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi_dir).expect("create oi dir");
-    std::fs::write(oi_dir.join("config.toml"), body).expect("write config");
+    let kymido_dir = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido_dir).expect("create oi dir");
+    std::fs::write(kymido_dir.join("config.toml"), body).expect("write config");
 
     let prev = std::env::current_dir().expect("cwd");
     std::env::set_current_dir(dir.path()).expect("enter temp cwd");
-    // `load` resolves `.oi/config.toml` against the process cwd; leaving the
+    // `load` resolves `.kymido/config.toml` against the process cwd; leaving the
     // temp dir set would break whichever case runs next.
     let result = config::Config::load();
     std::env::set_current_dir(&prev).expect("restore cwd");

@@ -10,8 +10,8 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use omenic_tui::app::{App, KeyAction};
-use omenic_tui::notify::{BATCH_NOTIFY_MIN, BatchNotify};
+use kymido_tui::app::{App, KeyAction};
+use kymido_tui::notify::{BATCH_NOTIFY_MIN, BatchNotify};
 use web_state::ui_state::AgentEvent;
 
 /// 完成时刻：批次时长 ≥ 阈值（回拨 10s 余量，见文件头注释）。

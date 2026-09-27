@@ -7,7 +7,7 @@
 //! leaving the process.
 //!
 //! These tests close that gap with the crate's own `mock_acp_server` binary
-//! as the child. The mock lives in the `omenic-harness-subagent` crate; both
+//! as the child. The mock lives in the `kymido-harness-subagent` crate; both
 //! it and this test binary land in the same target dir under the same
 //! profile, so the sibling-next-to-me lookup is stable.
 
@@ -47,7 +47,7 @@ fn tool_turn(name: &str, args: &Value) -> String {
 /// Path to the mock ACP agent binary.
 ///
 /// `CARGO_BIN_EXE_mock_acp_server` only resolves inside the
-/// `omenic-harness-subagent` crate's own tests; from here the binary is found
+/// `kymido-harness-subagent` crate's own tests; from here the binary is found
 /// relative to this test executable — cargo test runs it from
 /// `target/<profile>/deps`, so the parent of that is `target/<profile>`,
 /// where the mock lands as a sibling build product.

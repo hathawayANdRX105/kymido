@@ -4,7 +4,7 @@
 //! 对照 bug：把每片 delta 当独立段落渲染（每片一行）/ 转译层乱序 /
 //! TurnEnd 收行时丢了最后一片。喂三片 delta + TurnEnd，逐条断言。
 
-use omenic_tui::render_linear_line;
+use kymido_tui::render_linear_line;
 use web_state::ui_state::{AgentEvent, UiState};
 
 /// 三片 delta 必须累成一句话、恰好一行，state 与回显一致，尾片不丢。

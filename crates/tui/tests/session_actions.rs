@@ -11,7 +11,7 @@
 //! 另覆盖改名提交/取消、新建在空列表可用（空列表正是新建的主入口场景）。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use omenic_tui::ui::session_picker::{PickerAction, PickerItem, PickerMode, PickerState, render};
+use kymido_tui::ui::session_picker::{PickerAction, PickerItem, PickerMode, PickerState, render};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::{Buffer, CellWidth};

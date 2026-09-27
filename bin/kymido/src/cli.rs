@@ -18,7 +18,7 @@ use commands::*;
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "oi", about = "Task-driven agent orchestrator")]
+#[command(name = "kymido", about = "Task-driven agent orchestrator")]
 struct Cli {
     /// Output JSON instead of human-readable text
     #[arg(long, global = true)]
@@ -57,7 +57,7 @@ enum Command {
     Blocked,
     /// Compact the store (latest-per-id, drop tombstones)
     Compact,
-    /// Initialize an omenic workspace
+    /// Initialize an kymido workspace
     Init,
     /// Manage task dependencies
     Dep {
@@ -96,7 +96,7 @@ enum Command {
         #[command(subcommand)]
         sub: DaemonCmd,
     },
-    /// Boot/bundle profiles: prewritten `.oi/config.toml` starting points.
+    /// Boot/bundle profiles: prewritten `.kymido/config.toml` starting points.
     Profile {
         #[command(subcommand)]
         sub: ProfileCmd,
@@ -105,7 +105,7 @@ enum Command {
     Tui(TuiCmd),
 }
 
-/// Arguments of `oi tui` (route §3 T1: `--tui auto|enhanced|linear`).
+/// Arguments of `kymido tui` (route §3 T1: `--tui auto|enhanced|linear`).
 #[derive(clap::Args)]
 struct TuiCmd {
     /// Rendering mode; T1 always renders linear regardless of the gate
@@ -130,14 +130,14 @@ struct TuiCmd {
 enum ProfileCmd {
     /// List embedded profiles (boot / bundle).
     List,
-    /// Write a profile's config into `.oi/config.toml` (never overwrites).
+    /// Write a profile's config into `.kymido/config.toml` (never overwrites).
     Apply { name: String },
 }
 
 #[derive(Subcommand)]
 enum DaemonCmd {
     /// Start the daemon if it is not already running (spawns the sibling
-    /// `daemon` binary; override its location with OMENIC_DAEMON_PATH).
+    /// `daemon` binary; override its location with KYMIDO_DAEMON_PATH).
     Start,
     /// Show daemon liveness and process information.
     Status,
@@ -238,7 +238,7 @@ enum TaskCmd {
     Show { id: String },
 }
 
-/// Session commands backed by the omenic daemon. Reads and writes go
+/// Session commands backed by the kymido daemon. Reads and writes go
 /// through the running daemon's `SessionDb`; the CLI is a thin client.
 #[derive(Subcommand)]
 enum SessionCmd {
@@ -360,7 +360,7 @@ pub fn run() -> ExitCode {
     match dispatch(cli) {
         Ok(code) => ExitCode::from(code),
         Err(msg) => {
-            eprintln!("omenic: {msg}");
+            eprintln!("kymido: {msg}");
             ExitCode::from(2)
         }
     }
@@ -372,9 +372,11 @@ fn dispatch(cli: Cli) -> Result<u8, String> {
         // No subcommand: point at the TUI first, then the main commands.
         None => {
             println!(
-                "omenic: no subcommand. Available: oi tui / oi init / oi task add / oi web / oi daemon ..."
+                "kymido: no subcommand. Available: kymido tui / kymido init / kymido task add / kymido web / kymido daemon ..."
             );
-            eprintln!("(run `oi tui` for the terminal UI, or `oi --help` for the full list)");
+            eprintln!(
+                "(run `kymido tui` for the terminal UI, or `kymido --help` for the full list)"
+            );
             Ok(0)
         }
         Some(command) => dispatch_sub(command, json),
@@ -496,7 +498,7 @@ fn dispatch_sub(command: Command, json: bool) -> Result<u8, String> {
             // T14 autostart: probe / spawn / wait-ready before the render
             // loop, so a cold start hands the TUI a daemon that already
             // answers pings (the first prompt must not be silently dropped).
-            // Path resolution is the same helper `oi daemon start` uses.
+            // Path resolution is the same helper `kymido daemon start` uses.
             if let Err(reason) = resolve_daemon_bin().and_then(|bin| {
                 tui::autostart::ensure_daemon_running(&bin).map_err(|e| e.to_string())
             }) {
@@ -504,7 +506,7 @@ fn dispatch_sub(command: Command, json: bool) -> Result<u8, String> {
                 // condition `tui::run` reports as DaemonUnreachable, so it
                 // keeps that exit code (3) — one stderr line, never a fake
                 // start into a TUI that cannot talk to anything.
-                eprintln!("omenic tui: {reason}");
+                eprintln!("kymido tui: {reason}");
                 return Ok(3);
             }
             let opts = tui::TuiOptions {
@@ -519,7 +521,7 @@ fn dispatch_sub(command: Command, json: bool) -> Result<u8, String> {
                 Err(err) => {
                     // One line to stderr; the variant maps the exit code
                     // (session 2 / daemon unreachable 3 / other 1, route §5).
-                    eprintln!("omenic tui: {err}");
+                    eprintln!("kymido tui: {err}");
                     Ok(match err {
                         tui::TuiError::SessionNotFound(_) => 2,
                         tui::TuiError::DaemonUnreachable(_) => 3,
@@ -543,7 +545,7 @@ mod tests {
 
     fn tmp_store(tag: &str) -> Store {
         let dir =
-            std::env::temp_dir().join(format!("omenic-cli-test-{tag}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kymido-cli-test-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         Store::new(&dir)
     }
@@ -648,7 +650,7 @@ mod tests {
     #[cfg_attr(test, test)]
     fn unknown_subcommand_errors() {
         let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let r = Cli::try_parse_from(["oi", "task", "bogus"]);
+        let r = Cli::try_parse_from(["kymido", "task", "bogus"]);
         assert!(r.is_err());
     }
 
@@ -741,7 +743,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
 
     #[cfg_attr(test, test)]
     fn run_command_parse_errors_on_missing_id() {
-        let r = Cli::try_parse_from(["oi", "run"]).is_err();
+        let r = Cli::try_parse_from(["kymido", "run"]).is_err();
         assert!(r); // needs <task-id>
     }
 
@@ -749,29 +751,29 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
     fn steer_command_parse_and_note() {
         // non-empty message required after id; bare steer errors
         // steer with no message: clap allows it (empty vec), but steer_cmd should error
-        let r = Cli::try_parse_from(["oi", "steer", "t-1"]);
+        let r = Cli::try_parse_from(["kymido", "steer", "t-1"]);
         assert!(r.is_ok()); // parsing succeeds; steer_cmd handles empty message
         // with msg should hit the handle (but not fail dispatch parse)
-        let r = Cli::try_parse_from(["oi", "steer", "t-1", "keep chipping"]);
+        let r = Cli::try_parse_from(["kymido", "steer", "t-1", "keep chipping"]);
         assert!(r.is_ok());
     }
 
     #[cfg_attr(test, test)]
     fn abort_command_parse_needs_id() {
-        let r = Cli::try_parse_from(["oi", "abort"]).is_err();
+        let r = Cli::try_parse_from(["kymido", "abort"]).is_err();
         assert!(r);
     }
 
     // --- #50: unknown flags rejected, not swallowed as title ---
     #[cfg_attr(test, test)]
     fn add_unknown_flag_rejected() {
-        let r = Cli::try_parse_from(["oi", "task", "add", "-t", "foo"]);
+        let r = Cli::try_parse_from(["kymido", "task", "add", "-t", "foo"]);
         assert!(r.is_err(), "unknown flag -t must be rejected");
     }
 
     #[cfg_attr(test, test)]
     fn add_unknown_long_flag_rejected() {
-        let r = Cli::try_parse_from(["oi", "task", "add", "--bogus", "x"]);
+        let r = Cli::try_parse_from(["kymido", "task", "add", "--bogus", "x"]);
         assert!(r.is_err());
     }
 
@@ -1114,25 +1116,25 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
 
     #[cfg_attr(test, test)]
     fn dep_cmd_unknown_sub_rejected() {
-        let r = Cli::try_parse_from(["oi", "dep", "bogus"]);
+        let r = Cli::try_parse_from(["kymido", "dep", "bogus"]);
         assert!(r.is_err());
     }
 
     #[cfg_attr(test, test)]
     fn dep_cmd_no_sub_rejected() {
-        let r = Cli::try_parse_from(["oi", "dep"]);
+        let r = Cli::try_parse_from(["kymido", "dep"]);
         assert!(r.is_err());
     }
 
     #[cfg_attr(test, test)]
     fn dep_add_wrong_arg_count_rejected() {
-        let r = Cli::try_parse_from(["oi", "dep", "add", "t1"]);
+        let r = Cli::try_parse_from(["kymido", "dep", "add", "t1"]);
         assert!(r.is_err());
     }
 
     #[cfg_attr(test, test)]
     fn dep_remove_wrong_arg_count_rejected() {
-        let r = Cli::try_parse_from(["oi", "dep", "remove", "t1"]);
+        let r = Cli::try_parse_from(["kymido", "dep", "remove", "t1"]);
         assert!(r.is_err());
     }
 
@@ -1701,7 +1703,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
     #[cfg_attr(test, test)]
     fn show_cmd_top_level_no_arg_errors() {
         // No arg → usage error before Config::load is reached.
-        let r = Cli::try_parse_from(["oi", "show"]);
+        let r = Cli::try_parse_from(["kymido", "show"]);
         assert!(r.is_err());
     }
 
@@ -1726,7 +1728,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
     }
     fn store_file(tag: &str) -> String {
         let path = std::env::temp_dir()
-            .join(format!("omenic-cli-test-{tag}-{}", std::process::id()))
+            .join(format!("kymido-cli-test-{tag}-{}", std::process::id()))
             .join("tasks.jsonl");
         std::fs::read_to_string(&path).unwrap_or_default()
     }
@@ -1863,18 +1865,18 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
     #[cfg_attr(test, test)]
     fn init_creates_data_dir_and_config() {
         let dir = std::env::temp_dir().join(format!(
-            "omenic-cli-test-init-create-{}",
+            "kymido-cli-test-init-create-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         init_cmd_at(&dir, false).unwrap();
-        assert!(dir.join(".oi").is_dir());
-        assert!(dir.join(".oi/config.toml").is_file());
-        assert!(dir.join(".oi/specs").is_dir());
-        let content = std::fs::read_to_string(dir.join(".oi/config.toml")).unwrap();
+        assert!(dir.join(".kymido").is_dir());
+        assert!(dir.join(".kymido/config.toml").is_file());
+        assert!(dir.join(".kymido/specs").is_dir());
+        let content = std::fs::read_to_string(dir.join(".kymido/config.toml")).unwrap();
         assert!(content.contains("omp_path = \"omp\""));
-        assert!(content.contains("data_dir = \"./.oi\""));
+        assert!(content.contains("data_dir = \"./.kymido\""));
         assert!(content.contains("model = \"default\""));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1882,33 +1884,33 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
     #[cfg_attr(test, test)]
     fn init_idempotent() {
         let dir =
-            std::env::temp_dir().join(format!("omenic-cli-test-init-idem-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kymido-cli-test-init-idem-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         init_cmd_at(&dir, false).unwrap();
-        let toml = std::fs::read_to_string(dir.join(".oi/config.toml")).unwrap();
+        let toml = std::fs::read_to_string(dir.join(".kymido/config.toml")).unwrap();
         init_cmd_at(&dir, false).unwrap();
         // Not overwritten.
         assert_eq!(
             toml,
-            std::fs::read_to_string(dir.join(".oi/config.toml")).unwrap()
+            std::fs::read_to_string(dir.join(".kymido/config.toml")).unwrap()
         );
-        assert!(dir.join(".oi").is_dir());
+        assert!(dir.join(".kymido").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg_attr(test, test)]
     fn init_partial_existing() {
         let dir = std::env::temp_dir().join(format!(
-            "omenic-cli-test-init-partial-{}",
+            "kymido-cli-test-init-partial-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".oi")).unwrap();
+        std::fs::create_dir_all(dir.join(".kymido")).unwrap();
         init_cmd_at(&dir, false).unwrap();
-        // config.toml + specs created, .oi already there.
-        assert!(dir.join(".oi/config.toml").is_file());
-        assert!(dir.join(".oi/specs").is_dir());
+        // config.toml + specs created, .kymido already there.
+        assert!(dir.join(".kymido/config.toml").is_file());
+        assert!(dir.join(".kymido/specs").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2079,7 +2081,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
         b.deps = vec!["A".to_string()];
         let tasks = vec![a, b];
         let dot = render_dot(&tasks);
-        assert!(dot.starts_with("digraph omenic {\n"));
+        assert!(dot.starts_with("digraph kymido {\n"));
         assert!(dot.contains("\"A\""));
         assert!(dot.contains("\"B\""));
         // B depends on A → edge A -> B
@@ -2089,7 +2091,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
 
     #[cfg_attr(test, test)]
     fn plan_dot_empty() {
-        assert_eq!(render_dot(&[]), "digraph omenic {\n}\n");
+        assert_eq!(render_dot(&[]), "digraph kymido {\n}\n");
     }
 
     #[cfg_attr(test, test)]
@@ -2251,7 +2253,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
         // the reason + timestamp in attempts.jsonl.
         let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir =
-            std::env::temp_dir().join(format!("omenic-cli-test-persist-f-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kymido-cli-test-persist-f-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Store::new(&dir);
         let pre = Task {
@@ -2290,7 +2292,7 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
         // in evidence.
         let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir =
-            std::env::temp_dir().join(format!("omenic-cli-test-persist-d-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kymido-cli-test-persist-d-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Store::new(&dir);
         let pre = mk_task_titled("t2", "t2");

@@ -1,9 +1,9 @@
-//! Typed client for the omenic daemon.
+//! Typed client for the kymido daemon.
 //!
 //! The client is a thin wrapper over the daemon's newline-delimited JSON
 //! protocol (see [`crate::protocol`]). It connects to the Unix-domain
 //! socket via [`config::Config::daemon_socket_path`] (honoring
-//! `OMENIC_DAEMON_SOCKET`), sends one request per connection, reads the
+//! `KYMIDO_DAEMON_SOCKET`), sends one request per connection, reads the
 //! matching response, and returns the typed result.
 //!
 //! Reconnect is a deliberate no-op: a fresh connection is opened on every
@@ -40,7 +40,7 @@ pub enum ClientError {
     Encode(serde_json::Error),
     /// The daemon accepted the request but did not reply within the
     /// caller's deadline (only `shutdown` sets one, so a wedged daemon
-    /// cannot hang `oi daemon stop`).
+    /// cannot hang `kymido daemon stop`).
     Timeout(String),
 }
 
@@ -160,7 +160,7 @@ impl DaemonClient {
     ///
     /// Bounded wait: the server answers `Shutdown` before taking the
     /// worker lock (see `connection_read_loop` in `server.rs`), and this
-    /// read deadline is the backstop — `oi daemon stop` must fail fast
+    /// read deadline is the backstop — `kymido daemon stop` must fail fast
     /// with a clear error rather than hang on a wedged daemon.
     pub fn shutdown(&self) -> Result<(), ClientError> {
         let resp = self.call_raw_within(

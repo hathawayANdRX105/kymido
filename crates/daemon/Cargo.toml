@@ -2,7 +2,7 @@
 name = "daemon"
 version = "0.1.0"
 edition = "2024"
-description = "Headless omenic daemon: JSONL socket protocol, single-instance lifecycle, persistent session/run state"
+description = "Headless kymido daemon: JSONL socket protocol, single-instance lifecycle, persistent session/run state"
 license = "MIT"
 publish = false
 

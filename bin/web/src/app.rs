@@ -1,4 +1,4 @@
-//! Dioxus LiveView Web UI for omenic — dsh 风格。
+//! Dioxus LiveView Web UI for kymido — dsh 风格。
 //!
 //! 无顶栏（dsh 无 topbar）：侧栏承载全部入口（新会话 / 搜索 ⌘K /
 //! 数据统计 / 设置弹窗）。页面数据走 daemon RPC（`stats.summary` / `runs_for_session` / `list_sessions`），无 daemon 时空态。
@@ -24,7 +24,7 @@ pub fn App() -> Element {
 /// Launch the interactive Dioxus LiveView server on http://127.0.0.1:8026.
 pub async fn launch() {
     let port = std::env::var("PORT")
-        .or_else(|_| std::env::var("OMENIC_WEB_PORT"))
+        .or_else(|_| std::env::var("KYMIDO_WEB_PORT"))
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8026);
@@ -39,7 +39,7 @@ pub async fn launch() {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>omenic</title>
+    <title>kymido</title>
     <style>
 {css}
     </style>
@@ -437,6 +437,6 @@ pub async fn launch() {
             return;
         }
     };
-    println!("omenic web server running on http://{addr}");
+    println!("kymido web server running on http://{addr}");
     let _ = axum::serve(listener, app).await;
 }

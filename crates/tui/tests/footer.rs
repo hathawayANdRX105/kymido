@@ -8,8 +8,8 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 
-use omenic_tui::app::App;
-use omenic_tui::ui;
+use kymido_tui::app::App;
+use kymido_tui::ui;
 
 /// TestBackend 缓冲 → 逐行文本（同 dsh `tests/chat_flow.rs` 的取样法）。
 fn buffer_text(buffer: &Buffer) -> String {
@@ -56,7 +56,7 @@ fn footer_shows_only_verified_fields() {
     type_str(&mut app, "hello");
     assert_eq!(
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        omenic_tui::app::KeyAction::None
+        kymido_tui::app::KeyAction::None
     );
     assert_eq!(app.next_to_send().as_deref(), Some("hello"));
     let running = screen(&app);

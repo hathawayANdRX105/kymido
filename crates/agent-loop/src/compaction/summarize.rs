@@ -2,7 +2,7 @@
 //!
 //! Reference: dsh `compaction-basic/src/summarizer.ts` (the summary rides a
 //! request built from the conversation's own shape) and orbit's inline
-//! summary stream (`compact_context`, omenic
+//! summary stream (`compact_context`, kymido
 //! `crates/agent/orbit/src/lib.rs:366-394`). The LLM call itself is a
 //! host-capability concern — the agent domain must not leak into the
 //! harness — so this crate only abstracts it.

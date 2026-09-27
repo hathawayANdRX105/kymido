@@ -1,4 +1,4 @@
-//! Headless omenic daemon.
+//! Headless kymido daemon.
 //!
 //! Provides a single-instance, JSONL-over-UDS daemon that owns a long-lived
 //! `crate::rpc::worker::Worker` and a `session::SessionDb`, exposing a small request
@@ -64,11 +64,11 @@ pub enum DaemonError {
     Json(#[from] serde_json::Error),
     #[error("daemon session error: {0}")]
     Session(#[from] session::SessionError),
-    #[error("another omenic daemon is already running (pid {pid})")]
+    #[error("another kymido daemon is already running (pid {pid})")]
     AlreadyRunning { pid: u32 },
 
     /// Platform is not supported by this build (e.g. Windows).
-    #[error("omenic daemon is not supported on this platform")]
+    #[error("kymido daemon is not supported on this platform")]
     UnsupportedPlatform,
 
     /// A request was malformed (parse OK, but unknown command / bad shape).

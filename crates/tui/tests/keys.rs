@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use omenic_tui::app::{App, KeyAction};
-use omenic_tui::termguard::{
+use kymido_tui::app::{App, KeyAction};
+use kymido_tui::termguard::{
     TermGuard, TermOps, build_hook, crash_report_path, write_crash_report,
 };
 

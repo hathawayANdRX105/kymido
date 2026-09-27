@@ -11,9 +11,9 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use omenic_tui::app::App;
-use omenic_tui::scroll::ScrollModel;
-use omenic_tui::ui;
+use kymido_tui::app::App;
+use kymido_tui::scroll::ScrollModel;
+use kymido_tui::ui;
 use web_state::types::{ChatMessage, MessagePart};
 use web_state::ui_state::AgentEvent;
 

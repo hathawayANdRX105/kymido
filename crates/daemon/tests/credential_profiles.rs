@@ -7,7 +7,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use daemon::{Daemon, DaemonConfig};
 
-/// `Config::load` reads `.oi/config.toml` relative to the *process* cwd, so
+/// `Config::load` reads `.kymido/config.toml` relative to the *process* cwd, so
 /// these tests must not run concurrently — one test's temp config would be
 /// read as another's. Serialized here so the rest of the suite keeps its
 /// parallelism.
@@ -20,9 +20,9 @@ fn cwd_lock() -> MutexGuard<'static, ()> {
 
 fn config_from(toml: &str) -> (tempfile::TempDir, DaemonConfig) {
     let dir = tempfile::tempdir().expect("temp dir");
-    let oi = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi).expect("create .oi");
-    std::fs::write(oi.join("config.toml"), toml).expect("write config");
+    let kymido = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido).expect("create .kymido");
+    std::fs::write(kymido.join("config.toml"), toml).expect("write config");
     let _guard = cwd_lock();
     let original = std::env::current_dir().expect("cwd");
     std::env::set_current_dir(dir.path()).expect("switch cwd");

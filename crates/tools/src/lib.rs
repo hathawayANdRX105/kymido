@@ -136,7 +136,7 @@ pub fn arg_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolError> {
 
 /// Truncate to the last `MAX_OUTPUT_LINES` lines; full output spills to a temp file.
 ///
-/// The spill file is `oi-output-{pid}-{seq}.txt`. `pid` separates runs of
+/// The spill file is `kymido-output-{pid}-{seq}.txt`. `pid` separates runs of
 /// different processes — a daemon restart used to reset the counter and clobber
 /// the previous run's spill — and `seq` rises monotonically within this process
 /// so a second overflow no longer overwrites the first one's full output.
@@ -157,7 +157,7 @@ pub fn truncate_output(content: &str) -> std::io::Result<String> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let spill_path =
-        Path::new(SPILL_DIR).join(format!("oi-output-{}-{seq}.txt", std::process::id()));
+        Path::new(SPILL_DIR).join(format!("kymido-output-{}-{seq}.txt", std::process::id()));
     std::fs::write(&spill_path, content)?;
     Ok(format!(
         "[output truncated: showing last {MAX_OUTPUT_LINES} of {line_count} lines. full output: {}]\n{}",

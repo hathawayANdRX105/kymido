@@ -1,6 +1,6 @@
 //! C5.1：`AgentEvent` DTO + 事件 → UI 状态转译层（纯函数，fixture 先行）。
 //!
-//! 转译器不关心事件来自哪里：G4 之前是 `omenic-web-mock` 的模拟流，
+//! 转译器不关心事件来自哪里：G4 之前是 `kymido-web-mock` 的模拟流，
 //! 之后换成 daemon `event.subscribe` 的实时流（C3.3），页面代码零改动。
 //! serde 形状对齐 `agent_loop::orbit::AgentEvent`（3.1 定稿后以冻结契约为准）。
 
@@ -141,7 +141,7 @@ pub fn apply_event(state: &mut UiState, ev: &AgentEvent) {
 
 /// RPC 工具调用 → 展示用 `ToolCall`（标题取 command/path，kind 归一化）。
 fn tool_call_from_rpc(id: &str, name: &str, args: &Value) -> ToolCall {
-    // 后台作业与持久终端（`omenic-harness-tools::jobs_terminal`）也要在这里
+    // 后台作业与持久终端（`kymido-harness-tools::jobs_terminal`）也要在这里
     // 归一化：本函数对未知名字走 "tool" 兜底，而兜底分支只按 `path` 取标题 ——
     // jobs_* 的参数是 `command` / `id`，terminal_* 是 `id` / `data`，都不带
     // `path`，落进兜底后标题会退化成工具名本身，聊天气泡上看不出在做什么。

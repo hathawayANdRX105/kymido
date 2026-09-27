@@ -12,31 +12,33 @@ pub fn init_cmd(json: bool) -> Result<u8, String> {
 
 /// init internals, testable with an explicit directory.
 pub fn init_cmd_at(dir: &std::path::Path, json: bool) -> Result<u8, String> {
-    let oi_dir = dir.join(".oi");
-    let config_path = oi_dir.join("config.toml");
-    let dir_existed = oi_dir.exists();
+    let kymido_dir = dir.join(".kymido");
+    let config_path = kymido_dir.join("config.toml");
+    let dir_existed = kymido_dir.exists();
     let config_existed = config_path.exists();
 
     if !dir_existed {
-        std::fs::create_dir_all(&oi_dir).map_err(|e| format!("could not create .oi/: {e}"))?;
+        std::fs::create_dir_all(&kymido_dir)
+            .map_err(|e| format!("could not create .kymido/: {e}"))?;
     }
     if !config_existed {
         let default = "omp_path = \"omp\"\n\
-                       data_dir = \"./.oi\"\n\
+                       data_dir = \"./.kymido\"\n\
                        model = \"default\"\n";
         std::fs::write(&config_path, default)
-            .map_err(|e| format!("could not create .oi/config.toml: {e}"))?;
+            .map_err(|e| format!("could not create .kymido/config.toml: {e}"))?;
     }
     // Spec templates (never overwrite user edits).
-    store::specs::init::write_default_specs(&oi_dir).map_err(|e| format!("spec templates: {e}"))?;
+    store::specs::init::write_default_specs(&kymido_dir)
+        .map_err(|e| format!("spec templates: {e}"))?;
     // Task templates (never overwrite user edits).
-    store::template::write_default_templates(&oi_dir)
+    store::template::write_default_templates(&kymido_dir)
         .map_err(|e| format!("task templates: {e}"))?;
     let msg = match (dir_existed, config_existed) {
         (true, true) => "workspace already initialized",
-        (false, false) => "initialized: .oi/, .oi/config.toml, .oi/specs/",
-        (false, true) => "created: .oi/, .oi/specs/",
-        (true, false) => "created: .oi/config.toml, .oi/specs/",
+        (false, false) => "initialized: .kymido/, .kymido/config.toml, .kymido/specs/",
+        (false, true) => "created: .kymido/, .kymido/specs/",
+        (true, false) => "created: .kymido/config.toml, .kymido/specs/",
     };
     if json {
         json_ok(msg);
@@ -84,7 +86,7 @@ pub fn profile_blurb(body: &str) -> &str {
         .trim()
 }
 
-/// `profile apply <name>` -- 把 profile 写进 `<dir>/.oi/config.toml`。
+/// `profile apply <name>` -- 把 profile 写进 `<dir>/.kymido/config.toml`。
 /// 与 `init` 同一语义：已存在则拒绝覆盖（返回非零），不动用户配置。
 pub fn profile_apply_cmd_at(dir: &std::path::Path, name: &str, json: bool) -> Result<u8, String> {
     let Some((_, body)) = PROFILES.iter().find(|(n, _)| *n == name) else {
@@ -97,17 +99,17 @@ pub fn profile_apply_cmd_at(dir: &std::path::Path, name: &str, json: bool) -> Re
                 .join(", ")
         ));
     };
-    let oi_dir = dir.join(".oi");
-    let config_path = oi_dir.join("config.toml");
+    let kymido_dir = dir.join(".kymido");
+    let config_path = kymido_dir.join("config.toml");
     if config_path.exists() {
         return Err(format!(
             "{} already exists; refusing to overwrite",
             config_path.display()
         ));
     }
-    std::fs::create_dir_all(&oi_dir).map_err(|e| format!("could not create .oi/: {e}"))?;
+    std::fs::create_dir_all(&kymido_dir).map_err(|e| format!("could not create .kymido/: {e}"))?;
     std::fs::write(&config_path, body)
-        .map_err(|e| format!("could not write .oi/config.toml: {e}"))?;
+        .map_err(|e| format!("could not write .kymido/config.toml: {e}"))?;
     let msg = format!("applied profile '{name}': {}", config_path.display());
     if json {
         json_ok(&msg);

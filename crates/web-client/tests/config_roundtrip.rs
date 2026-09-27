@@ -6,10 +6,10 @@
 //! 以及无配置文件时的兜底默认值。
 //!
 //! **为什么全部串行**：`load_from_system` 读的是相对路径
-//! （`./.oi/config.toml` 等）并叠加进程级环境变量覆盖，都是进程全局状态。
+//! （`./.kymido/config.toml` 等）并叠加进程级环境变量覆盖，都是进程全局状态。
 //! cargo 默认多线程跑测试，若并行改 CWD / env 会互相打架，所以这里用一把
 //! 全局锁把它们排成队，并在每个用例里显式清掉相关 env（开发机上可能真的
-//! 设了 `OMENIC_LLM_*`，不清会让断言随环境飘）。
+//! 设了 `KYMIDO_LLM_*`，不清会让断言随环境飘）。
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -20,9 +20,9 @@ use web_client::llm::{LlmFallbackForm, LlmRuntimeConfig, McpServerForm};
 /// 会让本测试在该变量被污染时仍静默通过（覆盖丢失而不报错）。
 const ENV_OVERRIDES: [&str; 4] = [
     "NEWAPI_RELAY_TOKEN",
-    "OMENIC_LLM_API_KEY",
-    "OMENIC_LLM_BASE_URL",
-    "OMENIC_LLM_MODEL",
+    "KYMIDO_LLM_API_KEY",
+    "KYMIDO_LLM_BASE_URL",
+    "KYMIDO_LLM_MODEL",
 ];
 
 fn serial_lock() -> &'static Mutex<()> {
@@ -37,8 +37,8 @@ fn serial_lock() -> &'static Mutex<()> {
 /// 主动 `into_inner`）。
 ///
 /// **CWD 刻意再下沉一层**（`<tempdir>/work`）：`load_from_system` 的候选
-/// 路径里有 `../.oi/config.toml`，若直接站在 tempdir 根上，`..` 会落到
-/// 共享的系统临时目录（`/tmp`），别人留下的 `.oi/config.toml` 就会被读进
+/// 路径里有 `../.kymido/config.toml`，若直接站在 tempdir 根上，`..` 会落到
+/// 共享的系统临时目录（`/tmp`），别人留下的 `.kymido/config.toml` 就会被读进
 /// 来，用例随机变红。下沉一层后 `./` 与 `../` 都还在本用例的 tempdir 内。
 struct Sandbox {
     _lock: MutexGuard<'static, ()>,
@@ -91,15 +91,15 @@ fn save_then_load_preserves_every_field() {
         api_key: "sk-roundtrip-fixture".to_string(),
         model: "agnes-3.0-pro".to_string(),
         max_tokens: 8192,
-        // 相对路径：save 写 ./.oi/config.toml，load 的第一个候选正是它
-        data_dir: "./.oi".to_string(),
+        // 相对路径：save 写 ./.kymido/config.toml，load 的第一个候选正是它
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     };
 
     saved.save_to_file().expect("保存配置失败");
     assert!(
-        sb.path().join(".oi/config.toml").is_file(),
+        sb.path().join(".kymido/config.toml").is_file(),
         "save_to_file 应在 data_dir 下写出 config.toml"
     );
 
@@ -123,13 +123,13 @@ fn resaving_a_loaded_config_is_byte_identical() {
         api_key: "sk-idempotent".to_string(),
         model: "agnes-2.5-flash".to_string(),
         max_tokens: 4096,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     };
     original.save_to_file().expect("首次保存失败");
 
-    let cfg_path = sb.path().join(".oi/config.toml");
+    let cfg_path = sb.path().join(".kymido/config.toml");
     let first = std::fs::read_to_string(&cfg_path).expect("读取首次写入内容失败");
 
     let loaded = LlmRuntimeConfig::load_from_system();
@@ -139,12 +139,12 @@ fn resaving_a_loaded_config_is_byte_identical() {
     assert_eq!(first, second, "load → save 不得改变文件内容");
 }
 
-/// `save_to_file` 会按需创建 data_dir（配置页首次保存时 `.oi` 往往不存在）。
+/// `save_to_file` 会按需创建 data_dir（配置页首次保存时 `.kymido` 往往不存在）。
 #[test]
 fn save_creates_a_missing_data_dir() {
     let sb = Sandbox::new();
 
-    let nested = sb.path().join("deep/nested/.oi");
+    let nested = sb.path().join("deep/nested/.kymido");
     assert!(!nested.exists(), "前置条件：目标目录尚不存在");
 
     let cfg = LlmRuntimeConfig {
@@ -166,10 +166,10 @@ fn save_creates_a_missing_data_dir() {
 fn llm_section_overrides_top_level_model() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "data_dir = \"./.oi\"\n\
+        sb.path().join(".kymido/config.toml"),
+        "data_dir = \"./.kymido\"\n\
          model = \"top-level-model\"\n\
          \n\
          [llm]\n\
@@ -189,7 +189,7 @@ fn llm_section_overrides_top_level_model() {
     assert_eq!(loaded.base_url, "http://example.invalid");
     assert_eq!(loaded.api_key, "sk-section");
     assert_eq!(loaded.max_tokens, 2048);
-    assert_eq!(loaded.data_dir, "./.oi");
+    assert_eq!(loaded.data_dir, "./.kymido");
 }
 
 /// 配置文件缺字段时，缺的那部分保持内置默认，不被清空。
@@ -197,10 +197,10 @@ fn llm_section_overrides_top_level_model() {
 fn missing_keys_fall_back_to_builtin_defaults() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     // 只给 base_url，其余全缺
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
+        sb.path().join(".kymido/config.toml"),
         "[llm]\nbase_url = \"http://only-url\"\n",
     )
     .expect("写配置失败");
@@ -212,7 +212,7 @@ fn missing_keys_fall_back_to_builtin_defaults() {
     assert_eq!(loaded.api_key, "sk-config-not-set");
     assert_eq!(loaded.model, "agnes-2.5-flash");
     assert_eq!(loaded.max_tokens, 4096);
-    assert_eq!(loaded.data_dir, "./.oi");
+    assert_eq!(loaded.data_dir, "./.kymido");
 }
 
 /// 完全没有配置文件时 `load_from_system` 不 panic，返回全套内置默认值。
@@ -226,12 +226,12 @@ fn load_without_any_config_file_yields_defaults() {
     assert_eq!(loaded.api_key, "sk-config-not-set");
     assert_eq!(loaded.model, "agnes-2.5-flash");
     assert_eq!(loaded.max_tokens, 4096);
-    assert_eq!(loaded.data_dir, "./.oi");
+    assert_eq!(loaded.data_dir, "./.kymido");
     // `Default` 就是 `load_from_system`，两者必须一致
     assert_eq!(LlmRuntimeConfig::default(), loaded);
 }
 
-/// 环境变量优先于文件；且 `NEWAPI_RELAY_TOKEN` 优先于 `OMENIC_LLM_API_KEY`
+/// 环境变量优先于文件；且 `NEWAPI_RELAY_TOKEN` 优先于 `KYMIDO_LLM_API_KEY`
 /// （`load_from_system` 里是 if / else if，前者赢）。
 #[test]
 fn env_overrides_take_precedence_over_the_file() {
@@ -242,7 +242,7 @@ fn env_overrides_take_precedence_over_the_file() {
         api_key: "sk-from-file".to_string(),
         model: "model-from-file".to_string(),
         max_tokens: 512,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     }
@@ -252,9 +252,9 @@ fn env_overrides_take_precedence_over_the_file() {
     // SAFETY: Sandbox 持有全局锁，此刻无其它测试线程读写这些变量。
     unsafe {
         std::env::set_var("NEWAPI_RELAY_TOKEN", "sk-from-relay-env");
-        std::env::set_var("OMENIC_LLM_API_KEY", "sk-should-lose");
-        std::env::set_var("OMENIC_LLM_BASE_URL", "http://from-env");
-        std::env::set_var("OMENIC_LLM_MODEL", "model-from-env");
+        std::env::set_var("KYMIDO_LLM_API_KEY", "sk-should-lose");
+        std::env::set_var("KYMIDO_LLM_BASE_URL", "http://from-env");
+        std::env::set_var("KYMIDO_LLM_MODEL", "model-from-env");
     }
 
     let loaded = LlmRuntimeConfig::load_from_system();
@@ -263,7 +263,7 @@ fn env_overrides_take_precedence_over_the_file() {
     assert_eq!(loaded.model, "model-from-env");
     assert_eq!(
         loaded.api_key, "sk-from-relay-env",
-        "NEWAPI_RELAY_TOKEN 应赢过 OMENIC_LLM_API_KEY"
+        "NEWAPI_RELAY_TOKEN 应赢过 KYMIDO_LLM_API_KEY"
     );
     // max_tokens 没有 env 覆盖通道，仍来自文件
     assert_eq!(loaded.max_tokens, 512);
@@ -282,14 +282,14 @@ fn env_overrides_take_precedence_over_the_file() {
 fn save_preserves_unmanaged_sections() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     // 一份「完整」配置：除管理键外还含三个未管理段，均取自
     // `crates/infra/config` 的真实 schema（`TomlConfig` 的 mcp/memory/daemon）。
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "# omenic configuration\n\
+        sb.path().join(".kymido/config.toml"),
+        "# kymido configuration\n\
          omp_path = \"omp\"\n\
-         data_dir = \"./.oi\"\n\
+         data_dir = \"./.kymido\"\n\
          model = \"agnes-2.5-flash\"\n\
          \n\
          [llm]\n\
@@ -300,7 +300,7 @@ fn save_preserves_unmanaged_sections() {
          \n\
          [memory]\n\
          enabled = true\n\
-         dir = \"./.oi/memory\"\n\
+         dir = \"./.kymido/memory\"\n\
          \n\
          [daemon]\n\
          cwd = \"/workspace\"\n\
@@ -320,7 +320,7 @@ fn save_preserves_unmanaged_sections() {
         api_key: "sk-updated".to_string(),
         model: "agnes-3.0-pro".to_string(),
         max_tokens: 8192,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     }
@@ -329,13 +329,13 @@ fn save_preserves_unmanaged_sections() {
 
     // 用 toml_edit 解析后逐段断言，而不是只看字符串包含——这样「段在但键被抹」
     // 也能被抓到。
-    let doc = std::fs::read_to_string(sb.path().join(".oi/config.toml"))
+    let doc = std::fs::read_to_string(sb.path().join(".kymido/config.toml"))
         .expect("读回配置失败")
         .parse::<toml_edit::DocumentMut>()
         .expect("保存后的配置必须是合法 TOML");
 
     // 管理键确实被更新
-    assert_eq!(doc["data_dir"].as_str(), Some("./.oi"));
+    assert_eq!(doc["data_dir"].as_str(), Some("./.kymido"));
     assert_eq!(doc["model"].as_str(), Some("agnes-3.0-pro"));
     assert_eq!(
         doc["llm"]["base_url"].as_str(),
@@ -347,7 +347,7 @@ fn save_preserves_unmanaged_sections() {
 
     // 未管理段逐键保留
     assert_eq!(doc["memory"]["enabled"].as_bool(), Some(true));
-    assert_eq!(doc["memory"]["dir"].as_str(), Some("./.oi/memory"));
+    assert_eq!(doc["memory"]["dir"].as_str(), Some("./.kymido/memory"));
     assert_eq!(doc["daemon"]["cwd"].as_str(), Some("/workspace"));
     assert_eq!(doc["daemon"]["max_turns"].as_integer(), Some(32));
 
@@ -371,10 +371,10 @@ fn save_preserves_unmanaged_sections() {
 fn save_adds_missing_llm_section() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "# legacy config\nomp_path = \"omp\"\ndata_dir = \"./.oi\"\nmodel = \"legacy-model\"\n",
+        sb.path().join(".kymido/config.toml"),
+        "# legacy config\nomp_path = \"omp\"\ndata_dir = \"./.kymido\"\nmodel = \"legacy-model\"\n",
     )
     .expect("写配置失败");
 
@@ -383,14 +383,14 @@ fn save_adds_missing_llm_section() {
         api_key: "sk-new".to_string(),
         model: "agnes-2.5-flash".to_string(),
         max_tokens: 2048,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     }
     .save_to_file()
     .expect("保存配置失败");
 
-    let doc = std::fs::read_to_string(sb.path().join(".oi/config.toml"))
+    let doc = std::fs::read_to_string(sb.path().join(".kymido/config.toml"))
         .expect("读回配置失败")
         .parse::<toml_edit::DocumentMut>()
         .expect("保存后应为合法 TOML");
@@ -406,7 +406,7 @@ fn save_adds_missing_llm_section() {
 
     // 原有根键保留，model 被管理键覆盖为结构体的值
     assert_eq!(doc["omp_path"].as_str(), Some("omp"));
-    assert_eq!(doc["data_dir"].as_str(), Some("./.oi"));
+    assert_eq!(doc["data_dir"].as_str(), Some("./.kymido"));
     assert_eq!(doc["model"].as_str(), Some("agnes-2.5-flash"));
 }
 
@@ -415,11 +415,11 @@ fn save_adds_missing_llm_section() {
 fn save_preserves_comments() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
+        sb.path().join(".kymido/config.toml"),
         "# my note\n\
-         data_dir = \"./.oi\"\n\
+         data_dir = \"./.kymido\"\n\
          model = \"m\"\n\
          \n\
          [llm]\n\
@@ -436,14 +436,15 @@ fn save_preserves_comments() {
         api_key: "sk".to_string(),
         model: "m".to_string(),
         max_tokens: 100,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     }
     .save_to_file()
     .expect("保存配置失败");
 
-    let saved = std::fs::read_to_string(sb.path().join(".oi/config.toml")).expect("读回配置失败");
+    let saved =
+        std::fs::read_to_string(sb.path().join(".kymido/config.toml")).expect("读回配置失败");
     assert!(saved.contains("# my note"), "根表注释应保留: {saved}");
     assert!(
         saved.contains("# provider endpoint"),
@@ -460,13 +461,13 @@ fn save_preserves_comments() {
 fn fallback_preserves_omp_path_not_on_first_line() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     // 重复的根键 model 使整份文档无法解析，强制走备份 + 全量写回退路径。
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "# omenic configuration\n\
+        sb.path().join(".kymido/config.toml"),
+        "# kymido configuration\n\
          omp_path = \"custom-omp\"\n\
-         data_dir = \"./.oi\"\n\
+         data_dir = \"./.kymido\"\n\
          model = \"m\"\n\
          model = \"duplicate-key-breaks-parsing\"\n",
     )
@@ -477,21 +478,22 @@ fn fallback_preserves_omp_path_not_on_first_line() {
         api_key: "sk".to_string(),
         model: "m".to_string(),
         max_tokens: 100,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     }
     .save_to_file()
     .expect("保存配置失败");
 
-    let saved = std::fs::read_to_string(sb.path().join(".oi/config.toml")).expect("读回配置失败");
+    let saved =
+        std::fs::read_to_string(sb.path().join(".kymido/config.toml")).expect("读回配置失败");
     assert!(
         saved.contains("custom-omp"),
         "回退全量写必须抢救第二行的自定义 omp_path: {saved}"
     );
     // 原文已备份，解析失败不丢配置。
     assert!(
-        sb.path().join(".oi/config.toml.bak").exists(),
+        sb.path().join(".kymido/config.toml.bak").exists(),
         "解析失败时应备份原文"
     );
 }
@@ -502,10 +504,10 @@ fn fallback_preserves_omp_path_not_on_first_line() {
 fn save_errors_instead_of_panicking_when_llm_is_not_a_table() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "data_dir = \"./.oi\"\n\
+        sb.path().join(".kymido/config.toml"),
+        "data_dir = \"./.kymido\"\n\
          model = \"m\"\n\
          llm = \"not-a-table\"\n",
     )
@@ -516,7 +518,7 @@ fn save_errors_instead_of_panicking_when_llm_is_not_a_table() {
         api_key: "sk".to_string(),
         model: "m".to_string(),
         max_tokens: 100,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     }
@@ -535,10 +537,10 @@ fn save_errors_instead_of_panicking_when_llm_is_not_a_table() {
 fn mcp_edit_preserves_env_reconnect_and_comments() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "data_dir = \"./.oi\"\n\
+        sb.path().join(".kymido/config.toml"),
+        "data_dir = \"./.kymido\"\n\
          model = \"m\"\n\
          \n\
          [mcp]\n\
@@ -571,7 +573,8 @@ fn mcp_edit_preserves_env_reconnect_and_comments() {
     loaded.mcp_servers[0].command = "npx-dlx".to_string();
     loaded.save_to_file().expect("保存配置失败");
 
-    let saved = std::fs::read_to_string(sb.path().join(".oi/config.toml")).expect("读回配置失败");
+    let saved =
+        std::fs::read_to_string(sb.path().join(".kymido/config.toml")).expect("读回配置失败");
     let doc = saved
         .parse::<toml_edit::DocumentMut>()
         .expect("保存后的配置必须是合法 TOML");
@@ -625,13 +628,13 @@ fn mcp_section_written_only_when_form_has_servers() {
         api_key: "sk-b".to_string(),
         model: "m".to_string(),
         max_tokens: 128,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: Vec::new(),
     };
     base.save_to_file().expect("首次保存失败");
 
-    let cfg_path = sb.path().join(".oi/config.toml");
+    let cfg_path = sb.path().join(".kymido/config.toml");
     let after_empty = std::fs::read_to_string(&cfg_path).expect("读回配置失败");
     assert!(
         !after_empty.contains("[mcp]"),
@@ -684,7 +687,7 @@ fn full_write_persists_mcp_servers_on_first_save() {
         api_key: "sk-c".to_string(),
         model: "m".to_string(),
         max_tokens: 128,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: vec![McpServerForm {
             name: "fetch".to_string(),
             command: String::new(),
@@ -698,12 +701,13 @@ fn full_write_persists_mcp_servers_on_first_save() {
     };
     // 目标文件不存在 → write_full_config 分支。
     assert!(
-        !sb.path().join(".oi/config.toml").exists(),
+        !sb.path().join(".kymido/config.toml").exists(),
         "本用例的前提是配置文件尚不存在"
     );
     cfg.save_to_file().expect("首次保存失败");
 
-    let saved = std::fs::read_to_string(sb.path().join(".oi/config.toml")).expect("读回配置失败");
+    let saved =
+        std::fs::read_to_string(sb.path().join(".kymido/config.toml")).expect("读回配置失败");
     let doc = saved
         .parse::<toml_edit::DocumentMut>()
         .expect("保存后的配置必须是合法 TOML");
@@ -723,10 +727,10 @@ fn full_write_persists_mcp_servers_on_first_save() {
 fn mcp_servers_missing_from_form_are_left_untouched() {
     let sb = Sandbox::new();
 
-    std::fs::create_dir_all(sb.path().join(".oi")).expect("建 .oi 失败");
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
     std::fs::write(
-        sb.path().join(".oi/config.toml"),
-        "data_dir = \"./.oi\"\n\
+        sb.path().join(".kymido/config.toml"),
+        "data_dir = \"./.kymido\"\n\
          model = \"m\"\n\
          \n\
          [mcp]\n\
@@ -751,7 +755,7 @@ fn mcp_servers_missing_from_form_are_left_untouched() {
     loaded.mcp_servers[0].command = "npx-updated".to_string();
     loaded.save_to_file().expect("保存配置失败");
 
-    let doc = std::fs::read_to_string(sb.path().join(".oi/config.toml"))
+    let doc = std::fs::read_to_string(sb.path().join(".kymido/config.toml"))
         .expect("读回配置失败")
         .parse::<toml_edit::DocumentMut>()
         .expect("保存后的配置必须是合法 TOML");
@@ -802,7 +806,7 @@ fn llm_fallbacks_roundtrip_preserves_rows_and_clears_empty_fields() {
         api_key: "sk-primary".to_string(),
         model: "primary-model".to_string(),
         max_tokens: 4096,
-        data_dir: "./.oi".to_string(),
+        data_dir: "./.kymido".to_string(),
         mcp_servers: Vec::new(),
         llm_fallbacks: vec![
             LlmFallbackForm {
@@ -822,12 +826,12 @@ fn llm_fallbacks_roundtrip_preserves_rows_and_clears_empty_fields() {
     };
     cfg.save_to_file().expect("保存配置失败");
 
-    let doc = std::fs::read_to_string(sb.path().join(".oi/config.toml"))
+    let doc = std::fs::read_to_string(sb.path().join(".kymido/config.toml"))
         .expect("读回配置失败")
         .parse::<toml_edit::DocumentMut>()
         .expect("保存后的配置必须是合法 TOML");
 
-    let raw = std::fs::read_to_string(sb.path().join(".oi/config.toml")).expect("读回失败");
+    let raw = std::fs::read_to_string(sb.path().join(".kymido/config.toml")).expect("读回失败");
     let fallbacks = doc["llm"]["fallbacks"]
         .as_array_of_tables()
         .expect("应写出 [[llm.fallbacks]] 表数组");

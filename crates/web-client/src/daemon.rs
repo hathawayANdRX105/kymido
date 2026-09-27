@@ -4,7 +4,7 @@
 //! （page-workspace）负责放进 `std::thread` 执行，避免卡渲染。
 //! `WebDaemon` 只是 `daemon::DaemonClient` 的薄壳：构造时按
 //! `config::Config::daemon_socket_path` 的解析规则找 socket，
-//! 方法返回值直接映射成 `omenic-web-state` 的 UI DTO。
+//! 方法返回值直接映射成 `kymido-web-state` 的 UI DTO。
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -40,8 +40,8 @@ impl WebDaemon {
     /// 返回 `None`。
     ///
     /// 解析规则与 `config::Config::daemon_socket_path` 完全一致：
-    /// 1. `OMENIC_DAEMON_SOCKET` 环境变量（非空时原样使用）；
-    /// 2. 平台配置目录 + `omenic/daemon.sock`（Unix：`$XDG_CONFIG_HOME`
+    /// 1. `KYMIDO_DAEMON_SOCKET` 环境变量（非空时原样使用）；
+    /// 2. 平台配置目录 + `kymido/daemon.sock`（Unix：`$XDG_CONFIG_HOME`
     ///    非空否则 `$HOME/.config`）。
     ///
     /// socket 不从 data_dir 推导（config 侧也不这么推导），所以这里没有
@@ -323,7 +323,7 @@ impl WebDaemon {
     }
 
     /// `task.list` → 最近更新的任务（任务看板的数据源，PR3a 后端读链）。
-    /// 落盘的 `tasks.jsonl` 由 `oi task add/done/...` 写入，daemon 按
+    /// 落盘的 `tasks.jsonl` 由 `kymido task add/done/...` 写入，daemon 按
     /// `updated_at` 降序返回；`limit` 缺省 50，`0` → `[]`。空列表合法
     /// （data_dir 从没写过任务）。返回的 [`Task`] 字段名与落盘 JSON 一致，
     /// 看板直接渲染，不做 DTO 二次映射。
@@ -416,13 +416,13 @@ impl RunFilteredSubscription {
 
 /// 与 `config::Config::daemon_socket_path` 相同的 socket 解析。
 fn resolve_socket_path() -> Option<PathBuf> {
-    if let Some(v) = std::env::var_os("OMENIC_DAEMON_SOCKET")
+    if let Some(v) = std::env::var_os("KYMIDO_DAEMON_SOCKET")
         && !v.is_empty()
     {
         return Some(PathBuf::from(v));
     }
     let base = platform_config_dir()?;
-    Some(base.join("omenic").join("daemon.sock"))
+    Some(base.join("kymido").join("daemon.sock"))
 }
 
 /// 与 `config::platform_config_dir` 相同的平台配置目录解析。

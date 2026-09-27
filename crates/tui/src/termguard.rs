@@ -146,14 +146,14 @@ pub fn install_panic_hook() {
 
 /// `$TMPDIR` 崩溃报告路径（每进程一个文件，重复崩溃覆盖重写）。
 pub fn crash_report_path() -> PathBuf {
-    std::env::temp_dir().join(format!("omenic-tui-crash-{}.log", std::process::id()))
+    std::env::temp_dir().join(format!("kymido-tui-crash-{}.log", std::process::id()))
 }
 
 /// 把 panic message + backtrace 写进崩溃报告，返回落盘路径。
 pub fn write_crash_report(info: &PanicHookInfo<'_>) -> io::Result<PathBuf> {
     let path = crash_report_path();
     let mut file = std::fs::File::create(&path)?;
-    writeln!(file, "omenic-tui crash report")?;
+    writeln!(file, "kymido-tui crash report")?;
     writeln!(file, "message: {}", panic_message(info))?;
     match info.location() {
         Some(loc) => writeln!(file, "location: {loc}")?,

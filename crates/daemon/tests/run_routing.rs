@@ -11,7 +11,7 @@
 //!    session sent most recently".
 //! 2. `events_from_other_run_are_filtered` — the pure routing predicate the
 //!    web subscriber uses (`EventFrame::belongs_to_run`, wrapped by
-//!    `omenic_web-client`'s `RunFilteredSubscription`): another run's frames
+//!    `kymido_web-client`'s `RunFilteredSubscription`): another run's frames
 //!    are dropped, unattributed frames still pass through.
 
 use std::io::Write;

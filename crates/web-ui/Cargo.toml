@@ -3,7 +3,7 @@ name = "web-ui"
 edition = "2024"
 version = "0.1.0"
 publish = false
-description = "omenic Web UI —— Dioxus LiveView 前端：components / views / layouts / utils"
+description = "kymido Web UI —— Dioxus LiveView 前端：components / views / layouts / utils"
 
 [dependencies]
 # 共享投影层与 daemon 客户端（tui 也用，故不在本 crate 内）

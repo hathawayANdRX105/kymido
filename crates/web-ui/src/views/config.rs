@@ -43,7 +43,7 @@ pub fn SettingsModal(
     let title = match section() {
         Section::Models => "模型与渠道",
         Section::Mcp => "MCP 服务器",
-        Section::About => "关于 omenic",
+        Section::About => "关于 kymido",
     };
 
     rsx! {
@@ -318,7 +318,7 @@ fn ConfigForm(
                             class: "{input_class} font-mono",
                             value: "{data_dir}",
                             oninput: move |e| data_dir.set(e.value()),
-                            placeholder: "~/.omenic",
+                            placeholder: "~/.kymido",
                         }
                     }
                 }
@@ -344,7 +344,7 @@ fn ConfigForm(
                                 };
                                 match new_cfg.save_to_file() {
                                     Ok(()) => {
-                                        save_status.set(Some(Ok("配置已写入 .oi/config.toml 并生效".into())));
+                                        save_status.set(Some(Ok("配置已写入 .kymido/config.toml 并生效".into())));
                                         on_update_config.call(new_cfg);
                                     }
                                     Err(e) => {
@@ -534,7 +534,7 @@ fn McpServersPane(
                 div { class: "min-w-0 flex flex-col gap-0.5",
                     div { class: "text-[15px] leading-[22px] font-medium text-label", "MCP 服务器" }
                     span { class: "text-[12px] leading-4 text-caption",
-                        "stdio 子进程（command）或 HTTP 端点（url）；保存按 name 更新。env / reconnect 等高级键请直接编辑 .oi/config.toml，不会被覆盖；删除仅移除编辑卡，不从配置文件删服务器。"
+                        "stdio 子进程（command）或 HTTP 端点（url）；保存按 name 更新。env / reconnect 等高级键请直接编辑 .kymido/config.toml，不会被覆盖；删除仅移除编辑卡，不从配置文件删服务器。"
                     }
                 }
                 Button {
@@ -578,7 +578,7 @@ fn McpServersPane(
                             };
                             match new_cfg.save_to_file() {
                                 Ok(()) => {
-                                    save_status.set(Some(Ok("MCP 配置已写入 .oi/config.toml".into())));
+                                    save_status.set(Some(Ok("MCP 配置已写入 .kymido/config.toml".into())));
                                     on_update_config.call(new_cfg);
                                 }
                                 Err(e) => {
@@ -815,7 +815,7 @@ fn AboutPane() -> Element {
     rsx! {
         div { class: "px-6 py-6 flex flex-col gap-4 max-w-[520px]",
             div { class: "flex items-center gap-2",
-                span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "omenic" }
+                span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "kymido" }
                 span { class: "text-[12px] leading-5 text-label-3 font-mono px-2 py-0.5 rounded-full bg-layer-1 border border-b1", "v{version}" }
             }
             p { class: "text-[14px] leading-[22px] text-label-2",
