@@ -1749,7 +1749,7 @@ pub fn run_enhanced(
     let mut history = Vec::new();
     if opts.resume
         && opts.session.is_none()
-        && let Some(picked) = crate::ui::session_picker::run_picker(&client, "")?
+        && let Some(picked) = crate::ui::session_picker::run_picker(&client, &sid, "")?
     {
         history = crate::ui::session_picker::load_history(&client, &picked)?;
         sid = picked;
@@ -1884,7 +1884,8 @@ fn event_loop(
                     // 确认态开 picker（按键落 `handle_key` 的模态分派）。
                     if switch_key(key) && !app.search_open() && app.rewind_confirm().is_none() {
                         if !app.is_running()
-                            && let Some(picked) = crate::ui::session_picker::run_picker(client, "")?
+                            && let Some(picked) =
+                                crate::ui::session_picker::run_picker(client, app.session_id(), "")?
                         {
                             let history = crate::ui::session_picker::load_history(client, &picked)?;
                             app.switch_session(&picked, history);
@@ -1920,7 +1921,8 @@ fn event_loop(
             match intent {
                 Intent::OpenSessions => {
                     if !app.is_running()
-                        && let Some(picked) = crate::ui::session_picker::run_picker(client, "")?
+                        && let Some(picked) =
+                            crate::ui::session_picker::run_picker(client, app.session_id(), "")?
                     {
                         let history = crate::ui::session_picker::load_history(client, &picked)?;
                         app.switch_session(&picked, history);
