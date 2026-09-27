@@ -79,7 +79,11 @@ fn main() {
     }
     let kit_imports = kit.as_ref().map(|k| {
         let k = k.to_string_lossy().replace('\\', "/");
-        format!("@import \"{k}/assets/tokens.css\";\n@import \"{k}/assets/animation.css\";\n")
+        // ui-kit.css 是组件类层（ui-* 类名）。2026-09 起 ui-kit 把样式从 Rust 常量
+        // 搬进了 CSS，rsx 侧直接写类名——不注入这份文件，ui-* 类全部缺失。
+        format!(
+            "@import \"{k}/assets/tokens.css\";\n@import \"{k}/assets/ui-kit.css\";\n@import \"{k}/assets/animation.css\";\n"
+        )
     });
     let kit_src = kit.as_ref().map(|k| {
         format!(
