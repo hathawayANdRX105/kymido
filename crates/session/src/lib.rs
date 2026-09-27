@@ -1060,11 +1060,17 @@ impl SessionDb {
     /// (the fallback for rows written before the column existed). `keep_recent`
     /// is a floor on top of the idle cutoff: even a very old session stays
     /// live if it is one of the N most recent, so a machine that is only ever
-    /// idle for a long time never archives everything.
+    /// idle for a long time never archives everything. `max_sessions` bounds
+    /// one call's write-lock footprint: the sweep returns after archiving at
+    /// most that many sessions even if more qualify.
     pub fn compress_idle_sessions(
         &self,
         idle_ms: i64,
         keep_recent: u32,
+        // Batch cap: the daemon-startup sweep must not sit on the write lock
+        // for a whole backlog at once — archive at most this many sessions
+        // per call; the next run (or the next daemon start) takes the rest.
+        max_sessions: u32,
     ) -> Result<Vec<ArchiveReceipt>, SessionError> {
         let cutoff = now_ms().saturating_sub(idle_ms.max(0));
         // Candidates, most-recent first, so the keep_recent floor is a slice.
@@ -1094,6 +1100,9 @@ impl SessionDb {
             }
             if touched >= cutoff {
                 continue;
+            }
+            if receipts.len() >= max_sessions.max(1) as usize {
+                break;
             }
             match self.archive_session(&id) {
                 Ok(r) => receipts.push(r),

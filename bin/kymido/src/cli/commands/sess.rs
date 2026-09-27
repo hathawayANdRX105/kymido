@@ -17,8 +17,13 @@ pub fn daemon_client_from_config() -> Result<daemon::DaemonClient, String> {
 /// `compress` opens the database file directly, so it is matched *before*
 /// the client is built and therefore works with no daemon running.
 pub fn session_cmd_dispatch(sub: SessionCmd, json: bool) -> Result<u8, String> {
-    if let SessionCmd::Compress { idle_days, keep } = sub {
-        return session_compress_cmd(idle_days, keep, json);
+    if let SessionCmd::Compress {
+        idle_days,
+        keep,
+        max_sessions,
+    } = sub
+    {
+        return session_compress_cmd(idle_days, keep, max_sessions, json);
     }
     let client = daemon_client_from_config()?;
     match sub {
@@ -355,7 +360,12 @@ pub fn daemon_cmd_dispatch(sub: DaemonCmd, json: bool) -> Result<u8, String> {
 /// disk would be backwards. Safe to run while a daemon is up — each session
 /// is archived under its own transaction, and a session that vanished
 /// mid-sweep is skipped rather than reported as a failure.
-pub fn session_compress_cmd(idle_days: i64, keep: u32, json: bool) -> Result<u8, String> {
+pub fn session_compress_cmd(
+    idle_days: i64,
+    keep: u32,
+    max_sessions: u32,
+    json: bool,
+) -> Result<u8, String> {
     let config = Config::load().map_err(|e| format!("config error: {e}"))?;
     let db_path = config
         .session_db_path()
@@ -372,7 +382,7 @@ pub fn session_compress_cmd(idle_days: i64, keep: u32, json: bool) -> Result<u8,
 
     let db = session::SessionDb::open(&db_path).map_err(|e| format!("open session db: {e}"))?;
     let receipts = db
-        .compress_idle_sessions(idle_ms, keep)
+        .compress_idle_sessions(idle_ms, keep, max_sessions)
         .map_err(|e| format!("compress: {e}"))?;
     // The WAL is a real file next to the database; truncating it after a
     // sweep is what stops the "archived" bytes from just landing in the WAL.
@@ -383,6 +393,7 @@ pub fn session_compress_cmd(idle_days: i64, keep: u32, json: bool) -> Result<u8,
         print_json(&serde_json::json!({
             "idle_days": idle_days,
             "keep": keep,
+            "max_sessions": max_sessions,
             "archived": receipts.len(),
             "receipts": receipts,
         }));

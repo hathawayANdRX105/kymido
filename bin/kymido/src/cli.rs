@@ -312,6 +312,11 @@ enum SessionCmd {
         /// Always keep at least this many most-recently-used sessions live
         #[arg(long, default_value_t = 20)]
         keep: u32,
+        /// Stop after archiving this many sessions in one run, so a huge
+        /// backlog cannot hold the write lock indefinitely; the rest is
+        /// picked up by the next run (or the next daemon start).
+        #[arg(long, default_value_t = 200)]
+        max_sessions: u32,
     },
 }
 

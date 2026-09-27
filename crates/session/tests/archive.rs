@@ -249,7 +249,7 @@ fn a_pre_migration_file_gains_the_column_and_stays_readable() {
     // `last_access_ms` is 0 on a migrated row, which readers treat as
     // "fall back to updated_at" — the row is not infinitely stale.
     assert!(
-        db.compress_idle_sessions(i64::MAX, 0)
+        db.compress_idle_sessions(i64::MAX, 0, 100)
             .expect("sweep")
             .is_empty()
     );
@@ -264,7 +264,7 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
 
     // Everything is touched now, so nothing is idle yet.
     assert!(
-        f.db.compress_idle_sessions(86_400_000, 0)
+        f.db.compress_idle_sessions(86_400_000, 0, 100)
             .expect("sweep")
             .is_empty(),
         "a freshly-touched session is never idle"
@@ -273,7 +273,7 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
     // A zero-length idle window plus a keep floor of 2 leaves the two most
     // recent live and archives the third.
     let archived =
-        f.db.compress_idle_sessions(0, 2)
+        f.db.compress_idle_sessions(0, 2, 100)
             .expect("sweep with keep floor");
     let ids: Vec<&str> = archived.iter().map(|r| r.session_id.as_str()).collect();
     assert_eq!(ids.len(), 1, "exactly one session fell past the floor");
@@ -283,6 +283,37 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
     );
     assert!(f.db.session_live("keep-1").expect("live").is_some());
     assert!(f.db.session_live("keep-2").expect("live").is_some());
+}
+
+#[test]
+fn the_sweep_stops_at_the_batch_cap() {
+    let f = fixture();
+    for i in 0..5 {
+        seed(&f.db, &format!("s{i}"), 2);
+    }
+
+    // Five idle sessions, but the cap is 2: exactly two receipts, and the
+    // remainder stays live for the next run.
+    let first = f.db.compress_idle_sessions(0, 0, 2).expect("capped sweep");
+    assert_eq!(first.len(), 2, "the cap bounds one call's work");
+    let live_after_first = (0..5)
+        .filter(|i| f.db.session_live(&format!("s{i}")).expect("live").is_some())
+        .count();
+    assert_eq!(live_after_first, 3, "the uncapped remainder stays live");
+
+    // The next call picks up where the first stopped.
+    let second = f.db.compress_idle_sessions(0, 0, 2).expect("next batch");
+    assert_eq!(second.len(), 2, "each call takes another capped batch");
+
+    // And a cap of 0 still means "at least one", not "nothing ever".
+    let third = f.db.compress_idle_sessions(0, 0, 0).expect("zero cap");
+    assert_eq!(third.len(), 1, "a zero cap degenerates to one per call");
+    assert!(
+        f.db.compress_idle_sessions(0, 0, 2)
+            .expect("final")
+            .is_empty(),
+        "nothing idle is left after the backlog is drained"
+    );
 }
 
 #[test]
