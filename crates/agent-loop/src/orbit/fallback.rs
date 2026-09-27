@@ -223,6 +223,12 @@ impl WaterfallLlm {
     ) {
         let providers = self.providers();
         let last = providers.len() - 1;
+        // Each provider's own failure, kept so the terminal error can list
+        // *every* one. A debug should not have to re-drive the chain
+        // provider by provider to learn that the primary 500'd and the
+        // fallback 401'd — and the 401/403 text has to survive into that
+        // aggregate, not just ride along in a `last error:` suffix.
+        let mut failures: Vec<String> = Vec::new();
         for (i, provider) in providers.iter().enumerate() {
             match Self::attempt_provider(provider, context, tools, signal, self.retry, emit) {
                 // Round is over. A clean round (success or consumer abort)
@@ -236,15 +242,20 @@ impl WaterfallLlm {
                 }
                 Err(last_err) => {
                     // This provider failed before leaking anything. The next
-                    // provider may still take over — only the last one's
-                    // failure is terminal, and it carries the original error
-                    // so a 401/403 survives the fallback chain.
+                    // provider may still take over; only the last one's
+                    // failure ends the round.
+                    failures.push(format!("provider {i} ({}): {last_err}", provider.model));
                     if i < last {
                         continue;
                     }
+                    let detail = failures
+                        .iter()
+                        .map(|f| format!("  - {f}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     emit(&StreamEvent::Error(format!(
-                        "llm provider {i} ({}) failed: all providers exhausted (last error: {last_err})",
-                        provider.model
+                        "all {} llm providers failed:\n{detail}",
+                        providers.len()
                     )));
                     return;
                 }
