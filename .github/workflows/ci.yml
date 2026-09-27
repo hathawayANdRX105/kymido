@@ -11,9 +11,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # Full history on purpose: the scope step diffs against origin/main
-      # and `git diff A...B` needs a merge base, which the default depth-1
-      # checkout does not have (run 36297455244: "no merge base", exit 128).
+      # Full history on purpose: the scope step needs a merge base (PR:
+      # origin/<base>...HEAD; push: the pre-push tip) and `git diff` needs
+      # it, which the default depth-1 checkout does not have
+      # (run 36297455244: "no merge base", exit 128).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -34,12 +35,20 @@ jobs:
         run: |
           set -euo pipefail
           cargo metadata --format-version 1 > "$RUNNER_TEMP/metadata.json"
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "packages=__ALL__" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "$GITHUB_BASE_REF"
+            git diff --name-only "origin/$GITHUB_BASE_REF...HEAD" > "$RUNNER_TEMP/changed.txt"
+          else
+            # push: the pre-push tip is the base — origin/<branch> already
+            # tracks HEAD after the ref update, so diffing against it is
+            # empty and would turn every main push into the full run.
+            # New-branch pushes (zero SHA) fall back to HEAD^.
+            BASE="${{ github.event.before }}"
+            case "$BASE" in
+              ""|0000000000000000000000000000000000000000) BASE="HEAD^" ;;
+            esac
+            git diff --name-only "$BASE..HEAD" > "$RUNNER_TEMP/changed.txt"
           fi
-          git fetch --no-tags origin main
-          git diff --name-only "origin/main...HEAD" > "$RUNNER_TEMP/changed.txt"
           cat "$RUNNER_TEMP/changed.txt"
           export METADATA="$RUNNER_TEMP/metadata.json"
           export CHANGED="$RUNNER_TEMP/changed.txt"
@@ -418,6 +427,10 @@ jobs:
           send(b"\x7f" * 16, "backspaces (clear composer)")
           settle(quiet_ms=200, deadline_s=5)
           send(b"\x04", "ctrl-d")
+          # Drain before reading `raw`: the teardown bytes (?1049l, cursor
+          # show) are written after the process exits and would still be
+          # sitting unread in the pty buffer without this wait.
+          settle(quiet_ms=400, deadline_s=10)
           deadline = time.time() + 15
           code = None
           while time.time() < deadline:
