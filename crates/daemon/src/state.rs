@@ -665,9 +665,10 @@ impl SessionState {
         role: SessionRole,
         text: &str,
         attachments: &[session::Attachment],
+        tool_calls: &[Value],
     ) -> Result<(i64, i64), SessionError> {
         self.inner
-            .append_message(session_id, role, text, attachments)
+            .append_message(session_id, role, text, attachments, tool_calls)
     }
 
     /// Drop every message with `seq >= from_seq`; returns how many rows
@@ -756,6 +757,19 @@ pub fn require_u32(params: &Value, field: &str) -> Result<u32, String> {
 /// passed through.
 pub const ATTACHMENT_MEDIA_TYPES: [&str; 4] =
     ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// Optional `tool_calls` field: assistant 消息携带的 UI 工具卡 JSON 数组
+/// （形状由 web-state 拥有，本层只校验「是数组」后透传给 session 层存储）。
+/// 与 [`optional_attachments`] 同语义：缺失 = 无工具卡；非数组 = 报错。
+pub fn optional_tool_calls(params: &Value) -> Result<Vec<Value>, String> {
+    let Some(value) = params.get("tool_calls") else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        return Err("`tool_calls` must be an array".to_string());
+    };
+    Ok(items.clone())
+}
 
 /// Decoded-byte ceiling per image, and the count ceiling per message: an
 /// image is base64 in the prompt params, in the transcript and in the model

@@ -616,22 +616,39 @@ pub fn Workspace(
                                 messages: map.get(&sid).cloned().unwrap_or_default(),
                             };
                             ui.apply(&ev);
-                            // 最后一条 assistant 消息即最终回复文本，持久化
-                            // 到 daemon（线程内；空文本跳过，存储侧拒绝空
-                            // 消息）
-                            let final_text = ui
+                            // 最后一条 assistant 消息即最终回复文本，连同其
+                            // 工具调用卡持久化到 daemon（线程内；空文本跳过，
+                            // 存储侧拒绝空消息）。tool_calls 一并落库，历史
+                            // 重载才能重建「工作过程」折叠区。
+                            let final_msg = ui
                                 .messages
                                 .iter()
                                 .rev()
                                 .find(|m| m.role == "assistant")
+                                .cloned();
+                            let final_text = final_msg
+                                .as_ref()
                                 .map(|m| m.content.clone())
+                                .unwrap_or_default();
+                            let final_tool_calls: Vec<serde_json::Value> = final_msg
+                                .map(|m| {
+                                    m.tool_calls
+                                        .iter()
+                                        .filter_map(|tc| serde_json::to_value(tc).ok())
+                                        .collect()
+                                })
                                 .unwrap_or_default();
                             if !final_text.is_empty() {
                                 let sid_daemon = sid.clone();
                                 let d_turn = d_consumer.clone();
                                 std::thread::spawn(move || {
-                                    let _ =
-                                        d_turn.append_message(&sid_daemon, false, &final_text, &[]);
+                                    let _ = d_turn.append_message(
+                                        &sid_daemon,
+                                        false,
+                                        &final_text,
+                                        &[],
+                                        &final_tool_calls,
+                                    );
                                 });
                             }
                             map.insert(sid.clone(), ui.messages);
@@ -1212,8 +1229,13 @@ pub fn Workspace(
                         if let Err(e) = ensured {
                             eprintln!("[web] session ensure failed: {e}");
                         }
-                        let _ =
-                            d.append_message(&sid_daemon, true, &text_daemon, &attachments_daemon);
+                        let _ = d.append_message(
+                            &sid_daemon,
+                            true,
+                            &text_daemon,
+                            &attachments_daemon,
+                            &[],
+                        );
                         if let Some(title) = title_for_daemon {
                             let persisted =
                                 retry_update(|| d.update_session_title(&sid_daemon, &title));
@@ -1395,7 +1417,7 @@ pub fn Workspace(
                     div { class: "flex-1" }
                     if active_session_running(space_sessions, active_session_id) {
                         span { class: "flex items-center gap-1.5 text-[12px] leading-5 text-label-3",
-                            span { class: "spinner-ring" }
+                            ui_kit::Spinner { size: 10, class: "text-brand" }
                             "运行中"
                         }
                     }

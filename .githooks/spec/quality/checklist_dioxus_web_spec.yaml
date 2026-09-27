@@ -1,0 +1,33 @@
+# CK-DIOXUS-WEB-SPEC: Dioxus web 语义规范（jev 模型层）
+#
+# 覆盖三条正则抓不住、必须理解上下文的规范：
+#   WEB-CLOSURE-DENSITY       闭包过多，该抽具名函数
+#   WEB-LIST-CHILD-COMPONENT  列表行内联，该抽 #[component]
+#   WEB-UIKIT-REUSE           重复实现 ui-kit 已有的件
+#
+# 为什么不写进 l1 checklist: 「该不该抽」「是不是重复实现」是语义判断，
+#   正则只会误报，误报的规则 agent 会学会无视——比没有规则更糟。
+#   能数得清的部分（rsx 嵌套深度、class 长度、硬编码色、分层方向）走
+#   checklist_dioxus_rsx_nesting / _style_scatter / _web_layering，三条都是 l1。
+#
+# 为什么挂 pre-push/merge 而不是 pre-commit: 每个命中文件付一次 jev 调用
+#   （100-500ms，并发 8），pre-commit 热路径付不起。
+# 降级语义: 无 key / 超时 / 输出不可解析 → 候选原样降 WARN，召回不丢、
+#   处置照常，绝不静默清零。低于 warn 阈值的判决直接丢弃——这就是假阳性过滤器。
+# 改这份规范 = 改约束，走 issue 裁决，不要在提交时就地改。
+enabled: true
+hooks: [pre-push, merge]
+sla: l2
+fail_severity: WARN
+match:
+  paths_include: ["**/*.rs"]
+  paths_exclude: ["target/", ".wt/", "node_modules/", "tests/"]
+mode: file
+harness:
+  command: "python3"
+  args:
+    - ".githooks/spec/harness/jev_rule.py"
+    - "--config"
+    - ".githooks/spec/custom/dioxus_web.json"
+optional: true
+timeout: 300

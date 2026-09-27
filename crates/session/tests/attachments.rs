@@ -38,6 +38,7 @@ fn message_with_attachments_round_trips() {
                 attach("screenshot.png", "image/png", "aWFsb25lPGRhdGE+"),
                 attach("chart.webp", "image/webp", "UElFWHByb2ZpbGU="),
             ],
+            &[],
         )
         .expect("append message with attachments");
     assert_eq!(seq, 1, "first message of a session is seq 1");
@@ -64,7 +65,7 @@ fn message_without_attachments_reads_back_empty() {
     let dir = tempdir().expect("temp dir");
     let db = SessionDb::open(dir.path().join("sessions.db")).expect("open db");
 
-    db.append_message("att-2", SessionRole::User, "纯文本", &[])
+    db.append_message("att-2", SessionRole::User, "纯文本", &[], &[])
         .expect("append bare message");
 
     let rows = db.load_messages("att-2", 10).expect("load messages");
@@ -96,6 +97,7 @@ fn corrupted_attachments_column_degrades_to_empty() {
         SessionRole::User,
         "坏数据",
         &[attach("a.png", "image/png", "aW1n")],
+        &[],
     )
     .expect("append with attachments first");
 
@@ -203,6 +205,7 @@ fn legacy_file_without_column_is_migrated() {
         SessionRole::Assistant,
         "迁移后新消息",
         &[attach("n.png", "image/png", "aW1n")],
+        &[],
     )
     .expect("append after migration");
     let rows = db

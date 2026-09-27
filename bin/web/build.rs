@@ -1,5 +1,39 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Locate the ui-kit checkout whose assets/src must enter the Tailwind input.
+/// Two layouts are supported: a sibling checkout (local iteration, path dep)
+/// and the cargo git checkout of the `ui-kit` git dep. Newest rev dir wins so
+/// a bumped lockfile revision doesn't get shadowed by a stale checkout.
+fn uikit_dir(manifest: &Path) -> Option<PathBuf> {
+    if let Some(projects) = manifest.ancestors().nth(3) {
+        let sibling = projects.join("ui-kit");
+        if sibling.join("src").is_dir() {
+            return Some(sibling);
+        }
+    }
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")))?;
+    for entry in std::fs::read_dir(cargo_home.join("git/checkouts"))
+        .ok()?
+        .flatten()
+    {
+        if !entry.file_name().to_string_lossy().starts_with("ui-kit-") {
+            continue;
+        }
+        let mut revs: Vec<PathBuf> = std::fs::read_dir(entry.path())
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        revs.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+        if let Some(latest) = revs.pop() {
+            return Some(latest);
+        }
+    }
+    None
+}
 
 /// Compile the Tailwind v4 input (`assets/tailwind-input.css`) into a static
 /// stylesheet that is embedded into the binary via `include_str!` in `app.rs`.
@@ -34,6 +68,26 @@ fn main() {
     // which is how the web crates' rsx classes fell out of the stylesheet.
     // So drop any `@source` line from the source CSS and emit two well-known
     // absolute directives instead: this crate's src + the merged web-ui crate.
+    // ui-kit（ferrite 家族共享设计系统）的 token 桥 / 动画层 / rsx 类名也要进
+    // 产物：kit 组件里的 shadcn 语义类（bg-primary 等）与 animate-in 工具类
+    // 定义在 kit 自己的 assets/src 下，不在本仓，必须显式 @import + @source。
+    let kit = uikit_dir(&manifest);
+    if kit.is_none() {
+        println!(
+            "cargo:warning=ui-kit checkout not found (sibling ../ui-kit or cargo git checkout); kit classes will be missing from the stylesheet"
+        );
+    }
+    let kit_imports = kit.as_ref().map(|k| {
+        let k = k.to_string_lossy().replace('\\', "/");
+        format!("@import \"{k}/assets/tokens.css\";\n@import \"{k}/assets/animation.css\";\n")
+    });
+    let kit_src = kit.as_ref().map(|k| {
+        format!(
+            "@source \"{}/src/**/*.rs\";\n",
+            k.to_string_lossy().replace('\\', "/")
+        )
+    });
+
     let mut body = String::with_capacity(css.len());
     let mut injected = false;
     for line in css.lines() {
@@ -45,9 +99,13 @@ fn main() {
         // Tailwind v4.3 only honors `@source` directives that sit near the top
         // (after the `@import`, before the `@theme`/`@layer` rules); appended at
         // the end they are silently ignored. Inject right after the import line.
+        // kit 的 @import 必须与 @import "tailwindcss" 同段（import 语句不得
+        // 出现在其他规则之后），三条 @source 紧随其后。
         if !injected && line.trim_start().starts_with("@import ") {
             body.push_str(&format!(
-                "@source \"{crate_src}\";\n@source \"{webui_src}\";\n"
+                "{}@source \"{crate_src}\";\n@source \"{webui_src}\";\n{}",
+                kit_imports.as_deref().unwrap_or(""),
+                kit_src.as_deref().unwrap_or("")
             ));
             injected = true;
         }
@@ -56,7 +114,10 @@ fn main() {
         // No `@import` found (shouldn't happen); fall back to a leading line.
         body.insert_str(
             0,
-            &format!("@source \"{crate_src}\";\n@source \"{webui_src}\";\n"),
+            &format!(
+                "@source \"{crate_src}\";\n@source \"{webui_src}\";\n{}",
+                kit_src.as_deref().unwrap_or("")
+            ),
         );
     }
     let gen_input = manifest.join(".tailwind.gen-input.css");

@@ -43,6 +43,7 @@ Checklist yaml wiring:
 import concurrent.futures
 import json
 import os
+import subprocess
 import re
 import sys
 import urllib.error
@@ -116,6 +117,22 @@ def build_state(rule: dict, rel: str, content: str, diff_text: str, root: str) -
     return "\n\n".join(parts), missing
 
 
+def diff_for(root: str, rel: str) -> str:
+    """Hunks of `rel` vs HEAD, so jev judges the CHANGED code, not the whole file.
+
+    The gate's mode:file payload carries full file content only; the engine does
+    not embed hunks. Without this the 'state.diff' config flag is dead and jev
+    reviews pre-existing code as if it were new (false positives on large files).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", root, "diff", "HEAD", "--unified=3", "--no-color", "--", rel],
+            capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return ""
+    return out[:8_000]
+
+
 def post(url: str, headers: dict, payload: dict, timeout: int) -> dict:
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode(),
@@ -176,6 +193,11 @@ def main():
     jobs = []   # (rule_id, rule, rel, content)
     for rel, content in files:
         for rid, rule in rules.items():
+            # 配置里允许放 `_comment` 这类说明键（值是字符串）。只对 dict 规则
+            # 调 file_matches，否则一条说明就能让 harness 崩掉——崩掉会被引擎
+            # 记成 WARN，于是整条规则静默失效并报 ALL PASS（fail-open）。
+            if not isinstance(rule, dict):
+                continue
             if file_matches(rule, rel):
                 jobs.append((rid, rule, rel, content))
     if not jobs:
@@ -188,7 +210,7 @@ def main():
             futs = {}
             for i, (rid, rule, rel, content) in enumerate(jobs):
                 q = rule.get("questions", {})
-                st, missing_ctx = build_state(rule, rel, content, "", root)
+                st, missing_ctx = build_state(rule, rel, content, diff_for(root, rel), root)
                 missing_map[i] = missing_ctx
                 futs[i] = ex.submit(judge_one, base, key, model, st, q)
             for i, fut in futs.items():

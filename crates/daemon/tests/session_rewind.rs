@@ -51,7 +51,7 @@ fn seed(client: &DaemonClient, session_id: &str, texts: &[&str]) -> Vec<i64> {
         .iter()
         .map(|text| {
             client
-                .session_append(session_id, SessionRole::User, text, &[])
+                .session_append(session_id, SessionRole::User, text, &[], &[])
                 .expect("append")
                 .seq
         })
