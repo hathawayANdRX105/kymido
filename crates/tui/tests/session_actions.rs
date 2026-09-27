@@ -27,9 +27,10 @@ fn buffer_text(buffer: &Buffer) -> String {
             if let Some(cell) = buffer.cell((x, y)) {
                 out.push_str(cell.symbol());
                 x += cell.cell_width().max(1) - 1;
-            } else {
-                x += 1;
             }
+            // 无条件推进：1 宽格上 `cell_width()-1 == 0`，若只在 else 分支
+            // 推进，游标永远不动 = 死循环（2026-09-27 CI 首跑 hang 实证）。
+            x += 1;
         }
         out.push('\n');
     }
