@@ -650,7 +650,14 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                 Ok(a) => a,
                 Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
             };
-            match ctx.sessions.append_message(sid, role, text, &attachments) {
+            let tool_calls = match crate::state::optional_tool_calls(&req.params) {
+                Ok(t) => t,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            match ctx
+                .sessions
+                .append_message(sid, role, text, &attachments, &tool_calls)
+            {
                 Ok((seq, ts)) => Response::ok(id, json!({ "seq": seq, "created_at_ms": ts })),
                 Err(e) => session_error_response(id, "session.append", e),
             }

@@ -72,21 +72,28 @@ pub fn infer_session_status(runs: &[RunRecord], live_run_id: Option<&str>) -> Se
 /// `SessionMessage` → 聊天流用的 `ChatMessage`。
 ///
 /// UI 只有 user/assistant 两种渲染形态：`User` → "user"，其余
-/// （assistant/system/tool）→ "assistant"。tool_calls/parts 在存储侧
-/// 暂无对应列，留空（渲染回退 content）。`id` 用 `session_id-seq`
-/// 保证同会话内唯一。
+/// （assistant/system/tool）→ "assistant"。`tool_calls` 落库存的是 UI
+/// 工具卡 JSON 数组（web-state 自己的 `ToolCall` 形状），读回逐条解析、
+/// 坏行丢弃（容忍旧版/坏数据，不让一条烂卡吞掉整段历史）；`parts` 留空——
+/// 渲染层在 parts 为空时用 tool_calls + content 重建「工作过程」。
+/// `id` 用 `session_id-seq` 保证同会话内唯一。
 pub fn message_to_chat(m: &SessionMessage) -> ChatMessage {
     let role = match m.role {
         SessionRole::User => "user",
         SessionRole::Assistant | SessionRole::System | SessionRole::Tool => "assistant",
     };
     let ts = m.created_at_ms.max(0) as u64;
+    let tool_calls = m
+        .tool_calls
+        .iter()
+        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+        .collect();
     ChatMessage {
         id: format!("{}-{}", m.session_id, m.seq),
         role: role.into(),
         content: m.text.clone(),
         reasoning: String::new(),
-        tool_calls: vec![],
+        tool_calls,
         parts: vec![],
         attachments: m
             .attachments

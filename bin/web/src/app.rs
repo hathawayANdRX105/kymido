@@ -33,6 +33,18 @@ pub async fn launch() {
     let glue = dioxus_liveview::interpreter_glue("/ws");
     let css = include_str!(concat!(env!("OUT_DIR"), "/tailwind.gen.css")).to_string();
 
+    // Ainotation 标注 bundle（`npm run aino` 生成，源 bin/web/ainotation-entry.ts）：
+    // 仅 dev 构建内联进 index——release 无痕。同步链：页面 SDK → 本地桥
+    // （scripts/ainotation-bridge.mjs :44091 签 grant）→ MCP service。`</script`
+    // 转义防内联脚本截断。用法：起 service + omenic 桥（见 AGENTS.md 标注栈节）。
+    #[cfg(debug_assertions)]
+    let aino_script = format!(
+        "<script>{}</script>",
+        include_str!("../assets/ainotation/ainotation.iife.js").replace("</script", "<\\/script")
+    );
+    #[cfg(not(debug_assertions))]
+    let aino_script = String::new();
+
     let index_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -43,6 +55,7 @@ pub async fn launch() {
     <style>
 {css}
     </style>
+    {aino_script}
 </head>
 <body>
     <div id="main"></div>
@@ -77,7 +90,27 @@ pub async fn launch() {
             var NS = window.__mm = window.__mm || {{}};
             if (typeof NS.ref !== 'number') NS.ref = 0;
             // Cached DOM queries; invalidated whenever the chat DOM changes.
-            function invalidate() {{ NS.barsCache = null; NS.centers = null; }}
+            // 条与消息的几何对齐：每个条的纵向位置 = 目标消息中心在内容坐标系
+            // 里的高度占比（offsetTop/scrollHeight，与滚动无关），条不再聚簇居中。
+            // DOM/内容变化时随 invalidate 重算；滚动不改变内容坐标，无需随滚重排。
+            function layoutBars() {{
+                if (!scrollEl) return;
+                var h = scrollEl.scrollHeight;
+                if (!h) return;
+                var bs = getBars();
+                for (var i = 0; i < bs.length; i++) {{
+                    var a = bs[i].getAttribute('data-anchor');
+                    var el = a ? document.getElementById(a) : null;
+                    if (!el) {{ bs[i].style.display = 'none'; continue; }}
+                    bs[i].style.display = '';
+                    var frac = (el.offsetTop + el.offsetHeight / 2) / h;
+                    bs[i].style.position = 'absolute';
+                    bs[i].style.left = '0';
+                    bs[i].style.top = (frac * 100).toFixed(2) + '%';
+                    bs[i].style.transform = 'translateY(-50%)';
+                }}
+            }}
+            function invalidate() {{ NS.barsCache = null; NS.centers = null; layoutBars(); }}
             function getBars() {{
                 if (!NS.barsCache) NS.barsCache = Array.prototype.slice.call(mm.querySelectorAll('[data-anchor]'));
                 return NS.barsCache;

@@ -5,8 +5,12 @@ use dioxus::prelude::*;
 use web_client::{QuestionAnswer, QuestionItem};
 use web_state::types::{ChatMessage, MessagePart, PendingAttachment, StatusLine, ToolCall};
 
-use crate::components::icons::{ArrowUp, ChevronRight, Paperclip, SquareCheck};
-use crate::components::ui::{Dropdown, IconButton, Spinner};
+use ui_kit::button::{Button, ButtonSize, ButtonVariant};
+use ui_kit::icons::{
+    IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconPaperclip, IconSquareCheck,
+};
+use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel, Spinner};
+
 use crate::utils::markdown::markdown_to_html;
 
 /// 工具类型的 chip 配色（dsh 状态色 chip：900 底 + 400 字）。
@@ -313,14 +317,16 @@ pub fn Chat(
                                         class: "hidden",
                                         onchange: move |_| {},
                                     }
-                                    Paperclip { size: 15 }
+                                    IconPaperclip { size: 15 }
                                 }
-                                IconButton {
+                                Button {
+                                    variant: ButtonVariant::Ghost,
+                                    size: ButtonSize::IconSm,
                                     title: "任务看板",
                                     onclick: move |_| on_toggle_tasks.call(()),
-                                    SquareCheck { size: 15 }
+                                    IconSquareCheck { size: 15 }
                                 }
-                                Dropdown {
+                                MenuPicker {
                                     label: "{statusline.model}",
                                     header: "选择模型",
                                     items: model_items,
@@ -328,7 +334,7 @@ pub fn Chat(
                                     mono: true,
                                     on_select: move |m: String| on_model_change.call(m),
                                 }
-                                Dropdown {
+                                MenuPicker {
                                     label: "思考 {statusline.thinking}",
                                     header: "思考强度",
                                     items: thinking_items,
@@ -364,13 +370,72 @@ pub fn Chat(
                                                 draft.set(String::new());
                                             }
                                         },
-                                        ArrowUp { size: 16 }
+                                        IconArrowUp { size: 16 }
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// composer 下拉选择器：ui-kit DropdownMenu 的数据驱动封装（label + header +
+/// items + 选中高亮），自底部向上弹出。kit 菜单项不设「选中即关」，这里由
+/// `close_req` 请求收关——Dioxus signal 每次 set 都标脏，重复 set(true) 仍会
+/// 触发收关 effect，可反复选用。
+#[component]
+fn MenuPicker(
+    label: String,
+    header: String,
+    items: Vec<(String, String)>,
+    active_value: String,
+    #[props(default = false)] mono: bool,
+    on_select: EventHandler<String>,
+) -> Element {
+    let mut close_req = use_signal(|| false);
+    let mono_class = if mono { "font-mono" } else { "" };
+    rsx! {
+        // DropdownMenu 根是 display:contents（无定位上下文），absolute 面板需要
+        // 调用方提供 relative 锚点，否则会上浮到整个布局容器而漂位。
+        div { class: "relative",
+            DropdownMenu {
+            content_class: "bottom-full left-0 mb-1 min-w-[190px]",
+            close_signal: close_req,
+            trigger: rsx! {
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Sm,
+                    class: "{mono_class}",
+                    span { "{label}" }
+                    IconChevronDown { size: 12, class: "text-muted-foreground" }
+                }
+            },
+            content: rsx! {
+                DropdownMenuLabel { "{header}" }
+                for (item_label, item_value) in items.iter() {
+                    {
+                        let item_label = item_label.clone();
+                        let item_value = item_value.clone();
+                        let is_active = item_value == active_value;
+                        rsx! {
+                            DropdownMenuItem {
+                                key: "{item_value}",
+                                onclick: move |_| {
+                                    on_select.call(item_value.clone());
+                                    close_req.set(true);
+                                },
+                                span { class: "truncate {mono_class}", "{item_label}" }
+                                if is_active {
+                                    IconCheck { size: 14, class: "shrink-0 text-foreground" }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             }
         }
     }
@@ -503,7 +568,7 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
                     is_open.set(!is_open());
                 },
                 span { class: if open { "text-label-3 rotate-90 transition-transform duration-150" } else { "text-label-3 transition-transform duration-150" },
-                    ChevronRight { size: 12 }
+                    IconChevronRight { size: 12 }
                 }
                 span { "工作过程" }
                 span { class: "text-caption", "· {count}" }
@@ -548,7 +613,7 @@ fn ToolLine(tool: ToolCall) -> Element {
                     e.stop_propagation();
                     open.set(!open());
                 },
-                span { class: "{arrow_class}", ChevronRight { size: 12 } }
+                span { class: "{arrow_class}", IconChevronRight { size: 12 } }
                 span { class: "{chip} inline-flex items-center font-mono text-[10px] font-semibold uppercase px-1.5 py-px leading-4 rounded-md shrink-0",
                     "{tool.kind}"
                 }

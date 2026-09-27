@@ -7,11 +7,13 @@
     "test": "tests"
   },
   "scripts": {
-    "build:css": "node_modules/.bin/tailwindcss -i assets/tailwind-input.css -o assets/tailwind.gen.css"
+    "build:css": "node_modules/.bin/tailwindcss -i assets/tailwind-input.css -o assets/tailwind.gen.css",
+    "aino": "bun build ainotation-entry.ts --format=iife --minify --target=browser --outfile=assets/ainotation/ainotation.iife.js"
   },
   "keywords": [],
   "type": "commonjs",
   "devDependencies": {
+    "@ainotation/sdk": "^1.0.0-beta.3",
     "@tailwindcss/cli": "^4.3.3",
     "tailwindcss": "^4.3.3"
   }

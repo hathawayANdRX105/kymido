@@ -26,3 +26,6 @@ todo/
 # archify generated architecture docs + local backpass config
 archify/
 .backpassrc.json
+
+# ainotation 桥生成的本机 grant 文件（仅 localhost 面）
+bin/web/assets/ainotation/connection.json

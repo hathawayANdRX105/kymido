@@ -21,6 +21,7 @@
 //! 空态不许把带锚点的节点整块删掉）。
 
 use dioxus::prelude::*;
+use ui_kit::SegmentedCapsule;
 use web_client::daemon::{StatsSummary, WebDaemon};
 
 /// 时间范围切换项，与 `daemon::state::parse_stats_range` 认的 token 对齐。
@@ -178,25 +179,13 @@ pub fn StatsView() -> Element {
                     h1 { class: "text-[22px] leading-7 font-semibold text-label tracking-tight m-0", "数据统计" }
                     p { class: "text-[13px] leading-5 text-label-3 mt-1 m-0", "{subtitle}" }
                 }
-                div { class: "flex gap-0.5 bg-layer-1 border border-b1 rounded-[10px] p-0.5",
-                    for r in RANGES {
-                        {
-                            let r_str = r.to_string();
-                            let class = if selected_range() == r {
-                                "px-3.5 h-7 flex items-center text-[13px] rounded-lg font-medium bg-selector text-label cursor-pointer transition-colors border-none"
-                            } else {
-                                "px-3.5 h-7 flex items-center text-[13px] rounded-lg text-label-3 hover:text-label transition-colors cursor-pointer border-none bg-transparent"
-                            };
-                            rsx! {
-                                button {
-                                    key: "{r}",
-                                    class: "{class}",
-                                    onclick: move |_| selected_range.set(r_str.clone()),
-                                    "{r}"
-                                }
-                            }
-                        }
-                    }
+                // 分段切换换成 ui-kit SegmentedCapsule（统一胶囊分段语言，
+                // 附送滚轮循环切换）；active 为下标，映射回 RANGES 字符串。
+                SegmentedCapsule {
+                    items: RANGES.iter().map(|r| r.to_string()).collect(),
+                    active: RANGES.iter().position(|r| *r == selected_range()).unwrap_or(0),
+                    on_select: move |i: usize| selected_range.set(RANGES[i].to_string()),
+                    testid_prefix: "stats-range",
                 }
             }
 

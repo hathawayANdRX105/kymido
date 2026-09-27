@@ -11,9 +11,9 @@ anchors:
     source: 'omenic: crates/web-ui/src/views/config.rs:32；dsh: SettingsRoot 面板宽度'
   - key: modal-radius
     file: crates/web-ui/src/components/ui.rs
-    find: 'rounded-3xl border border-binv bg-layer-2 shadow-lv3'
-    expect: 'Modal 卡片 r24（rounded-3xl）、layer-2 底、lv3 阴影 + blur 遮罩。'
-    source: 'omenic: crates/web-ui/src/components/ui.rs:263（Modal）；dsh: Modal r24 + mask blur 2px 规格'
+    find: 'rounded-2xl border border-border bg-card shadow-xl'
+    expect: 'Modal 卡片 r16（rounded-2xl，ui-kit token 系）、bg-card 底、shadow-xl + black/60 blur 遮罩（ui-kit MODAL_BACKDROP）。'
+    source: 'omenic: crates/web-ui/src/components/ui.rs:41（Modal，样式收敛自 ui-kit panel.rs MODAL_* 常量）；原 dsh Modal r24 规格已随 ui-kit 统一替换'
   - key: left-nav
     find: 'w-[188px] shrink-0 bg-sidebar p-3 flex flex-col gap-1'
     expect: '左导航栏宽 188px、bg-sidebar 底。'

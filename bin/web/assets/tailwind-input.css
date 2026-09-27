@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 /* Scan Dioxus rsx source for class candidates (Rust macro strings).
-   build.rs strips every `@source` line from this file and emits two absolute
-   directives instead (this crate's rsx source dir, plus the merged web-ui
-   crate's rsx source dir), because Tailwind v4.3 only resolves a relative
-   `@source` glob when it has an explicit `./` prefix and against the
-   generated-input dir, which is fragile. The two lines below are documented
-   intent; build.rs ignores them. */
+   build.rs strips every `@source` line from this file and emits absolute
+   directives itself (this crate's src + crates/web-ui src + the ui-kit
+   checkout's src), because Tailwind v4.3 only resolves a relative `@source`
+   glob when it has an explicit `./` prefix and against the generated-input
+   dir, which is fragile. ui-kit 的 tokens.css / animation.css（shadcn 语义
+   token 桥 + animate-in 工具层）同样由 build.rs 以绝对路径 @import 注入；
+   kit checkout 找不到时只警告不失败（cargo:warning）。下面的 @source 行是
+   文档化意图，build.rs 会忽略并自行重写。 */
 @source "../src/**/*.rs";
 @source "../../crates/web-ui/**/*.rs";
 
@@ -305,19 +307,5 @@
   @keyframes shimmer-sweep {
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }
-  }
-
-  /* dsh spinner: 10px ring, business-blue top arc, 700ms */
-  .spinner-ring {
-    width: 10px;
-    height: 10px;
-    border: 1.5px solid var(--color-b2);
-    border-top-color: var(--color-brand);
-    border-radius: 50%;
-    animation: spinner-rot 700ms linear infinite;
-    display: inline-block;
-  }
-  @keyframes spinner-rot {
-    to { transform: rotate(360deg); }
   }
 }

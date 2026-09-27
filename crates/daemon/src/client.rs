@@ -236,6 +236,7 @@ impl DaemonClient {
         role: SessionRole,
         text: &str,
         attachments: &[session::Attachment],
+        tool_calls: &[Value],
     ) -> Result<AppendOutcome, ClientError> {
         let mut params = json!({
             "session_id": session_id,
@@ -244,6 +245,9 @@ impl DaemonClient {
         });
         if !attachments.is_empty() {
             params["attachments"] = serde_json::to_value(attachments).unwrap_or(Value::Null);
+        }
+        if !tool_calls.is_empty() {
+            params["tool_calls"] = serde_json::to_value(tool_calls).unwrap_or(Value::Null);
         }
         self.call(Command::SessionAppend, params)
     }

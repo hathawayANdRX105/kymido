@@ -5,8 +5,21 @@ use dioxus::prelude::*;
 use std::collections::{HashMap, HashSet};
 use web_state::types::{Session, SessionStatus, WorkspaceSpace};
 
-use crate::components::icons::{Chart, Folder, Gear, PanelLeft, Plus, Search, Trash};
-use crate::components::ui::IconButton;
+use ui_kit::button::{Button, ButtonSize, ButtonVariant};
+use ui_kit::icons::{
+    IconChartBar, IconFolder, IconGear, IconPanelLeft, IconPlus, IconSearch, IconTrash,
+};
+
+/// 品牌字标（Logo 行）：omenic + 品牌蓝圆点。品牌字标属业务身份，不进 ui-kit。
+#[component]
+fn Wordmark() -> Element {
+    rsx! {
+        span { class: "flex items-baseline gap-1.5 select-none",
+            span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "omenic" }
+            span { class: "w-1.5 h-1.5 rounded-full bg-brand translate-y-[-2px]" }
+        }
+    }
+}
 
 fn status_dot_class(status: &SessionStatus) -> &'static str {
     match status {
@@ -85,9 +98,15 @@ pub fn Sidebar(
                                     on_create.call(path);
                                 }
                             },
-                            crate::components::icons::Wordmark {}
+                            Wordmark {}
                         }
-                        IconButton { title: "收起侧边栏", onclick: move |_| on_toggle.call(()), PanelLeft { size: 16 } }
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::IconSm,
+                            title: "收起侧边栏",
+                            onclick: move |_| on_toggle.call(()),
+                            IconPanelLeft { size: 16 }
+                        }
                     }
                     // 新会话按钮：h38 r12 elevated + 边框
                     button {
@@ -97,17 +116,19 @@ pub fn Sidebar(
                                 on_create.call(path);
                             }
                         },
-                        Plus { size: 15, class: "text-label-3" }
+                        IconPlus { size: 15, class: "text-label-3" }
                         span { "新会话" }
                     }
                     // 区头：标题 + 搜索（⌘K 快速切换入口）
                     div { class: "h-9 flex items-center justify-between pl-1 pr-0.5",
                         span { class: "text-[12px] leading-4 text-caption", "会话" }
-                        IconButton {
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::IconSm,
                             class: "nav-search-bar",
                             title: "搜索会话 (⌘K)",
                             onclick: move |_| on_open_search.call(()),
-                            Search { size: 15 }
+                            IconSearch { size: 15 }
                         }
                     }
                     // 项目/会话树
@@ -137,7 +158,7 @@ pub fn Sidebar(
                                             drop(set);
                                             on_select_space.call(space_path.clone());
                                         },
-                                        Folder { size: 16, class: "shrink-0 text-label-3" }
+                                        IconFolder { size: 16, class: "shrink-0 text-label-3" }
                                         span { class: "text-[14px] leading-5 text-label truncate min-w-0 flex-1", "{space.name}" }
                                         button {
                                             class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
@@ -146,7 +167,7 @@ pub fn Sidebar(
                                                 e.stop_propagation();
                                                 on_create.call(space_path_create.clone());
                                             },
-                                            Plus { size: 13 }
+                                            IconPlus { size: 13 }
                                         }
                                         button {
                                             class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
@@ -155,7 +176,7 @@ pub fn Sidebar(
                                                 e.stop_propagation();
                                                 on_delete_space.call(space_path_delete.clone());
                                             },
-                                            Trash { size: 13 }
+                                            IconTrash { size: 13 }
                                         }
                                         span { class: "text-[12px] leading-5 text-label-3 tabular-nums", "{count}" }
                                     }
@@ -184,12 +205,12 @@ pub fn Sidebar(
                 div { class: "px-3 pb-2 flex flex-col gap-0.5",
                     div { class: "h-[42px] px-2.5 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors",
                         onclick: move |_| on_open_stats.call(()),
-                        Chart { size: 16, class: "text-label-3" }
+                        IconChartBar { size: 16, class: "text-label-3" }
                         span { "数据统计" }
                     }
                     div { class: "h-[42px] px-2.5 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors",
                         onclick: move |_| on_open_settings.call(()),
-                        Gear { size: 16, class: "text-label-3" }
+                        IconGear { size: 16, class: "text-label-3" }
                         span { "设置" }
                     }
                 }
@@ -311,7 +332,7 @@ fn SessionRow(
                     e.stop_propagation();
                     on_create_child.call(id_for_child.clone());
                 },
-                Plus { size: 13 }
+                IconPlus { size: 13 }
             }
             button {
                 class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
@@ -320,7 +341,7 @@ fn SessionRow(
                     e.stop_propagation();
                     on_delete.call(id_for_delete.clone());
                 },
-                Trash { size: 13 }
+                IconTrash { size: 13 }
             }
             span { class: "text-[12px] leading-5 text-label-3 shrink-0 group-hover:hidden", "{session.last_active}" }
         }
@@ -346,13 +367,13 @@ fn CollapsedRail(
                 class: "w-9 h-9 flex items-center justify-center rounded-full text-label-3 hover:bg-ihover hover:text-label-2 transition-colors cursor-pointer bg-transparent border-none",
                 title: "展开侧边栏",
                 onclick: move |_| on_toggle.call(()),
-                PanelLeft { size: 16 }
+                IconPanelLeft { size: 16 }
             }
             button {
                 class: "w-9 h-9 flex items-center justify-center rounded-full border border-b2 text-label-3 hover:bg-ihover hover:text-label-2 transition-colors cursor-pointer bg-transparent",
                 title: "新会话",
                 onclick: move |_| on_expand.call(()),
-                Plus { size: 15 }
+                IconPlus { size: 15 }
             }
             div { class: "my-1 w-5 h-px bg-b2" }
             div { class: "flex-1 min-h-0 overflow-y-auto w-full flex flex-col items-center gap-1",
@@ -405,13 +426,13 @@ fn CollapsedRail(
                     class: "w-9 h-9 flex items-center justify-center rounded-full text-label-3 hover:bg-ihover hover:text-label-2 transition-colors cursor-pointer bg-transparent border-none",
                     title: "数据统计",
                     onclick: move |_| on_open_stats.call(()),
-                    Chart { size: 16 }
+                    IconChartBar { size: 16 }
                 }
                 button {
                     class: "w-9 h-9 flex items-center justify-center rounded-full text-label-3 hover:bg-ihover hover:text-label-2 transition-colors cursor-pointer bg-transparent border-none",
                     title: "设置",
                     onclick: move |_| on_open_settings.call(()),
-                    Gear { size: 16 }
+                    IconGear { size: 16 }
                 }
             }
         }

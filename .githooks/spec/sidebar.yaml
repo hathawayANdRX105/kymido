@@ -14,10 +14,10 @@ anchors:
     expect: 'logo 行高 52px：omenic 字标 + 折叠钮两端对齐。'
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:76；dsh: SidebarRoot.module.css:90-101（logoRow）'
   - key: wordmark
-    file: crates/web-ui/src/components/icons.rs
+    file: crates/web-ui/src/components/sidebar.rs
     find: 'text-[18px] leading-6 font-semibold tracking-[0.04em]'
     expect: 'omenic 字标 18/24 semibold + 品牌色圆点。'
-    source: 'omenic: crates/web-ui/src/components/icons.rs:225（Wordmark）；dsh: SidebarRoot.module.css:110-116（brand group）'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:18（Wordmark，品牌字标属业务身份不进 ui-kit）；dsh: SidebarRoot.module.css:110-116（brand group）'
   - key: new-session-button
     find: 'h-[38px] mx-0.5 mb-2 px-4 rounded-xl border border-b2 bg-layer-2'
     expect: '新会话钮 h38、r12（rounded-xl）、layer-2 底 + 1px 边框，hover 提亮。'

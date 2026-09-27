@@ -93,7 +93,8 @@ pub enum Command {
     /// `session.delete` — `{ id }` → `{ deleted: bool }`.
     #[serde(rename = "session.delete")]
     SessionDelete,
-    /// `session.append` — `{ id, role, text }` → `{ seq, created_at_ms }`.
+    /// `session.append` — `{ id, role, text, attachments?, tool_calls? }` → `{ seq, created_at_ms }`。
+    /// `tool_calls` 是 assistant 消息携带的 UI 工具卡 JSON 数组（形状由 web-state 拥有，透传存储）。
     #[serde(rename = "session.append")]
     SessionAppend,
     /// `session.load_messages` — `{ id, limit }` → `[SessionMessage]`.
