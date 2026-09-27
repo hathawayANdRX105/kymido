@@ -241,22 +241,18 @@ jobs:
           grep -q "数到三" "$TMP/attach.out"
           grep -q "hello from the test backend" "$TMP/attach.out"
 
-  # T18 PTY smoke (route-tui §3 T18): the TUI's real-terminal evidence, which
-  # the pipe smoke above structurally cannot produce — pipe stdin never
-  # satisfies the mode probe (TTY + colour + >=44x12), so `oi tui` would fall
-  # back to linear and the enhanced shell would go untested. Here the same
-  # daemon + SSE stub drive `oi tui` through a real pty at 100x30 with colour
-  # support, keystrokes go in as bytes, and sentinels are matched after a
-  # settle-wait (no bare sleeps guessing at frames).
-  #
-  # Kept as its own job so a TTY-level regression names itself, and so the
-  # pty window/TERM setup stays out of the plan-mode and CLI pipe smokes.
-  tui_pty_smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      # T18 PTY smoke (route-tui §3 T18): the TUI's real-terminal evidence,
+      # which the pipe smoke above structurally cannot produce — pipe stdin
+      # never satisfies the mode probe (TTY + colour + >=44x12), so `oi tui`
+      # would fall back to linear and the enhanced shell would go untested.
+      # A real pty at 100x30 with colour support, keystrokes in as bytes, and
+      # sentinels matched after a settle-wait (no bare sleeps guessing at
+      # frames).
+      #
+      # A step here, not its own job: the workspace cold build does not fit
+      # in a fresh job's budget (run 36297952884 timed out at 15 min still
+      # downloading deps), while this job already builds `oi` and `daemon`
+      # for the pipe smoke above. The step name is what names the regression.
       - name: TUI enhanced pty smoke
         run: |
           set -euo pipefail
