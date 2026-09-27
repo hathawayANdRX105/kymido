@@ -41,35 +41,35 @@ pub struct DaemonConfig {
     /// start — there is no default and we don't want to silently create one
     /// in the current directory.
     pub session_db_path: Option<PathBuf>,
-    /// omenic 自家引擎（orbit）的模型配置：llm_base_url/api_key/model 在
-    /// `.oi/config.toml` 齐全时 Some——daemon worker 走 orbit 模式（真
+    /// kymido 自家引擎（orbit）的模型配置：llm_base_url/api_key/model 在
+    /// `.kymido/config.toml` 齐全时 Some——daemon worker 走 orbit 模式（真
     /// 模型）；None = omp 兼容模式。
     pub orbit_model: Option<llm::Model>,
-    /// 会话工作目录：orbit 引擎沿其祖先链查找 `AGENTS.md`（`.oi/config.toml`
+    /// 会话工作目录：orbit 引擎沿其祖先链查找 `AGENTS.md`（`.kymido/config.toml`
     /// 的 `[daemon] cwd`，默认 daemon 启动目录）。写入装配文档并经
     /// `LoopConfig::instruction_cwd` 注入——G6 第一次让指令注入在生产路径
     /// 生效。
     pub cwd: PathBuf,
-    /// `.oi` data dir — where the CLI's `task add` / `task done`
+    /// `.kymido` data dir — where the CLI's `task add` / `task done`
     /// append `tasks.jsonl`.  `task.list` reads the store from here
     /// instead of deriving a path of its own, so the board and the
     /// CLI can never disagree about where tasks live.
     pub data_dir: PathBuf,
-    /// 每 run 的 LLM 往返上限（`.oi/config.toml` 的 `[daemon] max_turns`）。
+    /// 每 run 的 LLM 往返上限（`.kymido/config.toml` 的 `[daemon] max_turns`）。
     /// 写入装配文档，由 daemon 从 `harness.loop` 服务解析回读。
     pub max_turns: usize,
     /// External MCP servers brought up once at daemon start
-    /// (`.oi/config.toml` `[[mcp.servers]]`, wired in by
+    /// (`.kymido/config.toml` `[[mcp.servers]]`, wired in by
     /// [`DaemonConfig::from_config`]). Their tools ride the orbit engine
     /// only — see [`Self::orbit_setup`]. Empty = nothing is spawned.
     pub mcp_servers: Vec<config::McpServerConfig>,
     /// Fallback LLM providers tried in order after the primary `[llm]`
     /// provider fails before emitting any content
-    /// (`.oi/config.toml` `[[llm.fallbacks]]`). Empty = single-provider
+    /// (`.kymido/config.toml` `[[llm.fallbacks]]`). Empty = single-provider
     /// behaviour (`agent_loop::orbit::HttpLlm`, historic path, zero change).
     pub llm_fallbacks: Vec<config::LlmFallbackConfig>,
     /// Out-of-process subagent providers (`[[subagent.providers]]` in
-    /// `.oi/config.toml`), each a spawned ACP child agent the daemon can
+    /// `.kymido/config.toml`), each a spawned ACP child agent the daemon can
     /// delegate runs to. Wired in by [`DaemonConfig::from_config`]; empty =
     /// no out-of-process provider is registered (only the built-in `fork`).
     pub subagent_providers: Vec<config::SubagentProviderConfig>,
@@ -79,11 +79,11 @@ pub struct DaemonConfig {
 }
 
 impl DaemonConfig {
-    /// llm 三件套（base_url/api_key/model）在 `.oi/config.toml` 齐全时
+    /// llm 三件套（base_url/api_key/model）在 `.kymido/config.toml` 齐全时
     /// 构建 orbit 模型配置——设置页写该文件即生效。
     fn resolve_orbit_model(cfg: &config::Config) -> Option<llm::Model> {
         // `active_llm` picks the active profile, else the flat `[llm]`
-        // fields (which `Config::load` has already let `OMENIC_LLM_*`
+        // fields (which `Config::load` has already let `KYMIDO_LLM_*`
         // override), and yields nothing when the chosen credential is
         // incomplete.
         let resolved = cfg.active_llm()?;
@@ -174,7 +174,7 @@ pub struct Daemon {
     pub(crate) _lock: InstanceLock,
     pub(crate) session_state: SessionState,
     pub(crate) run_ledger: RunLedger,
-    /// `.oi` data dir; `task.list` reads `tasks.jsonl` from here.
+    /// `.kymido` data dir; `task.list` reads `tasks.jsonl` from here.
     pub(crate) task_data_dir: PathBuf,
     pub(crate) worker: Arc<Mutex<WorkerHandle>>,
     pub(crate) shutdown: Arc<AtomicBool>,
@@ -668,7 +668,7 @@ impl Daemon {
     /// The config document is what the composition root reads its knobs from
     /// (`model`, `max_turns`, `cwd`, `system_prompt`). `model` comes from the
     /// orbit credentials when configured; `cwd` and `max_turns` come from
-    /// `[daemon]` in `.oi/config.toml`. The document is the single source the
+    /// `[daemon]` in `.kymido/config.toml`. The document is the single source the
     /// container consumes — the daemon then reads the assembled services back
     /// out (see [`Self::orbit_setup`]), so a knob flows document → service →
     /// engine rather than being short-circuited.
@@ -797,7 +797,7 @@ struct AcceptLoopCtx {
 
 fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, DaemonError> {
     let handle = thread::Builder::new()
-        .name("omenic-daemon-accept".into())
+        .name("kymido-daemon-accept".into())
         .spawn(move || {
             let poll_interval = Duration::from_millis(50);
             let AcceptLoopCtx {
@@ -938,7 +938,7 @@ fn connection_read_loop(
         // `shutdown` is answered BEFORE taking the worker lock: an
         // in-flight omp `prompt` holds that lock for its whole turn, and
         // `client.shutdown()` reads its reply with no deadline — queueing
-        // `Command::Shutdown` behind the lock hangs `oi daemon stop` until
+        // `Command::Shutdown` behind the lock hangs `kymido daemon stop` until
         // the turn ends (or forever, if the turn never does). The
         // `dispatch` Shutdown arm stays as a fallback; keep both payload
         // shapes in sync.

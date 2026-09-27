@@ -903,8 +903,8 @@ pub fn compact_cmd(json: bool) -> Result<u8, String> {
     Ok(0)
 }
 
-/// `init` subcommand: create `.oi/` (config dir), `.oi/config.toml` and the
-/// spec template files under `.oi/specs/`. Idempotent — existing artifacts
+/// `init` subcommand: create `.kymido/` (config dir), `.kymido/config.toml` and the
+/// spec template files under `.kymido/specs/`. Idempotent — existing artifacts
 /// are never overwritten.
 pub fn ready_cmd(json: bool) -> Result<u8, String> {
     let config = Config::load().map_err(|e| format!("config error: {e}"))?;

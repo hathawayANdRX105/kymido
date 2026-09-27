@@ -7,8 +7,8 @@
 //! 环境下照样成立。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use omenic_tui::app::{App, KeyAction};
-use omenic_tui::ui;
+use kymido_tui::app::{App, KeyAction};
+use kymido_tui::ui;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;

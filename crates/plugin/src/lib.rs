@@ -1,4 +1,4 @@
-//! Plugin surface for the omenic agent harness (C6).
+//! Plugin surface for the kymido agent harness (C6).
 //!
 //! Reference: `dsh vendor/cordis` — the dependency container the dsh core
 //! runs on: [`ServiceRegistry`] (typed `provide`/`resolve`), [`EventBus`]

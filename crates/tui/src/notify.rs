@@ -21,7 +21,7 @@ pub const BATCH_NOTIFY_MIN: Duration = Duration::from_secs(10);
 
 /// OSC9 通知文案（`ESC ] 9 ; <msg> BEL` 的载荷）：只陈述「回合批次已结束」，
 /// 不编造内容。
-const OSC9_MSG: &str = "oi tui: turn finished";
+const OSC9_MSG: &str = "kymido tui: turn finished";
 
 /// T15：完成通知批次状态机（无 IO、时钟注入；`App` 持有，linear 路径直接
 /// 持有本类型）。

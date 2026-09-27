@@ -1,4 +1,4 @@
-//! omenic-web-state：web UI 的状态词汇表。
+//! kymido-web-state：web UI 的状态词汇表。
 //!
 //! - [`convert`]：daemon `session` 存储行 → UI DTO 的纯函数转换（C5.2a）
 //! - [`types`]：页面/组件消费的 DTO（Session/ChatMessage/TaskItem/Stats…）

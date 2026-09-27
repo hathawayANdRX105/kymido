@@ -854,7 +854,7 @@ fn spawn_prompt(
     let run_id = run_id.to_string();
     let tx = tx.clone();
     std::thread::Builder::new()
-        .name("oi-tui-inline-prompt".into())
+        .name("kymido-tui-inline-prompt".into())
         .spawn(move || {
             // The inline composer is text-only; the file picker lives in the
             // web UI, so this path sends no attachments.

@@ -11,7 +11,7 @@
 //! are not asserted, only the `Ok` outcome is.
 //!
 //! **These cases share one process-wide current directory.** `Config::load`
-//! reads `./.oi/config.toml` — resolved against the *process* cwd, since it
+//! reads `./.kymido/config.toml` — resolved against the *process* cwd, since it
 //! takes no directory argument — and `set_current_dir` is a property of the
 //! process, not of a test. Three cases that each move the cwd and then load
 //! therefore race each other when cargo runs them in parallel threads: the
@@ -32,7 +32,7 @@ fn cwd_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Write a `.oi/config.toml` with one `[[mcp.servers]]` entry and load it
+/// Write a `.kymido/config.toml` with one `[[mcp.servers]]` entry and load it
 /// from that cwd, mirroring the `Config::load` harness of
 /// `llm_fallbacks_parse.rs`.
 ///
@@ -41,10 +41,10 @@ fn cwd_lock() -> std::sync::MutexGuard<'static, ()> {
 fn load_with_mcp_server(toml_entry: &str) -> Result<config::Config, config::ConfigError> {
     let _serialized = cwd_lock();
     let dir = tempfile::tempdir().expect("tempdir");
-    let oi_dir = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi_dir).expect("create .oi dir");
+    let kymido_dir = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido_dir).expect("create .kymido dir");
     std::fs::write(
-        oi_dir.join("config.toml"),
+        kymido_dir.join("config.toml"),
         format!("[[mcp.servers]]\n{toml_entry}"),
     )
     .expect("write config.toml");

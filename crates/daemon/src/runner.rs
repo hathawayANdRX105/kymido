@@ -76,7 +76,7 @@ impl std::fmt::Display for RunnerError {
             RunnerError::RetryLimit { id, attempts } => write!(
                 f,
                 "retry limit exceeded for {id} ({attempts} failed attempts); \
-                 reset with `oi task update {id} --attempts 0`"
+                 reset with `kymido task update {id} --attempts 0`"
             ),
         }
     }
@@ -217,7 +217,7 @@ pub fn run(ctx: &Ctx, task_id: &str) -> Result<RunOutcome, RunnerError> {
         eprintln!("warning: omp rejected external tools: {e}");
     }
 
-    // F3 liveness marker for `oi abort`: `<run-pid> <omp-pid>`. Both are
+    // F3 liveness marker for `kymido abort`: `<run-pid> <omp-pid>`. Both are
     // signalled so the worker tree dies even without job control grouping
     // the runner into its own process group.
     let pid_path = task_dir.join("run.pid");
@@ -258,7 +258,7 @@ pub fn run(ctx: &Ctx, task_id: &str) -> Result<RunOutcome, RunnerError> {
                     }
                 }
                 // F3: poll the steer inbox between events so an external
-                // `oi steer` can drive the live worker. Abort uses a
+                // `kymido steer` can drive the live worker. Abort uses a
                 // process-group signal (`run.pid` + kill -TERM -<pid>) so it
                 // works even while the model is silent — the poll can't.
                 if let Err(e) = poll_steer(&task_dir, &mut worker) {
@@ -293,7 +293,7 @@ pub fn run(ctx: &Ctx, task_id: &str) -> Result<RunOutcome, RunnerError> {
 }
 
 /// RAII: remove `<task_dir>/run.pid` on drop so every run exit path cleans
-/// up the liveness marker consumed by `oi abort`.
+/// up the liveness marker consumed by `kymido abort`.
 struct RunPidGuard(PathBuf);
 
 impl Drop for RunPidGuard {

@@ -1,4 +1,4 @@
-//! Dioxus LiveView Web UI for omenic — dsh 风格。
+//! Dioxus LiveView Web UI for kymido — dsh 风格。
 //!
 //! 无顶栏（dsh 无 topbar）：侧栏承载全部入口（新会话 / 搜索 ⌘K /
 //! 数据统计 / 设置弹窗）。页面数据走 daemon RPC（`stats.summary` / `runs_for_session` / `list_sessions`），无 daemon 时空态。
@@ -24,7 +24,7 @@ pub fn App() -> Element {
 /// Launch the interactive Dioxus LiveView server on http://127.0.0.1:8026.
 pub async fn launch() {
     let port = std::env::var("PORT")
-        .or_else(|_| std::env::var("OMENIC_WEB_PORT"))
+        .or_else(|_| std::env::var("KYMIDO_WEB_PORT"))
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8026);
@@ -36,7 +36,7 @@ pub async fn launch() {
     // Ainotation 标注 bundle（`npm run aino` 生成，源 bin/web/ainotation-entry.ts）：
     // 仅 dev 构建内联进 index——release 无痕。同步链：页面 SDK → 本地桥
     // （scripts/ainotation-bridge.mjs :44091 签 grant）→ MCP service。`</script`
-    // 转义防内联脚本截断。用法：起 service + omenic 桥（见 AGENTS.md 标注栈节）。
+    // 转义防内联脚本截断。用法：起 service + kymido 桥（见 AGENTS.md 标注栈节）。
     #[cfg(debug_assertions)]
     let aino_script = format!(
         "<script>{}</script>",
@@ -51,7 +51,7 @@ pub async fn launch() {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>omenic</title>
+    <title>kymido</title>
     <style>
 {css}
     </style>
@@ -75,7 +75,8 @@ pub async fn launch() {
             el.scrollIntoView({{ behavior: "smooth", block: "start" }});
         }}
 
-        // Minimap: click/wheel navigation + scroll-spy highlight, all client-side.
+        // Minimap: wheel gradient + scroll-spy highlight, all client-side; bars are
+        // visual anchors only — no click-to-jump, no message-follow (聚簇居中).
         // Bars carry a `data-anchor` (the prompt element id). A discrete 3-level
         // gradient is centered on a reference index (scroll position at rest, the
         // cursor while hovering): only the center bar + the two on each side (5 bars
@@ -90,27 +91,7 @@ pub async fn launch() {
             var NS = window.__mm = window.__mm || {{}};
             if (typeof NS.ref !== 'number') NS.ref = 0;
             // Cached DOM queries; invalidated whenever the chat DOM changes.
-            // 条与消息的几何对齐：每个条的纵向位置 = 目标消息中心在内容坐标系
-            // 里的高度占比（offsetTop/scrollHeight，与滚动无关），条不再聚簇居中。
-            // DOM/内容变化时随 invalidate 重算；滚动不改变内容坐标，无需随滚重排。
-            function layoutBars() {{
-                if (!scrollEl) return;
-                var h = scrollEl.scrollHeight;
-                if (!h) return;
-                var bs = getBars();
-                for (var i = 0; i < bs.length; i++) {{
-                    var a = bs[i].getAttribute('data-anchor');
-                    var el = a ? document.getElementById(a) : null;
-                    if (!el) {{ bs[i].style.display = 'none'; continue; }}
-                    bs[i].style.display = '';
-                    var frac = (el.offsetTop + el.offsetHeight / 2) / h;
-                    bs[i].style.position = 'absolute';
-                    bs[i].style.left = '0';
-                    bs[i].style.top = (frac * 100).toFixed(2) + '%';
-                    bs[i].style.transform = 'translateY(-50%)';
-                }}
-            }}
-            function invalidate() {{ NS.barsCache = null; NS.centers = null; layoutBars(); }}
+            function invalidate() {{ NS.barsCache = null; NS.centers = null; }}
             function getBars() {{
                 if (!NS.barsCache) NS.barsCache = Array.prototype.slice.call(mm.querySelectorAll('[data-anchor]'));
                 return NS.barsCache;
@@ -200,11 +181,7 @@ pub async fn launch() {
             }}
             if (!NS.wired) {{
                 NS.wired = true;
-                mm.addEventListener('click', function(e) {{
-                    var bar = e.target.closest('[data-anchor]');
-                    if (!bar) return;
-                    scrollToIdx(getBars().indexOf(bar));
-                }});
+                // 用户要求：minimap 不做点击跳转，条只是视觉锚点（wheel/hover 渐变保留）。
                 mm.addEventListener('wheel', function(e) {{
                     e.preventDefault();
                     var bs = getBars();
@@ -470,6 +447,6 @@ pub async fn launch() {
             return;
         }
     };
-    println!("omenic web server running on http://{addr}");
+    println!("kymido web server running on http://{addr}");
     let _ = axum::serve(listener, app).await;
 }

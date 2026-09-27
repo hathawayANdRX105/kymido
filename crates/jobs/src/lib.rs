@@ -1,4 +1,4 @@
-//! Background job registry for omenic.
+//! Background job registry for kymido.
 //!
 //! A *job* is work that must outlive the tool call which started it — a long
 //! build, a training run, a server. The agent's tool call returns as soon as
@@ -473,7 +473,7 @@ impl JobRegistry for LocalJobRegistry {
         let id_for_thread = id.clone();
         let task_control = control.clone();
         let handle = std::thread::Builder::new()
-            .name(format!("omenic-job-{}", id.as_str()))
+            .name(format!("kymido-job-{}", id.as_str()))
             .spawn(move || {
                 let outcome = task(&task_control);
                 let (record_state, output) = match outcome {

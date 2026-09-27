@@ -17,12 +17,12 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use omenic_tui::app::{
+use kymido_tui::app::{
     App, REDRAW_CADENCE_MS, STREAM_GAP_MS, WHEEL_LINES_PER_TICK, WHEEL_QUEUE_MAX,
     WHEEL_TICK_DETECT_MAX_MS,
 };
-use omenic_tui::scroll::ScrollModel;
-use omenic_tui::ui;
+use kymido_tui::scroll::ScrollModel;
+use kymido_tui::ui;
 use web_state::types::{ChatMessage, MessagePart};
 
 /// TestBackend 缓冲 → 逐行文本（同 `tests/layout.rs` 的取样法）。
@@ -245,7 +245,7 @@ fn wheel_tick_merges_in_window_and_clears_stale_flipped_backlog() {
 #[test]
 fn termguard_sequences_toggle_mouse_capture() {
     let mut enter = Vec::new();
-    omenic_tui::termguard::enter_sequence(&mut enter).expect("enter sequence");
+    kymido_tui::termguard::enter_sequence(&mut enter).expect("enter sequence");
     let mut expected_enter = Vec::new();
     crossterm::execute!(
         expected_enter,
@@ -256,7 +256,7 @@ fn termguard_sequences_toggle_mouse_capture() {
     assert_eq!(enter, expected_enter, "进屏必须启用鼠标捕获");
 
     let mut leave = Vec::new();
-    omenic_tui::termguard::restore_sequence(&mut leave).expect("restore sequence");
+    kymido_tui::termguard::restore_sequence(&mut leave).expect("restore sequence");
     let mut expected_leave = Vec::new();
     crossterm::execute!(
         expected_leave,

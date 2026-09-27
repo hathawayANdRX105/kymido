@@ -1,4 +1,4 @@
-//! Headless omenic daemon binary entrypoint.
+//! Headless kymido daemon binary entrypoint.
 //!
 //! This module provides the main entry point for the daemon binary,
 //! following the daemon config pattern from server.rs.
@@ -16,7 +16,7 @@ use daemon::{Daemon, DaemonConfig, DaemonError};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Main entry point for the omenic daemon binary.
+/// Main entry point for the kymido daemon binary.
 ///
 /// This function:
 /// 1. Creates a DaemonConfig using Config::daemon_socket_path and Config::session_db_path
@@ -28,7 +28,7 @@ fn main() -> Result<(), DaemonError> {
 
     let cfg = DaemonConfig::from_config(&config)?;
 
-    println!("Starting omenic daemon...");
+    println!("Starting kymido daemon...");
     let mut daemon = Daemon::start(cfg)?;
 
     println!(

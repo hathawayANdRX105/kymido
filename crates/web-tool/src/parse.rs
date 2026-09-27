@@ -418,11 +418,11 @@ impl Tool for WebSearchTool {
 
     fn execute(&self, args: &Value, _abort: &AbortSignal) -> Result<ToolResult, ToolError> {
         let queries = parse_queries(args)?;
-        let endpoint = match std::env::var("OMENIC_WEB_SEARCH_ENDPOINT") {
+        let endpoint = match std::env::var("KYMIDO_WEB_SEARCH_ENDPOINT") {
             Ok(e) if !e.trim().is_empty() => e,
             _ => {
                 return Err(ToolError::Execute(
-                    "web_search: no endpoint configured (set OMENIC_WEB_SEARCH_ENDPOINT and OMENIC_WEB_SEARCH_API_KEY)".to_string(),
+                    "web_search: no endpoint configured (set KYMIDO_WEB_SEARCH_ENDPOINT and KYMIDO_WEB_SEARCH_API_KEY)".to_string(),
                 ));
             }
         };
@@ -434,7 +434,7 @@ impl Tool for WebSearchTool {
             .post(&endpoint)
             .set("content-type", "application/json")
             .set("accept", "application/json");
-        if let Ok(key) = std::env::var("OMENIC_WEB_SEARCH_API_KEY") {
+        if let Ok(key) = std::env::var("KYMIDO_WEB_SEARCH_API_KEY") {
             if !key.trim().is_empty() {
                 request = request.set("authorization", &format!("Bearer {key}"));
             }

@@ -172,7 +172,7 @@ pub fn suggest_next(tasks: &[Task], done_id: &str) -> Vec<String> {
 /// with `arrowhead=none`. Nodes are colored by status.
 pub fn render_dot(tasks: &[Task]) -> String {
     if tasks.is_empty() {
-        return "digraph omenic {\n}\n".to_string();
+        return "digraph kymido {\n}\n".to_string();
     }
 
     fn status_color(s: &TaskStatus) -> &'static str {
@@ -185,7 +185,7 @@ pub fn render_dot(tasks: &[Task]) -> String {
     }
 
     let mut out = String::new();
-    out.push_str("digraph omenic {\n");
+    out.push_str("digraph kymido {\n");
     out.push_str("  rankdir=LR;\n");
     out.push_str("  node [shape=box, style=\"rounded,filled\"];\n");
 

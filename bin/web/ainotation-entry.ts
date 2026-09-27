@@ -1,12 +1,12 @@
 // Ainotation 开发标注工具入口（仅开发环境，由 app.rs 的 debug_assertions 门控注入）。
 // 打包：npm run aino → assets/ainotation/ainotation.iife.js
 //
-// MCP 接线：从本地 omenic 同步桥（scripts/ainotation-bridge.mjs，127.0.0.1:44091）
+// MCP 接线：从本地 kymido 同步桥（scripts/ainotation-bridge.mjs，127.0.0.1:44091）
 // 取 {url, token}（grant token 由桥签发并续租）；桥不在时降级为纯本地模式
 // （标注/复制/导出可用，MCP 不自动同步）。
 import { createAinotation } from '@ainotation/sdk';
 
-const PROJECT_ID = 'omenic-web';
+const PROJECT_ID = 'kymido-web';
 
 function mount(options) {
   const inspector = createAinotation({ projectId: PROJECT_ID, ...options });

@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A fully resolved primary credential: every field present.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,12 +22,12 @@ pub struct ResolvedLlm {
     pub max_tokens: Option<u32>,
 }
 
-/// Configuration for omenic.
+/// Configuration for kymido.
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Path to the omp binary.
     pub omp_path: PathBuf,
-    /// Directory for omenic data storage.
+    /// Directory for kymido data storage.
     pub data_dir: PathBuf,
     /// Model name to use.
     pub model: String,
@@ -48,7 +48,7 @@ pub struct Config {
     /// means switching `llm_active_profile`, not rewriting this file.
     pub llm_profiles: Vec<LlmProfileConfig>,
     /// Which profile supplies the primary credential. `None` = use the flat
-    /// `[llm]` fields, which then honor the `OMENIC_LLM_*` env overrides.
+    /// `[llm]` fields, which then honor the `KYMIDO_LLM_*` env overrides.
     pub llm_active_profile: Option<String>,
     /// External MCP servers to spawn for extra tools. Empty by default —
     /// MCP is opt-in and nothing is spawned unless the user lists a server.
@@ -66,10 +66,10 @@ pub struct Config {
     /// Working directory the daemon's orbit engine treats as the session
     /// root: `AGENTS.md` workspace-instruction discovery walks up this
     /// directory's ancestor chain. Defaults to the daemon startup directory
-    /// (`.oi/config.toml` `[daemon] cwd`, or `OMENIC_CWD`).
+    /// (`.kymido/config.toml` `[daemon] cwd`, or `KYMIDO_CWD`).
     pub cwd: PathBuf,
     /// Cap on LLM round-trips per run for the orbit engine. `None` = the
-    /// loop's own default (`[daemon] max_turns`, or `OMENIC_MAX_TURNS`).
+    /// loop's own default (`[daemon] max_turns`, or `KYMIDO_MAX_TURNS`).
     pub max_turns: Option<usize>,
     /// `[tui] notify_osc9` — besides the bell, emit an OSC9 notification
     /// when a long turn batch completes. Off by default: the bell is the
@@ -308,16 +308,25 @@ impl From<toml::de::Error> for ConfigError {
 }
 
 impl Config {
-    /// Load configuration with priority: env > TOML file > defaults.
+    /// Load configuration with priority: env > workspace TOML > user TOML > defaults.
     ///
-    /// Config lives in the `.oi/` directory (`.oi/config.toml`); the legacy
-    /// root `omenic.toml` is still read when present so pre-.oi workspaces
-    /// keep working (migrate with `cli init`).
+    /// The user-scoped copy lives at [`Config::config_file`] — the XDG config
+    /// dir, so the same credentials are found no matter which repository the
+    /// process started in. A workspace-local `.kymido/config.toml` still wins
+    /// when present, the same way a project `.env` beats `~/.env`: it is an
+    /// explicit per-repository override, and the tests rely on being able to
+    /// pin one without touching the developer's real config.
+    ///
+    /// `kymido init` copies a workspace-local file into the XDG dir and then
+    /// renames the original aside, so the steady state is one config in one
+    /// place rather than two files silently shadowing each other.
+    ///
+    /// A missing config dir is not an error: a clean machine gets defaults.
     pub fn load() -> Result<Config, ConfigError> {
-        // Start with defaults (data lives inside the `.oi/` config dir).
+        // Start with defaults (the work-item store is workspace-scoped; see `data_dir`).
         let mut config = Config {
             omp_path: PathBuf::from("omp"),
-            data_dir: PathBuf::from("./.oi"),
+            data_dir: PathBuf::from("./.kymido"),
             model: String::from("default"),
             llm_profiles: Vec::new(),
             llm_active_profile: None,
@@ -336,12 +345,15 @@ impl Config {
             tui_notify_osc9: false,
         };
 
-        // Load from TOML file (.oi/config.toml, legacy fallback omenic.toml);
-        // a missing file is not an error.
-        let candidates = [
-            PathBuf::from("./.oi/config.toml"),
-            PathBuf::from("./omenic.toml"),
-        ];
+        // Workspace override first, user-scoped second. A missing file is not
+        // an error at any level: pure defaults are a valid machine, and the
+        // XDG directory is laid down on first write by `ensure_config_dir`.
+        // A failed XDG lookup (no HOME) is likewise not fatal — the
+        // workspace file may still be there, and otherwise defaults stand.
+        let mut candidates = vec![PathBuf::from("./.kymido/config.toml")];
+        if let Ok(user_config) = Self::config_file() {
+            candidates.push(user_config);
+        }
         for toml_path in candidates {
             if let Ok(content) = std::fs::read_to_string(&toml_path) {
                 let toml_config: TomlConfig = toml::from_str(&content)?;
@@ -351,34 +363,34 @@ impl Config {
         }
 
         // Environment variables override everything
-        if let Ok(v) = env::var("OMENIC_OMP_PATH") {
+        if let Ok(v) = env::var("KYMIDO_OMP_PATH") {
             config.omp_path = PathBuf::from(v);
         }
-        if let Ok(v) = env::var("OMENIC_DATA_DIR") {
+        if let Ok(v) = env::var("KYMIDO_DATA_DIR") {
             config.data_dir = PathBuf::from(v);
         }
         config
             .memory_dir
             .get_or_insert_with(|| config.data_dir.join("memory"));
-        if let Ok(v) = env::var("OMENIC_MODEL") {
+        if let Ok(v) = env::var("KYMIDO_MODEL") {
             config.model = v;
         }
-        if let Ok(v) = env::var("OMENIC_LLM_API_KEY") {
+        if let Ok(v) = env::var("KYMIDO_LLM_API_KEY") {
             config.llm_api_key = Some(v);
         }
-        if let Ok(v) = env::var("OMENIC_LLM_BASE_URL") {
+        if let Ok(v) = env::var("KYMIDO_LLM_BASE_URL") {
             config.llm_base_url = Some(v);
         }
-        if let Ok(v) = env::var("OMENIC_LLM_MODEL") {
+        if let Ok(v) = env::var("KYMIDO_LLM_MODEL") {
             config.llm_model = Some(v);
         }
-        if let Ok(v) = env::var("OMENIC_LLM_MAX_TOKENS") {
+        if let Ok(v) = env::var("KYMIDO_LLM_MAX_TOKENS") {
             config.llm_max_tokens = v.parse().ok();
         }
-        if let Ok(v) = env::var("OMENIC_CWD") {
+        if let Ok(v) = env::var("KYMIDO_CWD") {
             config.cwd = PathBuf::from(v);
         }
-        if let Ok(v) = env::var("OMENIC_MAX_TURNS") {
+        if let Ok(v) = env::var("KYMIDO_MAX_TURNS") {
             config.max_turns = v.parse().ok();
         }
         config.validate()?;
@@ -388,7 +400,7 @@ impl Config {
     /// The primary LLM credential: the active profile when one is named,
     /// otherwise the flat `[llm]` fields.
     ///
-    /// A profile is a *complete* credential, so the `OMENIC_LLM_*` env
+    /// A profile is a *complete* credential, so the `KYMIDO_LLM_*` env
     /// overrides — which only reach the flat fields — do not apply once a
     /// profile is active. Mixing an env key with a profile's model would be
     /// worse than ignoring the override. `None` when the active credential is
@@ -633,31 +645,68 @@ impl Config {
     /// Resolve the absolute path to the session database file.
     ///
     /// Priority:
-    /// 1. `OMENIC_SESSION_DB` env var (verbatim).
-    /// 2. Platform-specific config directory + `omenic/sessions.db`.
+    /// 1. `KYMIDO_SESSION_DB` env var (verbatim).
+    /// 2. Platform-specific config directory + `kymido/sessions.db`.
     ///
     /// Returns `ConfigError::Invalid` when the platform-default lookup needs
     /// an environment variable that is missing (e.g. `XDG_CONFIG_HOME` set
     /// to empty, or `HOME`/`APPDATA` unset on Unix/macOS/Windows).
     pub fn session_db_path(&self) -> Result<PathBuf, ConfigError> {
-        match env::var_os("OMENIC_SESSION_DB") {
+        match env::var_os("KYMIDO_SESSION_DB") {
             Some(v) if !v.is_empty() => Ok(PathBuf::from(v)),
-            _ => Ok(platform_config_dir()?.join("omenic").join("sessions.db")),
+            _ => Ok(platform_config_dir()?.join("kymido").join("sessions.db")),
         }
     }
 
     /// Resolve the absolute path to the daemon Unix-domain / named-pipe socket.
     ///
     /// Priority:
-    /// 1. `OMENIC_DAEMON_SOCKET` env var (verbatim).
-    /// 2. Platform-specific config directory + `omenic/daemon.sock`.
+    /// 1. `KYMIDO_DAEMON_SOCKET` env var (verbatim).
+    /// 2. Platform-specific config directory + `kymido/daemon.sock`.
     ///
     /// Same error semantics as [`Self::session_db_path`].
     pub fn daemon_socket_path(&self) -> Result<PathBuf, ConfigError> {
-        match env::var_os("OMENIC_DAEMON_SOCKET") {
+        match env::var_os("KYMIDO_DAEMON_SOCKET") {
             Some(v) if !v.is_empty() => Ok(PathBuf::from(v)),
-            _ => Ok(platform_config_dir()?.join("omenic").join("daemon.sock")),
+            _ => Ok(platform_config_dir()?.join("kymido").join("daemon.sock")),
         }
+    }
+
+    /// The user-scoped config root — the single place `config.toml` lives.
+    ///
+    /// Priority:
+    /// 1. `KYMIDO_CONFIG_DIR` env var (verbatim).
+    /// 2. Platform-specific config directory + `kymido`.
+    ///
+    /// Unlike [`Config::data_dir`] this is **not** workspace-relative: a
+    /// credential or a daemon socket belongs to the user, not to whichever
+    /// repository the process happened to start in. The directory is created
+    /// on first use by [`Config::ensure_config_dir`].
+    pub fn config_dir() -> Result<PathBuf, ConfigError> {
+        match env::var_os("KYMIDO_CONFIG_DIR") {
+            Some(v) if !v.is_empty() => Ok(PathBuf::from(v)),
+            _ => Ok(platform_config_dir()?.join("kymido")),
+        }
+    }
+
+    /// `config.toml` inside [`Self::config_dir`].
+    pub fn config_file() -> Result<PathBuf, ConfigError> {
+        Ok(Self::config_dir()?.join("config.toml"))
+    }
+
+    /// Create [`Self::config_dir`] if missing, and return it.
+    ///
+    /// Idempotent and safe to call from every entry point: the CLI, the daemon
+    /// and the web server all funnel through `Config::load`, so a first run on
+    /// a clean machine has to lay down the directory rather than fail on a
+    /// missing parent. Mode 0700 — `config.toml` carries API keys in plaintext.
+    pub fn ensure_config_dir() -> Result<PathBuf, ConfigError> {
+        let dir = Self::config_dir()?;
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).map_err(|e| ConfigError::Io(e))?;
+            restrict_to_owner(&dir);
+        }
+        Ok(dir)
     }
 }
 
@@ -704,3 +753,19 @@ fn platform_config_dir() -> Result<PathBuf, ConfigError> {
         })
     }
 }
+
+/// Best-effort `chmod 0700` on a directory the harness owns.
+///
+/// `config.toml` holds API keys in plaintext and the session DB holds every
+/// transcript, so the directory that contains them must not be group- or
+/// world-readable. Failure is not fatal: a filesystem without Unix modes (or
+/// a `noacl` mount) is a legitimate deployment, and refusing to run there
+/// would be worse than running with a wider mode.
+#[cfg(unix)]
+fn restrict_to_owner(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_path: &Path) {}

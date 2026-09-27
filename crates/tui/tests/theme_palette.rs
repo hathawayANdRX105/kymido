@@ -13,8 +13,8 @@
 //! 脏状态（并行执行也安全——断言只依赖自己设的值）。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use omenic_tui::app::App;
-use omenic_tui::theme::{self, Scheme};
+use kymido_tui::app::App;
+use kymido_tui::theme::{self, Scheme};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::{Buffer, CellWidth};
@@ -43,7 +43,7 @@ fn buffer_text(buffer: &Buffer) -> String {
 fn draw_text(app: &App) -> String {
     let mut terminal = Terminal::new(TestBackend::new(60, 16)).expect("terminal");
     terminal
-        .draw(|frame| omenic_tui::ui::draw(frame, app))
+        .draw(|frame| kymido_tui::ui::draw(frame, app))
         .expect("draw must fit without panicking");
     buffer_text(terminal.backend().buffer())
 }
@@ -52,7 +52,7 @@ fn draw_text(app: &App) -> String {
 fn draw_styles(app: &App) -> String {
     let mut terminal = Terminal::new(TestBackend::new(60, 16)).expect("terminal");
     terminal
-        .draw(|frame| omenic_tui::ui::draw(frame, app))
+        .draw(|frame| kymido_tui::ui::draw(frame, app))
         .expect("draw must fit without panicking");
     let buf = terminal.backend().buffer().clone();
     let mut out = String::new();

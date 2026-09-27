@@ -10,12 +10,12 @@ use ui_kit::icons::{
     IconChartBar, IconFolder, IconGear, IconPanelLeft, IconPlus, IconSearch, IconTrash,
 };
 
-/// 品牌字标（Logo 行）：omenic + 品牌蓝圆点。品牌字标属业务身份，不进 ui-kit。
+/// 品牌字标（Logo 行）：kymido + 品牌蓝圆点。品牌字标属业务身份，不进 ui-kit。
 #[component]
 fn Wordmark() -> Element {
     rsx! {
         span { class: "flex items-baseline gap-1.5 select-none",
-            span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "omenic" }
+            span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "kymido" }
             span { class: "w-1.5 h-1.5 rounded-full bg-brand translate-y-[-2px]" }
         }
     }
@@ -38,8 +38,6 @@ pub fn Sidebar(
     on_select: EventHandler<String>,
     on_select_space: EventHandler<String>,
     on_create: EventHandler<String>,
-    /// 行内「+」钮：以某会话为父创建子会话（5.3/5.5 谱系分组）
-    on_create_child: EventHandler<String>,
     on_delete_session: EventHandler<String>,
     on_delete_space: EventHandler<String>,
     collapsed: bool,
@@ -161,7 +159,7 @@ pub fn Sidebar(
                                         IconFolder { size: 16, class: "shrink-0 text-label-3" }
                                         span { class: "text-[14px] leading-5 text-label truncate min-w-0 flex-1", "{space.name}" }
                                         button {
-                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
                                             title: "新建会话",
                                             onclick: move |e: MouseEvent| {
                                                 e.stop_propagation();
@@ -170,7 +168,7 @@ pub fn Sidebar(
                                             IconPlus { size: 13 }
                                         }
                                         button {
-                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
                                             title: "移除项目",
                                             onclick: move |e: MouseEvent| {
                                                 e.stop_propagation();
@@ -190,7 +188,6 @@ pub fn Sidebar(
                                                     depth,
                                                     active: session.id == active_id,
                                                     on_select: on_select,
-                                                    on_create_child: on_create_child,
                                                     on_delete: on_delete_session,
                                                 }
                                             }
@@ -299,13 +296,10 @@ fn SessionRow(
     depth: usize,
     active: bool,
     on_select: EventHandler<String>,
-    on_create_child: EventHandler<String>,
     on_delete: EventHandler<String>,
 ) -> Element {
     let id_for_select = session.id.clone();
-    let id_for_child = session.id.clone();
     let id_for_delete = session.id.clone();
-    let dot = status_dot_class(&session.status);
 
     let row_class = if active {
         "group h-8 px-2 rounded-lg flex items-center gap-2 bg-ihover cursor-pointer transition-colors"
@@ -321,21 +315,10 @@ fn SessionRow(
     rsx! {
         div { class: "{row_class} {depth_indent_class(depth)}",
             onclick: move |_| on_select.call(id_for_select.clone()),
-            span { class: "w-2 h-2 rounded-full {dot} shrink-0" }
             span { class: "{title_class}", "{session.title}" }
-            // 新建子会话：样式语言同项目行 + 钮，与删除钮共用 hover 让位
-            // 出来的空间（时间戳 group-hover:hidden）
+            // 行内操作钮常显（默认降透明，hover 行满亮度），不再闪现
             button {
-                class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
-                title: "新建子会话",
-                onclick: move |e: MouseEvent| {
-                    e.stop_propagation();
-                    on_create_child.call(id_for_child.clone());
-                },
-                IconPlus { size: 13 }
-            }
-            button {
-                class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
                 title: "删除会话",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
@@ -343,7 +326,7 @@ fn SessionRow(
                 },
                 IconTrash { size: 13 }
             }
-            span { class: "text-[12px] leading-5 text-label-3 shrink-0 group-hover:hidden", "{session.last_active}" }
+            span { class: "text-[12px] leading-5 text-label-3 shrink-0", "{session.last_active}" }
         }
     }
 }

@@ -21,7 +21,7 @@ pub use protocol::events::{AgentEvent, TurnStop};
 use tools::{Tool, def};
 
 // The compaction policy (char-budget trigger ~4 chars/token ≈ 30k tokens,
-// verbatim recent window) lives in `omenic-harness-compaction` (C4); the
+// verbatim recent window) lives in `kymido-harness-compaction` (C4); the
 // public knobs stay re-exported on the orbit path.
 // ponytail: fixed budget — `Model` carries no context-window field; derive
 // it from provider metadata once one exists.
@@ -250,7 +250,7 @@ impl ContextLog {
 
 // ===== compaction =====
 // Policy (char-budget window, tool-pairing invariant, kept-window guard,
-// transcript rendering) lives in `omenic-harness-compaction` (C4). What
+// transcript rendering) lives in `kymido-harness-compaction` (C4). What
 // remains on the orbit path is the call seam — the LLM bridge and the
 // wire<->DTO re-typing — isolated in [`compaction_bridge`] so this module
 // stays under the R3 <= 20 line budget. A host resolves a `CharBudgetPolicy`
@@ -283,7 +283,7 @@ use crate::instruction::{InstructionCache, render_fragments};
 /// Mirrors dsh's baseline rendering (`agent-instructions/render.ts`: one
 /// `Instructions from: <path>` section per file, broadest first, joined into a
 /// single block, same-content files collapsed by digest) minus dsh's byte
-/// budget and `<system-reminder>` framing — omenic composes fragments at the
+/// budget and `<system-reminder>` framing — kymido composes fragments at the
 /// role layer (`infra/prompts` doc note) and the whole block ships as plain
 /// system-prompt text here.
 ///

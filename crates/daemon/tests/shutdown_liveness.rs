@@ -2,7 +2,7 @@
 //!
 //! omp-mode `prompt` holds the worker mutex for its entire turn, and the
 //! connection read loop takes that mutex per request. Serving
-//! `Command::Shutdown` after the lock made `oi daemon stop` (whose client
+//! `Command::Shutdown` after the lock made `kymido daemon stop` (whose client
 //! reads with no deadline) wait for the running turn — observed as a stop
 //! command frozen for 30s+. The server now answers `Shutdown` before the
 //! lock and the client bounds its wait; this test proves the ack arrives

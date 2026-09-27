@@ -3,7 +3,7 @@
 //!
 //! Data model ported from jcode's `jcode-memory-types` (HashMap adjacency,
 //! no petgraph — JSON-friendly and good enough at local-store scale). Edge
-//! kinds are pruned to what omenic can actually derive today:
+//! kinds are pruned to what kymido can actually derive today:
 //! `SharedTag` / `Supersedes` / `Contradicts`. jcode's own plan judged
 //! tag-nodes and clusters "write-heavy, read-never"; `RelatesTo` and
 //! `DerivedFrom` arrive with the explicit `link` action and the extraction

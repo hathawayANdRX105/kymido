@@ -18,8 +18,8 @@
 use std::io::{self, Write};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use omenic_tui::app::App;
-use omenic_tui::inline as inl;
+use kymido_tui::app::App;
+use kymido_tui::inline as inl;
 use serde_json::json;
 use web_state::ui_state::{AgentEvent, UiState};
 

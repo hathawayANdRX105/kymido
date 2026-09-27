@@ -1,10 +1,10 @@
-//! Prompt assembly pipeline for the omenic agent harness.
+//! Prompt assembly pipeline for the kymido agent harness.
 //!
-//! Reference: `omenic infra/prompts` (`include_str!` fragment composition)
+//! Reference: `kymido infra/prompts` (`include_str!` fragment composition)
 //! and `dsh core/session` system-prompt prep (`system-prompt.ts:666`).
 //!
 //! This crate abstracts template rendering so that prompt composition
-//! is decoupled from the loop engine (`omenic-harness-runtime`).
+//! is decoupled from the loop engine (`kymido-harness-runtime`).
 
 use protocol::Message;
 
@@ -21,7 +21,7 @@ pub struct PromptInput {
 }
 
 /// A named prompt template fragment, mirroring `prompts::system::*`
-/// constants in the omenic `infra/prompts` crate.
+/// constants in the kymido `infra/prompts` crate.
 #[derive(Debug, Clone)]
 pub struct PromptTemplate {
     pub name: String,
@@ -40,7 +40,7 @@ impl PromptTemplate {
 
 /// Renders a prompt from a template + input context.
 ///
-/// Reference: `omenic infra/prompts` fragment composition and
+/// Reference: `kymido infra/prompts` fragment composition and
 /// `dsh system-prompt.ts:666` prep step.
 /// Constraint: pure function of `(template, input)` — no I/O, no mutation.
 /// Non-goal: no conditional fragment gating (host-level concern, see
@@ -52,7 +52,7 @@ pub trait PromptRenderer {
 /// Render a template string with `{{system}}`, `{{user}}`, `{{history}}`
 /// placeholders. The simplest renderer: string substitution.
 ///
-/// Reference: `omenic infra/prompts/src/lib.rs` fragment doc note
+/// Reference: `kymido infra/prompts/src/lib.rs` fragment doc note
 /// ("callers compose fragments at the role layer").
 /// Constraint: placeholders are literal `{{key}}`; no other syntax.
 /// Non-goal: no conditional branching, no loop constructs, no

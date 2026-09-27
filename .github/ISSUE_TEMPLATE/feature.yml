@@ -1,5 +1,5 @@
 name: Feature
-description: 新的 omenic 能力或用户可见工作流改进
+description: 新的 kymido 能力或用户可见工作流改进
 labels: ["enhancement"]
 body:
   - type: markdown

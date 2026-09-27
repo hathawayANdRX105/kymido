@@ -1,4 +1,4 @@
-//! omenic-tui — `oi tui` 的终端前端（T1：linear 基线；T2：enhanced 全屏外壳）。
+//! kymido-tui — `kymido tui` 的终端前端（T1：linear 基线；T2：enhanced 全屏外壳）。
 //!
 //! 纯 daemon 客户端（route §2 铁律）：探针裁决模式（[`mode`] / [`probe`]），
 //! 经 `web-client` 的 [`WebDaemon`] 订阅 worker 事件，独立泵线程进
@@ -13,7 +13,7 @@
 //! 不 import daemon 协议层；wire 帧统一过 `WireTranslator`。
 //!
 //! 错误出口（CLI dispatch 按变体映射退出码，route §5 smoke）：session 不存在
-//! → 2，daemon 不可达/断线 → 3，其余 → 1；一律单行 `omenic tui: {err}` 到
+//! → 2，daemon 不可达/断线 → 3，其余 → 1；一律单行 `kymido tui: {err}` 到
 //! stderr，不 panic、不留半还原终端（enhanced 的还原由 termguard 兜底）。
 
 mod linear;
@@ -46,7 +46,7 @@ use web_state::convert::WireTranslator;
 use web_state::types::now_epoch_ms;
 use web_state::ui_state::{AgentEvent, UiState};
 
-/// `oi tui` 运行选项（CLI 解析后传入；route §3 契约字段，不许改）。
+/// `kymido tui` 运行选项（CLI 解析后传入；route §3 契约字段，不许改）。
 #[derive(Debug, Clone)]
 pub struct TuiOptions {
     /// 请求档位（auto/enhanced/inline/linear）；裁决见 [`resolve_mode`]。
@@ -61,7 +61,7 @@ pub struct TuiOptions {
     pub reduced_motion: bool,
 }
 
-/// `oi tui` 运行期错误（thiserror 单行 Display；CLI 按变体映射退出码）。
+/// `kymido tui` 运行期错误（thiserror 单行 Display；CLI 按变体映射退出码）。
 #[derive(Debug, thiserror::Error)]
 pub enum TuiError {
     /// 指定/续接的会话不存在（内容即完整单行文案；CLI → 退出码 2）。
@@ -78,7 +78,7 @@ pub enum TuiError {
     Io(#[from] std::io::Error),
 }
 
-/// 跑 `oi tui`（route §3 签名，不许改）：探针 → 裁决 → 分派渲染器——
+/// 跑 `kymido tui`（route §3 签名，不许改）：探针 → 裁决 → 分派渲染器——
 /// enhanced 走 [`app::run_enhanced`] 全屏外壳，inline（T8 第四档）走
 /// [`inline::run_inline`] 原生 scrollback 轨，linear 走「解析会话 →
 /// 读行 → 落库 → 订阅 → prompt → 投影到 TurnEnd」循环，EOF 干净退出 0。
@@ -93,7 +93,7 @@ pub fn run(opts: TuiOptions) -> Result<(), TuiError> {
     // 3) daemon 门面：连 socket 都没有 = 没起 daemon → 退出码 3，不 panic。
     let daemon = WebDaemon::from_env_or_default().ok_or_else(|| {
         TuiError::DaemonUnreachable(
-            "daemon unreachable: daemon socket not found (try `oi daemon start`)".to_string(),
+            "daemon unreachable: daemon socket not found (try `kymido daemon start`)".to_string(),
         )
     })?;
     // T8 第四档（route §3 T8 设计注记 ①）：只有显式 `--tui inline` 会走到
@@ -175,7 +175,7 @@ fn spawn_worker_stream(client: &WebDaemon) -> Result<Receiver<AgentEvent>, TuiEr
     let mut sub = client.subscribe_worker().map_err(client_error)?;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
-        .name("oi-tui-pump".into())
+        .name("kymido-tui-pump".into())
         .spawn(move || {
             let mut translator = WireTranslator::new();
             loop {
@@ -263,7 +263,7 @@ fn resolve_session(daemon: &WebDaemon, opts: &TuiOptions) -> Result<String, TuiE
 /// ledger 分配的 `seq`——出站消息的序号由这里带回（T12 retry/edit 读它）。
 fn push_user_message(daemon: &WebDaemon, sid: &str, text: &str) -> Result<i64, TuiError> {
     daemon
-        .append_message(sid, true, text, &[])
+        .append_message(sid, true, text, &[], &[])
         .map_err(client_error)
 }
 
@@ -277,7 +277,7 @@ fn persist_assistant(daemon: &WebDaemon, sid: &str, state: &UiState) -> Result<(
         return Ok(());
     }
     daemon
-        .append_message(sid, false, &text, &[])
+        .append_message(sid, false, &text, &[], &[])
         .map_err(client_error)?;
     Ok(())
 }

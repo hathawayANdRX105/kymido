@@ -9,8 +9,8 @@ __pycache__/
 /.benchmarks/
 .review/
 
-# oi
-/.oi/
+# kymido
+/.kymido/
 node_modules/
 
 # generated tailwind input (rewritten by build.rs each compile)

@@ -1,7 +1,7 @@
 //! Compaction call seam: the `LlmBackend` <-> harness `Summarizer` bridge.
 //!
 //! Policy (char-budget window, tool-pairing invariant, kept-window guard,
-//! transcript rendering) lives in `omenic-harness-compaction` (C4). What
+//! transcript rendering) lives in `kymido-harness-compaction` (C4). What
 //! remains here is the host bridge only: the LLM-backed summarizer over the
 //! loop's own backend, the wire<->DTO re-typing, and the maintenance hook a
 //! host installs as [`super::LoopConfig::maintain`]. Zero policy logic — the

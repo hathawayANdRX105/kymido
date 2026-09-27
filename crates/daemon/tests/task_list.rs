@@ -1,7 +1,7 @@
 //! `task.list` — the kanban board's read link to the CLI task store.
 //!
 //! These tests start a real daemon on a temp Unix socket and read the
-//! `tasks.jsonl` that `oi task add` / `task done` write, so the whole
+//! `tasks.jsonl` that `kymido task add` / `task done` write, so the whole
 //! socket → dispatch → `store::Store` → jsonl chain runs end to end — no
 //! mocks, no in-memory shortcuts.  They are the smoke evidence for the
 //! read side of the task board (the UI wiring lands in a follow-up PR).

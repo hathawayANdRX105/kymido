@@ -51,7 +51,7 @@ fn legacy_file(db_path: &std::path::Path) {
     });
 }
 
-/// A file written by an omenic build predating `parent_id` must gain the
+/// A file written by an kymido build predating `parent_id` must gain the
 /// column on first open, keep its existing rows, and read them as roots.
 /// This is the migration's reason for existing; the idempotency test above
 /// only covers the already-migrated path.

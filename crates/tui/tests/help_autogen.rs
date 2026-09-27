@@ -7,8 +7,8 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use omenic_tui::app::App;
-use omenic_tui::slash::{self, COMMANDS};
+use kymido_tui::app::App;
+use kymido_tui::slash::{self, COMMANDS};
 
 /// T9 首批五条 + T11 `/search` + T13 `/rewind`（route §3 T9/T11/T13 定的
 /// 命令集；增删注册表必红这一行）。
@@ -69,13 +69,13 @@ fn help_text_lists_every_registered_command() {
 fn executing_help_prints_all_commands_without_model_turn() {
     let mut app = App::new();
     type_str(&mut app, "/help");
-    assert_eq!(app.handle_key(enter()), omenic_tui::app::KeyAction::None);
+    assert_eq!(app.handle_key(enter()), kymido_tui::app::KeyAction::None);
     assert_eq!(app.input(), "/help", "第一段补全");
     assert!(
         app.messages().is_empty(),
         "第一段不执行（fencing：补全与执行不许同拍）"
     );
-    assert_eq!(app.handle_key(enter()), omenic_tui::app::KeyAction::None);
+    assert_eq!(app.handle_key(enter()), kymido_tui::app::KeyAction::None);
 
     let out = app.messages().last().expect("/help 必须有输出");
     assert_eq!(out.content, slash::help_text(), "/help 输出与注册表同源");

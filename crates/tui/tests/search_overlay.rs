@@ -14,12 +14,12 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use omenic_tui::app::{App, KeyAction};
-use omenic_tui::search;
-use omenic_tui::slash::{self, Action};
-use omenic_tui::theme;
-use omenic_tui::ui;
-use omenic_tui::ui::search_overlay;
+use kymido_tui::app::{App, KeyAction};
+use kymido_tui::search;
+use kymido_tui::slash::{self, Action};
+use kymido_tui::theme;
+use kymido_tui::ui;
+use kymido_tui::ui::search_overlay;
 use web_state::types::ChatMessage;
 
 /// 80×24 下的 transcript 几何（`layout::split` 只切高度：transcript 恒满宽

@@ -11,9 +11,9 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 
-use omenic_tui::app::{App, KeyAction};
-use omenic_tui::slash;
-use omenic_tui::ui;
+use kymido_tui::app::{App, KeyAction};
+use kymido_tui::slash;
+use kymido_tui::ui;
 use web_state::ui_state::AgentEvent;
 
 /// T9 首批五条 + T11 `/search` + T13 `/rewind`（顺序 = 面板默认顺序）。
@@ -294,10 +294,10 @@ fn commands_emit_intents_or_local_output_never_prompts() {
     );
     assert!(app.take_prompt().is_none());
     // Esc 取消：面板关闭，方案不变。
-    let before = omenic_tui::theme::active();
+    let before = kymido_tui::theme::active();
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(!app.theme_panel_open(), "Esc 应关闭主题面板");
-    assert_eq!(omenic_tui::theme::active(), before, "Esc 不改方案");
+    assert_eq!(kymido_tui::theme::active(), before, "Esc 不改方案");
 }
 
 /// `/clear` 视图清屏：空闲清本地投影（daemon 数据不动）；运行中禁清

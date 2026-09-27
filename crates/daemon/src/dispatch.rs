@@ -127,7 +127,7 @@ impl WorkerHandle {
         *guard = None;
     }
 
-    /// Whether this handle drives the omenic orbit engine in-process (`Some`
+    /// Whether this handle drives the kymido orbit engine in-process (`Some`
     /// orbit setup) instead of an external omp worker (G8).
     ///
     /// The split changes run bookkeeping fundamentally: an omp `prompt`
@@ -372,7 +372,7 @@ pub struct DispatchCtx<'a> {
     pub conn_id: u64,
     /// This connection's write channel; subscriptions clone it.
     pub out: Sender<String>,
-    /// Where the CLI writes `tasks.jsonl` (the `.oi` data dir).
+    /// Where the CLI writes `tasks.jsonl` (the `.kymido` data dir).
     /// `task.list` builds a `store::Store` here per request — the store
     /// is a stateless `PathBuf` wrapper, so there is nothing to cache.
     pub task_data_dir: std::path::PathBuf,
@@ -392,7 +392,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
         Command::Shutdown => {
             // Normally short-circuited in `connection_read_loop` before
             // the worker lock (a prompt holds it for the whole turn;
-            // answering shutdown late hangs `oi daemon stop`). This arm is
+            // answering shutdown late hangs `kymido daemon stop`). This arm is
             // the fallback — keep its payload identical to that path.
             ctx.shutdown
                 .store(true, std::sync::atomic::Ordering::SeqCst);

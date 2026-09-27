@@ -1,4 +1,4 @@
-//! UI 状态 DTO 词汇表（omenic-web-state::types）。
+//! UI 状态 DTO 词汇表（kymido-web-state::types）。
 //!
 //! 页面/组件消费的会话、消息、任务、统计等形状，由
 //! `ui_state::apply_event` 从 `AgentEvent` 流转译填充（C5.1/G4），
@@ -253,7 +253,7 @@ impl TaskItem {
         }
     }
 
-    /// CLI 任务存储（`tasks.jsonl`，由 `oi task add/done/...` 写入）的一条
+    /// CLI 任务存储（`tasks.jsonl`，由 `kymido task add/done/...` 写入）的一条
     /// 任务 → 任务卡（任务看板的持久编排数据源，与 [`Self::from_run`] 的
     /// 瞬时执行记录并列）。
     ///

@@ -7,7 +7,7 @@ use config::Config;
 
 // ---------------- Session commands ----------------
 
-/// Build a daemon client from `Config` (honors `OMENIC_DAEMON_SOCKET`).
+/// Build a daemon client from `Config` (honors `KYMIDO_DAEMON_SOCKET`).
 pub fn daemon_client_from_config() -> Result<daemon::DaemonClient, String> {
     let config = Config::load().map_err(|e| format!("config error: {e}"))?;
     daemon::DaemonClient::from_config(&config).map_err(|e| format!("daemon socket error: {e}"))
@@ -43,7 +43,7 @@ pub fn session_cmd_dispatch(sub: SessionCmd, json: bool) -> Result<u8, String> {
     }
 }
 
-/// `oi session list <query> [--limit N]` — text or JSON list.
+/// `kymido session list <query> [--limit N]` — text or JSON list.
 pub fn session_list_cmd(
     client: &daemon::DaemonClient,
     query: &str,
@@ -71,7 +71,7 @@ pub fn session_list_cmd(
     Ok(0)
 }
 
-/// `oi session attach <id> [--limit N]` — session summary + recent messages.
+/// `kymido session attach <id> [--limit N]` — session summary + recent messages.
 pub fn session_attach_cmd(
     client: &daemon::DaemonClient,
     id: &str,
@@ -102,7 +102,7 @@ pub fn session_attach_cmd(
     Ok(0)
 }
 
-/// `oi session resume <id> <message>` — route a follow-up prompt to the
+/// `kymido session resume <id> <message>` — route a follow-up prompt to the
 /// daemon worker. The run is recorded in the ledger (correlatable across
 /// reconnects via run.list); a failed worker spawn surfaces as an error and
 /// the ledger keeps the `spawn_failed` record.
@@ -143,7 +143,7 @@ pub fn session_resume_cmd(
     Ok(0)
 }
 
-/// `oi session get <id>` — text or JSON single summary.
+/// `kymido session get <id>` — text or JSON single summary.
 pub fn session_get_cmd(client: &daemon::DaemonClient, id: &str, json: bool) -> Result<u8, String> {
     let row: Option<session::SessionSummary> = client
         .session_get(id)
@@ -160,7 +160,7 @@ pub fn session_get_cmd(client: &daemon::DaemonClient, id: &str, json: bool) -> R
     Ok(0)
 }
 
-/// `oi session search <query> [--scope ID] [--limit N]`.
+/// `kymido session search <query> [--scope ID] [--limit N]`.
 pub fn session_search_cmd(
     client: &daemon::DaemonClient,
     query: &str,
@@ -192,7 +192,7 @@ pub fn session_search_cmd(
     Ok(0)
 }
 
-/// `oi session delete <id>` — JSON `{"deleted":bool}`.
+/// `kymido session delete <id>` — JSON `{"deleted":bool}`.
 pub fn session_delete_cmd(
     client: &daemon::DaemonClient,
     id: &str,
@@ -216,7 +216,7 @@ pub fn session_delete_cmd(
     Ok(0)
 }
 
-/// `oi session query ...` — agent-facing dispatcher with the same args
+/// `kymido session query ...` — agent-facing dispatcher with the same args
 /// shape as the `session_query` ToolDef.
 pub fn session_query_cmd(
     client: &daemon::DaemonClient,
@@ -250,13 +250,13 @@ pub fn session_query_cmd(
 // ---------------- Daemon commands ----------------
 
 /// Locate the daemon binary: explicit override first, then the sibling of
-/// this executable (workspace layout: target/debug/{oi,daemon}).
+/// this executable (workspace layout: target/debug/{kymido,daemon}).
 ///
-/// Single source for the `OMENIC_DAEMON_PATH` / sibling rule — `oi daemon
-/// start` resolves through here, and so does the `oi tui` autostart gate
+/// Single source for the `KYMIDO_DAEMON_PATH` / sibling rule — `kymido daemon
+/// start` resolves through here, and so does the `kymido tui` autostart gate
 /// (T14) in `cli.rs`; neither caller re-implements the lookup.
 pub fn resolve_daemon_bin() -> Result<std::path::PathBuf, String> {
-    let bin = match std::env::var_os("OMENIC_DAEMON_PATH") {
+    let bin = match std::env::var_os("KYMIDO_DAEMON_PATH") {
         Some(p) => std::path::PathBuf::from(p),
         None => {
             let exe =
@@ -268,7 +268,7 @@ pub fn resolve_daemon_bin() -> Result<std::path::PathBuf, String> {
     };
     if !bin.is_file() {
         return Err(format!(
-            "daemon binary not found at {} (set OMENIC_DAEMON_PATH to override; or build it with `cargo build --bin daemon`)",
+            "daemon binary not found at {} (set KYMIDO_DAEMON_PATH to override; or build it with `cargo build --bin daemon`)",
             bin.display()
         ));
     }
@@ -291,7 +291,7 @@ pub fn daemon_cmd_dispatch(sub: DaemonCmd, json: bool) -> Result<u8, String> {
                 return Ok(0);
             }
             // Binary lookup lives in `resolve_daemon_bin` (shared with the
-            // `oi tui` autostart gate); the ping check above must stay first
+            // `kymido tui` autostart gate); the ping check above must stay first
             // so a running daemon never depends on a resolvable path.
             let bin = resolve_daemon_bin()?;
             std::process::Command::new(&bin)

@@ -15,8 +15,8 @@ use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 
-use omenic_tui::app::{App, KeyAction, osc52_bytes};
-use omenic_tui::ui;
+use kymido_tui::app::{App, KeyAction, osc52_bytes};
+use kymido_tui::ui;
 use web_state::types::{ChatMessage, MessagePart, ToolCall};
 
 /// 80×24 下的 transcript 几何（同 `tests/search_overlay.rs`：transcript
@@ -84,7 +84,7 @@ fn sync(app: &mut App) {
     ui::sync_viewport(app, Rect::new(0, 0, SCREEN_W, SCREEN_H));
 }
 
-/// 画一帧，返回带下划线（[`omenic_tui::theme::focus`] 的标记属性）的行号。
+/// 画一帧，返回带下划线（[`kymido_tui::theme::focus`] 的标记属性）的行号。
 fn underlined_rows(app: &App) -> Vec<u16> {
     let mut terminal = Terminal::new(TestBackend::new(SCREEN_W, SCREEN_H)).expect("terminal");
     terminal

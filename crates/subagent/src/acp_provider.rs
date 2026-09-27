@@ -9,7 +9,7 @@
 //! # The dispose ladder
 //!
 //! `dispose` tears the child down in two tiers. dsh's ladder has three (EOF
-//! then SIGTERM then grace then SIGKILL); the omenic cut drops the SIGTERM
+//! then SIGTERM then grace then SIGKILL); the kymido cut drops the SIGTERM
 //! step because std has no portable signal API — [`Child::kill`] is SIGKILL.
 //! ponytail: restore the graceful middle tier by sending SIGTERM through
 //! `libc` or `portable-pty` between tier 1 and tier 2 below; the ladder
@@ -48,7 +48,7 @@ const WATCHER_POLL: Duration = Duration::from_millis(50);
 /// How an [`AcpProvider`] answers the child's permission requests.
 ///
 /// ponytail: ACP options also carry a `kind` (allow_once / allow_always / …),
-/// which dsh filters on; the omenic backend does not model it yet — `Allow`
+/// which dsh filters on; the kymido backend does not model it yet — `Allow`
 /// takes the first option the child offers and falls back to `Deny` when the
 /// child offers nothing. Add the kind filter when a real agent distinguishes
 /// them.

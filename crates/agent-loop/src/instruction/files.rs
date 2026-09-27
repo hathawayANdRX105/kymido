@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 /// Same-directory instruction candidates, ordered. dsh also ships
-/// `CLAUDE.md` + `*.local.md` overlays; omenic only needs the one voice.
+/// `CLAUDE.md` + `*.local.md` overlays; kymido only needs the one voice.
 pub const INSTRUCTION_CANDIDATES: &[&str] = &["AGENTS.md"];
 
 /// Directory entry whose presence marks a project root and stops the

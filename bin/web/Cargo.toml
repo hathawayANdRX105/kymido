@@ -2,12 +2,12 @@
 name = "web"
 version = "0.1.0"
 edition = "2024"
-description = "oi-web — Dioxus LiveView 壳入口（App/launch 在 src/app.rs；组件/页面/布局在 crates/web-ui/）"
+description = "kymido-web — Dioxus LiveView 壳入口（App/launch 在 src/app.rs；组件/页面/布局在 crates/web-ui/）"
 license = "MIT"
 build = "build.rs"
 
 [[bin]]
-name = "oi-web"
+name = "kymido-web"
 path = "src/main.rs"
 
 [dependencies]

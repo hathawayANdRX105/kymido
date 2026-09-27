@@ -6,7 +6,7 @@
 //! T8 增量：显式 `--tui inline` 走同一扇门、auto 永不选 inline、CLI 第四臂
 //! 解析（`value_enum` 四臂 + 非法值报错）。
 
-use omenic_tui::{MuxKind, TermProbe, TuiMode, enhanced_eligible, resolve_mode};
+use kymido_tui::{MuxKind, TermProbe, TuiMode, enhanced_eligible, resolve_mode};
 
 /// 门全过的基线探针：双 TTY、有色、合法 TERM、80×24、裸终端。
 fn good_probe() -> TermProbe {
@@ -205,14 +205,14 @@ fn cli_parses_inline_as_the_fourth_arm_and_rejects_junk() {
         ("inline", TuiMode::Inline),
         ("linear", TuiMode::Linear),
     ] {
-        let cli =
-            TuiCli::try_parse_from(["oi", "--tui", text]).unwrap_or_else(|e| panic!("{text}: {e}"));
+        let cli = TuiCli::try_parse_from(["kymido", "--tui", text])
+            .unwrap_or_else(|e| panic!("{text}: {e}"));
         assert_eq!(cli.mode, want, "--tui {text}");
     }
     // 默认臂仍是 auto。
-    let default = TuiCli::try_parse_from(["oi"]).expect("默认值可解析");
+    let default = TuiCli::try_parse_from(["kymido"]).expect("默认值可解析");
     assert_eq!(default.mode, TuiMode::Auto);
     // 非法值照旧报错（非法档位不许静默回落）。
-    let err = TuiCli::try_parse_from(["oi", "--tui", "nonsense"]).expect_err("非法值必须报错");
+    let err = TuiCli::try_parse_from(["kymido", "--tui", "nonsense"]).expect_err("非法值必须报错");
     assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
 }

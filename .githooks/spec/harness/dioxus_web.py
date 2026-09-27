@@ -43,17 +43,10 @@ HTMLISH = {
     'thead', 'tbody', 'caption', 'iframe', 'video', 'audio', 'canvas',
 }
 
-# ── 样式口径 ──────────────────────────────────────────────────────
-CLASS_ATTR = re.compile(r'class:\s*"([^"]*)"')
-HEX_COLOR = re.compile(r'#[0-9a-fA-F]{3,8}\b')
-# 原始色板类：bg-zinc-800 / text-white / border-slate-200 …
-# ui-kit 的语义 token 是 bg-card / text-foreground / border-border，不在此列。
-RAW_PALETTE = re.compile(
-    r'\b(?:bg|text|border|from|to|via|ring|fill|stroke|divide|outline|shadow|accent)'
-    r'-(?:zinc|slate|gray|grey|neutral|stone|red|orange|amber|yellow|lime|green|emerald|'
-    r'teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-[0-9]{2,3}\b'
-)
-WHITE_BLACK = re.compile(r'\b(?:bg|text|border)-(?:white|black)\b')
+
+# H3 中文文案（web-spec §B3.4 的判定口径：字符串字面量里出现 CJK）
+CJK = re.compile(r'[\u4e00-\u9fff]')
+STRING_LIT = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def classify_brace(line: str) -> str:
@@ -119,50 +112,55 @@ def scan_nesting(path: str, src: str, limit: int) -> list[Finding]:
     ]
 
 
-def scan_style(path: str, src: str, class_limit: int) -> list[Finding]:
+def scan_spec(path: str, src: str) -> list[Finding]:
+    """按 web-spec **原文阈值**判，不用自造数字。
+
+    来源：ferrite `todo/web-refract/web-spec.md`
+      R1.3 §B2.4  一个 #[component] 函数体至多 1 个内容 rsx（槽位接线除外）
+      H3   §B3    rsx 元素体内中文为 0，范围 = tab-page/ + components/
+    色值（B8 semantic_style / H1 零漂移）**不在这里判**：规范明写「抽组件时不改
+    色值」「把 border-zinc-800 顺手改 border-border 违反 H1」，色值迁移必须单独
+    开 PR —— 那是 web_refactor 的 semantic_style 问句的职责，不该由 l1 越权指挥。
+    """
+    norm = path.replace('\\', '/')
+    if '/tab-page/' not in norm and '/components/' not in norm:
+        return []
+
     findings: list[Finding] = []
+
+    n_rsx, n_comp = src.count('rsx!'), src.count('#[component]')
+    if n_rsx > n_comp:
+        findings.append(Finding(
+            id="WEB-SINGLE-RSX",
+            severity="WARN",
+            path=path, line=1,
+            message=(
+                f"rsx! 出现 {n_rsx} 次但 #[component] 只有 {n_comp} 个 —— 违反 R1.3 单 rsx 纪律"
+                "（web-spec §B2.4：一个 #[component] 函数体至多 1 个内容 rsx）。"
+                "重构：把 `let x = rsx!{…}` 这类第二个内容 rsx 抽成子组件函数再组合；"
+                "只有 `Option<Element>` 槽值位置的 rsx 属框架管线例外，不计入。"
+            ),
+        ))
+
     for lineno, line in enumerate(src.split('\n'), 1):
         if line.lstrip().startswith('//'):
-            continue
-        for value in CLASS_ATTR.findall(line):
-            if len(value) >= class_limit:
-                findings.append(Finding(
-                    id="DIOXUS-INLINE-CLASS",
-                    severity="WARN",
-                    path=path, line=lineno,
-                    message=(
-                        f"内联 class 有 {len(value)} 字符（阈值 {class_limit}）：\"{value}\"。"
-                        "重构：优先用 ui_kit::styles 里已有的常量（SECTION / CARD_CONTENT / INPUT / TYPE_* / C_* / S_* / B_*）；"
-                        "没有对应常量且这套样式在别处也出现，提到 ui-kit styles.rs 加常量再引用；"
-                        "只此一处用的才留在原地。别把单个原子类也提成常量——ui-kit 明确禁止过度抽象。"
-                    ),
-                ))
-        if HEX_COLOR.search(line):
+            continue                       # §B3 明写：注释里的中文不算
+        if 'data-testid' in line:
+            continue                       # §B3.3 例外：testid 值不抽
+        for value in STRING_LIT.findall(line):
+            if not CJK.search(value):
+                continue
             findings.append(Finding(
-                id="DIOXUS-HARDCODED-COLOR",
+                id="WEB-I18N-CONSTANT",
                 severity="WARN",
                 path=path, line=lineno,
                 message=(
-                    f"硬编码颜色：{HEX_COLOR.search(line).group(0)}。"
-                    "重构：换 ui-kit 的角色 token（text-foreground / text-muted-foreground / bg-card / "
-                    "bg-primary / bg-destructive / border-border），或引用 ui_kit::styles 的 C_* 常量，"
-                    "让主题切换只改一处。"
-                ),
-            ))
-        raw = RAW_PALETTE.search(line) or WHITE_BLACK.search(line)
-        if raw:
-            findings.append(Finding(
-                id="DIOXUS-RAW-PALETTE",
-                severity="WARN",
-                path=path, line=lineno,
-                message=(
-                    f"用了原始色板类 {raw.group(0)}，绕开了语义 token。"
-                    "重构：换成对应角色类（bg-card / text-muted-foreground / border-border …），"
-                    "这样换主题不用逐处改。"
+                    f"rsx 元素体里出现中文串：\"{value[:40]}\" —— 违反 H3（web-spec §B3 文案常量化）。"
+                    "重构：提成带前缀的常量（BTN_/LBL_/SEC_/MSG_/FIELD_/OPT_）放 crate 根级 shared.rs "
+                    "或组件文件头；**常量值一个字符都不许改**（H1 零行为漂移）。"
                 ),
             ))
     return findings
-
 
 def scan_layering(path: str, src: str) -> list[Finding]:
     """层级约束的可判定信号是 **import 方向**，不是「组件放在哪个目录」。
@@ -224,13 +222,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--max', type=int, default=40,
                     help='单次最多输出多少条 finding（防止刷屏）；统计真实量级时传 0')
-    ap.add_argument('--only', choices=['nesting', 'style', 'layering'], default=None)
-    ap.add_argument('--nesting-limit', type=int, default=3)
+    ap.add_argument('--only', choices=['nesting', 'spec', 'layering'], default=None)
+    ap.add_argument('--nesting-limit', type=int, default=2,
+                    help='R1 要求 tab-page/ 元素嵌套 ≤1 层；默认 2 = 报「超过 1 层」')
     ap.add_argument('--scope', choices=['repo', 'changed'], default='repo',
                     help='repo=全仓审计(CI/merge 用)；changed=只看基线以来的改动(hook 热路径用)')
     ap.add_argument('--base', default=None,
                     help='changed 范围的基线 rev；缺省取 GATE_BASE，再缺省 origin/main')
-    ap.add_argument('--class-limit', type=int, default=72)
     ap.add_argument('--root', default=None)
     args = ap.parse_args()
 
@@ -257,8 +255,8 @@ def main() -> int:
             continue
         if args.only in (None, 'nesting'):
             findings += scan_nesting(rel, src, args.nesting_limit)
-        if args.only in (None, 'style'):
-            findings += scan_style(rel, src, args.class_limit)
+        if args.only in (None, 'spec'):
+            findings += scan_spec(rel, src)
         if args.only in (None, 'layering'):
             findings += scan_layering(rel, src)
 

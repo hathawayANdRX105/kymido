@@ -3,7 +3,7 @@
 //! Red when: 配置缺 `theme` 段时不是 `"dark"`，或写了个不认识的方案名时
 //! TUI 启动会拿到空串 / panic —— 过期配置不该让终端前端起不来。
 //!
-//! `Config::load` 读进程 cwd 下的 `.oi/config.toml`，所以这些测试不能并行
+//! `Config::load` 读进程 cwd 下的 `.kymido/config.toml`，所以这些测试不能并行
 //! （沿 `profile_status.rs` 的 `cwd_lock` 口径）。
 
 use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -31,9 +31,9 @@ fn tui_theme_reads_a_known_scheme() {
     let dir = tempdir();
     let prev = std::env::current_dir().expect("cwd");
     std::env::set_current_dir(dir.path()).expect("enter temp dir");
-    std::fs::create_dir_all(dir.path().join(".oi")).expect("config dir");
+    std::fs::create_dir_all(dir.path().join(".kymido")).expect("config dir");
     std::fs::write(
-        dir.path().join(".oi/config.toml"),
+        dir.path().join(".kymido/config.toml"),
         "[tui]\ntheme = \"light\"\n",
     )
     .expect("write config");
@@ -53,9 +53,9 @@ fn tui_theme_keeps_an_unknown_value_verbatim() {
     let dir = tempdir();
     let prev = std::env::current_dir().expect("cwd");
     std::env::set_current_dir(dir.path()).expect("enter temp dir");
-    std::fs::create_dir_all(dir.path().join(".oi")).expect("config dir");
+    std::fs::create_dir_all(dir.path().join(".kymido")).expect("config dir");
     std::fs::write(
-        dir.path().join(".oi/config.toml"),
+        dir.path().join(".kymido/config.toml"),
         "[tui]\ntheme = \"solarized\"\n",
     )
     .expect("write config");
@@ -69,7 +69,7 @@ fn tui_theme_keeps_an_unknown_value_verbatim() {
 /// 最小临时目录（不引第三方依赖：只用 std）。
 fn tempdir() -> TempDir {
     let base = std::env::temp_dir().join(format!(
-        "omenic-config-tui-theme-{}-{:?}",
+        "kymido-config-tui-theme-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ));

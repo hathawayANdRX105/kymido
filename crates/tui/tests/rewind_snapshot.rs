@@ -10,8 +10,8 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use omenic_tui::app::{App, KeyAction};
-use omenic_tui::slash::{self, Action, COMMANDS};
+use kymido_tui::app::{App, KeyAction};
+use kymido_tui::slash::{self, Action, COMMANDS};
 use web_state::types::ChatMessage;
 
 /// 单行历史消息的唯一构造点（与 `tests/message_actions.rs` 同签名——

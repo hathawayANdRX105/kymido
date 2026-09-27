@@ -3,7 +3,7 @@
 //! Thin wrappers over the `memory` crate's JSONL store, exposed to the
 //! agent as tools. Default-off: [`memory_store`] is the crate's single
 //! resolution point and only hands out a live [`memory::Memory`] when
-//! `OMENIC_MEMORY=1` *and* `OMENIC_MEMORY_DIR` names an existing
+//! `KYMIDO_MEMORY=1` *and* `KYMIDO_MEMORY_DIR` names an existing
 //! directory; every other combination yields a disabled handle whose
 //! operations are no-ops (the directory is never created). Because the
 //! switch is read on every `execute`, callers never branch on a flag and
@@ -27,14 +27,14 @@ impl From<memory::MemoryError> for ToolError {
 }
 
 /// Resolve the memory store from the environment. Default-off: anything
-/// short of `OMENIC_MEMORY=1` plus an *existing* `OMENIC_MEMORY_DIR`
+/// short of `KYMIDO_MEMORY=1` plus an *existing* `KYMIDO_MEMORY_DIR`
 /// yields a disabled handle, so no tool call can ever create the
 /// directory implicitly.
 pub fn memory_store() -> memory::Memory {
-    if std::env::var("OMENIC_MEMORY").as_deref() != Ok("1") {
+    if std::env::var("KYMIDO_MEMORY").as_deref() != Ok("1") {
         return memory::Memory::disabled();
     }
-    let Ok(dir) = std::env::var("OMENIC_MEMORY_DIR") else {
+    let Ok(dir) = std::env::var("KYMIDO_MEMORY_DIR") else {
         return memory::Memory::disabled();
     };
     let path = Path::new(&dir);
@@ -45,8 +45,8 @@ pub fn memory_store() -> memory::Memory {
 }
 
 /// Emitted by all three tools when the store is disabled, before any I/O.
-const DISABLED: &str = "memory disabled (set OMENIC_MEMORY=1 and \
-    OMENIC_MEMORY_DIR to an existing directory to enable)";
+const DISABLED: &str = "memory disabled (set KYMIDO_MEMORY=1 and \
+    KYMIDO_MEMORY_DIR to an existing directory to enable)";
 
 fn parse_category(s: &str) -> Result<memory::Category, ToolError> {
     use memory::Category;
@@ -82,7 +82,7 @@ impl Tool for MemoryAppendTool {
     }
 
     fn description(&self) -> String {
-        "写入一条本地记忆。参数：text（内容，必填）、category（fact|preference|entity|correction|custom，可选，默认 custom）、tags（字符串数组，可选）。默认关闭，需 OMENIC_MEMORY=1 与 OMENIC_MEMORY_DIR。".into()
+        "写入一条本地记忆。参数：text（内容，必填）、category（fact|preference|entity|correction|custom，可选，默认 custom）、tags（字符串数组，可选）。默认关闭，需 KYMIDO_MEMORY=1 与 KYMIDO_MEMORY_DIR。".into()
     }
 
     fn parameters(&self) -> Value {

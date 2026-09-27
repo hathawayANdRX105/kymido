@@ -1,4 +1,4 @@
-//! omenic — task-driven agent orchestrator.
+//! kymido — task-driven agent orchestrator.
 //!
 //! Agents act as functions following Prompt → Result.
 

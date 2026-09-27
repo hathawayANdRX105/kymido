@@ -32,8 +32,8 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:104 + bin/web/src/app.rs（keydown 处理）'
   - key: project-row
     find: 'h-[34px] mx-0 px-2 rounded-lg flex items-center gap-2'
-    expect: '项目行 h34、r8，folder 图标 + 名称 + hover 显示新建/移除钮 + 计数。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:129'
+    expect: '项目行 h34、r8，folder 图标 + 名称 + 常显（默认 opacity-40，行 hover 满透明）新建/移除钮 + 计数。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:148'
   - key: session-row
     find: 'group h-8 px-2 rounded-lg flex items-center gap-2'
     expect: '会话行 h32、r8，激活态 bg-ihover 常亮。'
@@ -50,26 +50,18 @@ anchors:
     find: 'pl-[18px]'
     expect: '子会话行相对父行再缩进 18px（层级 1；2/3 层 36/54px，再深封顶）。'
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:264-271（depth_indent_class）；omenic 自研——dsh 侧无此层级语言'
-  - key: create-child-button
-    find: 'title: "新建子会话"'
-    expect: '会话行 hover 显示 + 钮（样式语言同项目行 + 钮），点击以该行为父创建子会话；与删除钮共用时间戳 group-hover:hidden 让出的空间。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:307（SessionRow）；omenic 自研——dsh 侧行内无此控件'
   - key: status-dot-active
     find: 'SessionStatus::Active => "bg-brand"'
-    expect: '运行中会话状态点为品牌蓝 bg-brand。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:13'
+    expect: '折叠 rail 会话图标的状态点为品牌蓝 bg-brand（展开会话行已移除状态点）。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:26'
   - key: status-dot-idle
     find: 'SessionStatus::Idle => "bg-dim"'
-    expect: '空闲会话状态点为暗色 bg-dim。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:14'
+    expect: '空闲会话状态点为暗色 bg-dim（仅折叠 rail）。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:27'
   - key: status-dot-archived
     find: 'SessionStatus::Archived | SessionStatus::Aborted => "bg-danger/70"'
-    expect: '归档与中断（半开 run）会话状态点同为 danger 70% 透明。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:15'
-  - key: time-hover-hide
-    find: 'group-hover:hidden'
-    expect: '会话行时间戳 12px 右置，hover 行时隐藏（让位给新建子会话/删除钮）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:323'
+    expect: '归档与中断（半开 run）会话状态点同为 danger 70% 透明（仅折叠 rail）。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:29'
   - key: footer-row
     find: 'h-[42px] px-2.5 rounded-xl flex items-center gap-2.5'
     expect: '底部「数据统计 / 设置」触发行 h42、r12。'
@@ -84,8 +76,9 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:381'
 notes: |
   状态点三色锚点取自 status_dot_class 的 match 字面量，属于静态映射；
-  会话标题等动态文本不作为锚点。
-  树分组三个锚点（session-tree-group / child-indent / create-child-button）
-  为 5.3/5.5 谱系分组新增：dsh 侧会话列表是扁平的，无父子边与行内创建子
-  会话控件，故 source 全部记 omenic 自研。折叠 rail 保持扁平迭代（图标列
-  里层级无意义），不参与分组。
+  状态点现在只用于折叠 rail 的会话图标（展开会话行已按用户反馈移除
+  状态点、新建子会话 + 钮与时间戳 hover 隐藏）。会话标题等动态文本不作
+  为锚点。
+  树分组两个锚点（session-tree-group / child-indent）为 5.3/5.5 谱系分组
+  新增：dsh 侧会话列表是扁平的，无父子边，故 source 记 omenic 自研。折叠
+  rail 保持扁平迭代（图标列里层级无意义），不参与分组。

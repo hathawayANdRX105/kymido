@@ -108,7 +108,7 @@ pub struct PromptResponse {
     pub stop_reason: Option<StopReason>,
 }
 
-/// Client capabilities sent in `initialize`. omenic advertises none yet.
+/// Client capabilities sent in `initialize`. kymido advertises none yet.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ClientCapabilities {}
 

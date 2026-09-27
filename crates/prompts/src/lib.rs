@@ -1,10 +1,10 @@
-//! System prompts for omenic agents, copied verbatim from
+//! System prompts for kymido agents, copied verbatim from
 //! `oh-my-pi`'s `packages/coding-agent/src/prompts/`.
 //!
 //! Layout mirrors omp directly:
 //!
 //! ```text
-//! oh-my-pi                                  omenic
+//! oh-my-pi                                  kymido
 //! packages/coding-agent/src/prompts/        crates/infra/prompts/prompts/
 //! ├── agents/                               ├── agents/
 //! │   ├── task.md        ──►               │   ├── task.md
@@ -27,9 +27,9 @@
 //! `crates/agent/orbit` for the only current consumer: `agents::TASK`).
 //!
 //! The `crates/infra/prompts/prompts/system/` files (73 fragments including the
-//! 4 `personalities/`) are omenic's fragment library, available as
+//! 4 `personalities/`) are kymido's fragment library, available as
 //! `prompts::system::ACTIVE_REPO_CONTEXT` / `::COMPUTER_SAFETY` / etc.
-//! omenic does not yet have an omp-equivalent `buildSystemPrompt` prep
+//! kymido does not yet have an omp-equivalent `buildSystemPrompt` prep
 //! step (no per-fragment conditional gating), so callers wanting to
 //! inject fragments must compose them by hand. Future PRs may add a
 //! prep step that mirrors `system-prompt.ts:666`.
