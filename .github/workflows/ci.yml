@@ -11,17 +11,119 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # Full history on purpose: the scope step diffs against origin/main
+      # and `git diff A...B` needs a merge base, which the default depth-1
+      # checkout does not have (run 36297455244: "no merge base", exit 128).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - name: Build
+      # Scope by the diff: `cargo metadata` gives every workspace member and
+      # its dependency graph, `git diff` says what the PR touched. A change is
+      # expanded to the crates that own the touched files plus everything
+      # that depends on them, so a TUI-only PR builds and tests one crate
+      # instead of all 29 (134 test binaries) — while a change to a widely
+      # depended-on crate (config) still widens to the full tree.
+      # Anything that can move the whole graph (root manifest, lockfile,
+      # workflow, hooks) falls back to the full workspace run.
+      - name: Resolve affected crates
+        id: scope
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 > "$RUNNER_TEMP/metadata.json"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "packages=__ALL__" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin main
+          git diff --name-only "origin/main...HEAD" > "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt"
+          export METADATA="$RUNNER_TEMP/metadata.json"
+          export CHANGED="$RUNNER_TEMP/changed.txt"
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          meta = json.load(open(os.environ["METADATA"]))
+          # Full metadata (not --no-deps): the reverse-dependency closure
+          # needs `resolve`, and only workspace members are ever in scope.
+          members = set(meta["workspace_members"])
+          pkgs = {p["id"]: p for p in meta["packages"] if p["id"] in members}
+          changed = [l.strip() for l in open(os.environ["CHANGED"]) if l.strip()]
+
+          # A path outside every crate directory can move the whole graph.
+          GLOBAL = ("Cargo.toml", "Cargo.lock", ".github/", ".githooks/", "rust-toolchain")
+          if not changed or any(c == GLOBAL[0] or c == GLOBAL[1] or c.startswith(GLOBAL[2:])
+                                 or c.startswith(GLOBAL[3]) or c.startswith(GLOBAL[4]) for c in changed):
+              print("packages=__ALL__")
+              raise SystemExit(0)
+
+          # `git diff` yields repo-relative paths but `manifest_path` is
+          # absolute — rebase both on the workspace root before matching.
+          root = meta["workspace_root"].rstrip("/") + "/"
+          dirs = {
+              pid: os.path.dirname(p["manifest_path"]).replace(root, "", 1)
+              for pid, p in pkgs.items()
+          }
+          direct = set()
+          for path in changed:
+              # Longest manifest-dir prefix wins, so crates/foo/ beats crates/.
+              owner = max(
+                  (pid for pid, d in dirs.items() if path == d or path.startswith(d + "/")),
+                  key=lambda pid: len(dirs[pid]),
+                  default=None,
+              )
+              if owner is not None:
+                  direct.add(owner)
+          if not direct:
+              print("packages=__ALL__")  # docs-only or non-crate change: stay safe
+              raise SystemExit(0)
+
+          # Reverse-dependency closure inside the workspace: a change to
+          # crate X also has to compile and pass in everything that uses X.
+          dependents = {pid: set() for pid in members}
+          for node in meta["resolve"]["nodes"]:
+              if node["id"] not in members:
+                  continue
+              for dep in node["dependencies"]:
+                  # Current cargo lists bare package ids; older ones use
+                  # {pkg, dep_kinds}. Accept both.
+                  dep_id = dep if isinstance(dep, str) else dep.get("pkg")
+                  if dep_id in dependents:
+                      dependents[dep_id].add(node["id"])
+
+          affected, stack = set(direct), list(direct)
+          while stack:
+              for parent in dependents.get(stack.pop(), ()):
+                  if parent not in affected:
+                      affected.add(parent)
+                      stack.append(parent)
+
+          names = sorted(pkgs[pid]["name"] for pid in affected)
+          print("packages=" + (",".join(names) if names else "__ALL__"))
+          PY
+      - name: Build (affected crates)
+        if: steps.scope.outputs.packages != '__ALL__'
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
+          cargo build --locked --all-targets -p "${PKGS[@]}"
+      - name: Build (full workspace)
+        if: steps.scope.outputs.packages == '__ALL__'
         run: cargo build --locked --all-targets
-      - name: Test
-        # --no-fail-fast + per-test-binary output so a hang shows which
-        # binary stalled instead of the whole step going dark. The timeout
-        # stops a hung binary from burning the whole job budget.
+      # --no-fail-fast + per-test-binary output so a hang shows which
+      # binary stalled instead of the whole step going dark. The timeout
+      # stops a hung binary from burning the whole job budget.
+      - name: Test (affected crates)
+        if: steps.scope.outputs.packages != '__ALL__'
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
+          cargo test --locked --all-targets --no-fail-fast -p "${PKGS[@]}" -- --test-threads=2
+      - name: Test (full workspace)
+        if: steps.scope.outputs.packages == '__ALL__'
         run: cargo test --locked --all-targets --no-fail-fast -- --test-threads=2
         timeout-minutes: 25
       - name: Format check
@@ -138,3 +240,206 @@ jobs:
           ./target/debug/oi session attach "$sid" | tee "$TMP/attach.out"
           grep -q "数到三" "$TMP/attach.out"
           grep -q "hello from the test backend" "$TMP/attach.out"
+
+  # T18 PTY smoke (route-tui §3 T18): the TUI's real-terminal evidence, which
+  # the pipe smoke above structurally cannot produce — pipe stdin never
+  # satisfies the mode probe (TTY + colour + >=44x12), so `oi tui` would fall
+  # back to linear and the enhanced shell would go untested. Here the same
+  # daemon + SSE stub drive `oi tui` through a real pty at 100x30 with colour
+  # support, keystrokes go in as bytes, and sentinels are matched after a
+  # settle-wait (no bare sleeps guessing at frames).
+  #
+  # Kept as its own job so a TTY-level regression names itself, and so the
+  # pty window/TERM setup stays out of the plan-mode and CLI pipe smokes.
+  tui_pty_smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: TUI enhanced pty smoke
+        run: |
+          set -euo pipefail
+          cargo build --locked --bin oi --bin daemon
+
+          TMP="$RUNNER_TEMP/tui-pty-smoke"
+          mkdir -p "$TMP"
+          export OMENIC_DAEMON_SOCKET="$TMP/daemon.sock"
+          export OMENIC_DATA_DIR="$TMP"
+
+          # Same throwaway SSE backend as the pipe smoke above: no API key, no
+          # outbound traffic, one full turn available to the daemon.
+          cat > "$TMP/test_openai.py" <<'PY'
+          import http.server, json, sys
+
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  n = int(self.headers.get("Content-Length") or 0)
+                  self.rfile.read(n)
+                  chunk = json.dumps({
+                      "choices": [{"delta": {"content": "hello from the pty backend"},
+                                    "finish_reason": "stop"}]
+                  })
+                  body = ("data: " + chunk + "\n\n").encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/event-stream")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, *args):
+                  pass
+
+          http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+          PY
+          python3 "$TMP/test_openai.py" 18100 &
+          STUB_PID=$!
+          for _ in $(seq 1 50); do
+            if curl -s -m 1 -o /dev/null "http://127.0.0.1:18100/"; then
+              break
+            fi
+            sleep 0.1
+          done
+          curl -s -m 1 -o /dev/null "http://127.0.0.1:18100/" || {
+            echo "pty test backend did not come up"
+            exit 1
+          }
+
+          cleanup() {
+            ./target/debug/oi daemon stop >/dev/null 2>&1 || true
+            kill "$STUB_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          export OMENIC_LLM_BASE_URL="http://127.0.0.1:18100"
+          export OMENIC_LLM_API_KEY="test-key"
+          export OMENIC_LLM_MODEL="test-model"
+          ./target/debug/oi daemon start
+
+          # The pty driver: stdlib only (no repo dependency, no extra package).
+          # `settle` = read until the stream goes quiet for QUIET_MS, so a
+          # sentinel is matched against a finished frame rather than a
+          # half-drawn one; `deadline` bounds each step so a wedged TUI fails
+          # the job instead of hanging it.
+          cat > "$TMP/pty_drive.py" <<'PY'
+          import fcntl, os, pty, re, select, struct, sys, termios, time
+
+          CMD = sys.argv[1]
+          QUIET_MS = int(os.environ.get("QUIET_MS", "500"))
+          DEADLINE_S = float(os.environ.get("DEADLINE_S", "20"))
+          COLS, ROWS = 100, 30
+
+          # Alt-screen private modes we can assert on: the enhanced shell must
+          # have entered ?1049h and must leave it on exit (a missing ?1049l
+          # leaves the runner's shell in a broken state).
+          RE_ALT_ENTER = re.compile(rb"\x1b\[\?1049h")
+          RE_ALT_LEAVE = re.compile(rb"\x1b\[\?1049l")
+
+          def strip_ansi(data: bytes) -> bytes:
+              # Drop CSI/OSC sequences so sentinels match plain text; the
+              # terminal palette is not ours to assert on, the words are.
+              data = re.sub(rb"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", b"", data)
+              return re.sub(rb"\x1b\[[0-9;?]*[ -/]*[@-~]", b"", data)
+
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.environ["TERM"] = "xterm-256color"
+              os.environ["COLORTERM"] = "truecolor"
+              os.environ["COLUMNS"] = str(COLS)
+              os.environ["LINES"] = str(ROWS)
+              os.execvp("/bin/sh", ["/bin/sh", "-c", CMD])
+
+          fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
+
+          buf = bytearray()
+
+          def settle(quiet_ms=QUIET_MS, deadline_s=DEADLINE_S):
+              """Read until QUIET_MS of silence or the deadline expires."""
+              end = time.time() + deadline_s
+              last = time.time()
+              while time.time() < end:
+                  r, _, _ = select.select([fd], [], [], 0.1)
+                  if r:
+                      try:
+                          chunk = os.read(fd, 65536)
+                      except OSError:
+                          break
+                      if not chunk:
+                          break
+                      buf.extend(chunk)
+                      last = time.time()
+                  elif (time.time() - last) * 1000 >= quiet_ms:
+                      return
+
+          def expect(label, needle, data=None):
+              hay = strip_ansi(bytes(buf) if data is None else data)
+              if needle.encode() not in hay:
+                  sys.stderr.write("MISSING %s: %r\n" % (label, needle))
+                  sys.stderr.write("--- pty output (cat -v) ---\n")
+                  sys.stderr.write(repr(bytes(buf)) + "\n")
+                  sys.exit(1)
+              sys.stdout.write("ok: %s -> %r\n" % (label, needle))
+
+          def send(data, label):
+              os.write(fd, data)
+              sys.stdout.write("sent: %s\n" % label)
+
+          # 1) the shell paints and enters the alternate screen
+          settle()
+          if not RE_ALT_ENTER.search(bytes(buf)):
+              sys.stderr.write("enhanced shell never entered the alternate screen (?1049h)\n")
+              sys.stderr.write("--- pty output (cat -v) ---\n")
+              sys.stderr.write(repr(bytes(buf)) + "\n")
+              sys.exit(1)
+          sys.stdout.write("ok: entered alternate screen (?1049h)\n")
+
+          # 2) the slash-command palette opens on a line-leading '/'
+          before = len(buf)
+          send(b"/", "'/'")
+          settle()
+          expect("slash palette lists /help", "/help", bytes(buf[before:]))
+
+          # 3) Esc closes the palette again
+          before = len(buf)
+          send(b"\x1b", "esc")
+          settle()
+
+          # 4) Ctrl+K opens the session picker (T4 key routing at the TTY level)
+          before = len(buf)
+          send(b"\x0b", "ctrl-k")
+          settle()
+          expect("picker shows its cancel hint", "esc cancel", bytes(buf[before:]))
+          send(b"\x1b", "esc")
+          settle()
+
+          # 5) Ctrl+C leaves cleanly, and the shell must restore the screen
+          send(b"\x03", "ctrl-c")
+          settle(quiet_ms=300, deadline_s=10)
+          _, status = os.waitpid(pid, 0)
+          code = os.waitstatus_to_exitcode(status)
+          raw = bytes(buf)
+          if RE_ALT_LEAVE.search(raw) is None:
+              sys.stderr.write("exit did not leave the alternate screen (?1049l)\n")
+              sys.stderr.write(repr(raw) + "\n")
+              sys.exit(1)
+          if b"panicked at" in raw or b"RUST_BACKTRACE" in raw:
+              sys.stderr.write("panic trace leaked into the pty stream\n")
+              sys.stderr.write(repr(raw) + "\n")
+              sys.exit(1)
+          if code != 0:
+              sys.stderr.write("tui exited %d, expected 0\n" % code)
+              sys.stderr.write(repr(raw) + "\n")
+              sys.exit(1)
+          sys.stdout.write("ok: exited 0, screen restored, no panic\n")
+          # Human-readable transcript for a failed step above.
+          sys.stdout.write("--- pty output (cat -v) ---\n")
+          sys.stdout.buffer.write(re.sub(rb"\x1b", rb"^[", raw))
+          PY
+
+          rc=0
+          python3 "$TMP/pty_drive.py" \
+            "./target/debug/oi tui" >"$TMP/pty.log" 2>&1 || rc=$?
+          cat "$TMP/pty.log"
+          echo "--- pty driver exit=$rc ---"
+          exit "$rc"
+        timeout-minutes: 15
