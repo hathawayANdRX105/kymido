@@ -54,6 +54,14 @@ pub trait LlmBackend {
         });
         events
     }
+
+    /// The model that most recently served a round, for the status line.
+    /// Backends that route between providers (the waterfall) override this to
+    /// report the *active* provider rather than the configured primary;
+    /// plain single-provider backends leave it `None`.
+    fn active_model(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Production backend: real OpenAI-compatible HTTP streaming.
@@ -377,6 +385,7 @@ pub fn run_agent_streaming(
         if turns_used > config.max_turns {
             emit(AgentEvent::TurnEnd {
                 stop_reason: TurnStop::MaxTurns,
+                active_model: backend.active_model(),
             });
             return;
         }
@@ -441,6 +450,7 @@ pub fn run_agent_streaming(
             if llm::openai::is_auth_failure(&err) {
                 emit(AgentEvent::TurnEnd {
                     stop_reason: TurnStop::Error,
+                    active_model: backend.active_model(),
                 });
                 return;
             }
@@ -452,6 +462,7 @@ pub fn run_agent_streaming(
             if same_error_streak >= MAX_SAME_ERROR {
                 emit(AgentEvent::TurnEnd {
                     stop_reason: TurnStop::Error,
+                    active_model: backend.active_model(),
                 });
                 return;
             }
@@ -474,6 +485,7 @@ pub fn run_agent_streaming(
             record(context, config.context_log, msg);
             emit(AgentEvent::TurnEnd {
                 stop_reason: TurnStop::Aborted,
+                active_model: backend.active_model(),
             });
             return;
         }
@@ -523,6 +535,7 @@ pub fn run_agent_streaming(
                 }
                 emit(AgentEvent::TurnEnd {
                     stop_reason: turn_stop(stop_reason),
+                    active_model: backend.active_model(),
                 });
                 return;
             }
@@ -583,6 +596,7 @@ pub fn run_agent_streaming(
         if marked {
             emit(AgentEvent::TurnEnd {
                 stop_reason: TurnStop::EndTurn,
+                active_model: backend.active_model(),
             });
             return;
         }

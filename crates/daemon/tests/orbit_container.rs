@@ -337,7 +337,8 @@ fn loop_reports_max_turns_from_container_config() {
     assert!(matches!(
         events.last(),
         Some(AgentEvent::TurnEnd {
-            stop_reason: TurnStop::MaxTurns
+            stop_reason: TurnStop::MaxTurns,
+            active_model: None,
         })
     ));
 }

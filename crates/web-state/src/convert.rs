@@ -195,14 +195,22 @@ impl WireTranslator {
                     result,
                 })
             }
-            "agent_end" => Some(AgentEvent::TurnEnd {
-                stop_reason: "end_turn".into(),
-            }),
+            "agent_end" => {
+                let active_model = event
+                    .get("active_model")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                Some(AgentEvent::TurnEnd {
+                    stop_reason: "end_turn".into(),
+                    active_model,
+                })
+            }
             // 事件流故障（rpc 层合成帧）：转成 error 停止原因的 TurnEnd，
             // 复用消费端全部收尾（占位文案/结算/复位），否则 is_streaming
             // 会永久卡 true 锁死输入；UDS 仍健在所以不会触发重连
             "error" => Some(AgentEvent::TurnEnd {
                 stop_reason: "error".into(),
+                active_model: None,
             }),
             // 未知类型：不转译
             _ => None,

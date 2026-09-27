@@ -13,6 +13,7 @@ llm = { path = "../llm" }
 tools = { path = "../tools" }
 prompts = { path = "../prompts" }
 fs2 = { workspace = true }
+parking_lot = "0.12"
 
 [dev-dependencies]
 tempfile = { workspace = true }

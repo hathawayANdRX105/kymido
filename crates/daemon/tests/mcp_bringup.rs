@@ -40,6 +40,7 @@ fn mcp_server(name: &str, command: &str, fail: Option<bool>) -> config::McpServe
         reconnect: None,
         cwd: None,
         fail_on_startup_error: fail,
+        tools: vec![],
     }
 }
 

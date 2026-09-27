@@ -581,8 +581,18 @@ impl Mcp {
 
     /// Consume the connection into registrable tools.
     pub fn into_tools(self) -> Vec<Box<dyn Tool>> {
+        self.into_tools_allow(&[])
+    }
+
+    /// [`into_tools`] with a per-server allowlist: only tools whose server-known
+    /// name (`ToolMeta::remote`) is in `allow` are exposed. An empty `allow`
+    /// exposes every tool, so the no-filter case is identical to
+    /// [`into_tools`].
+    pub fn into_tools_allow(self, allow: &[String]) -> Vec<Box<dyn Tool>> {
+        let filter = |m: &ToolMeta| allow.is_empty() || allow.iter().any(|a| a == &m.remote);
         self.tools
             .into_iter()
+            .filter(|m| filter(m))
             .map(|meta| Box::new(McpTool::new(meta, Arc::clone(&self.transport))) as Box<dyn Tool>)
             .collect()
     }
@@ -609,7 +619,7 @@ pub fn external_tools_from_mcp(
             Mcp::spawn(cfg, signal)
         };
         match res {
-            Ok(mcp) => out.extend(mcp.into_tools()),
+            Ok(mcp) => out.extend(mcp.into_tools_allow(&cfg.tools)),
             Err(e) => {
                 // Name the config entry that failed: callers surface this
                 // error verbatim (e.g. daemon bring-up), and a bare command

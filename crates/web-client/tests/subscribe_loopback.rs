@@ -124,7 +124,8 @@ fn subscribe_worker_receives_and_translates_full_turn() {
                 result: "{\n  \"ok\": true\n}".into(),
             },
             AgentEvent::TurnEnd {
-                stop_reason: "end_turn".into()
+                stop_reason: "end_turn".into(),
+                active_model: None
             },
         ]
     );

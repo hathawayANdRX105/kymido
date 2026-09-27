@@ -35,6 +35,9 @@ pub enum AgentEvent {
     },
     TurnEnd {
         stop_reason: String,
+        /// Model of the provider that actually served the round (waterfall).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_model: Option<String>,
     },
 }
 
@@ -99,7 +102,10 @@ impl UiState {
                     }
                 }
             }
-            AgentEvent::TurnEnd { stop_reason } => {
+            AgentEvent::TurnEnd {
+                stop_reason,
+                active_model: _,
+            } => {
                 let msg = self.last_assistant_or_placeholder();
                 if msg.content.is_empty() && msg.tool_calls.is_empty() {
                     let text = format!(

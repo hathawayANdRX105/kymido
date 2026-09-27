@@ -4,7 +4,9 @@
 //! emitting any content* (terminal `Error`, no delta/tool-call leaked),
 //! the next configured provider takes over; a partially-emitted turn is
 //! never replayed on another provider; when every provider fails before
-//! emitting anything, one terminal `Error` names the last provider.
+//! emitting anything, one terminal `Error` aggregates every provider's own
+//! failure text (each provider's raw error under a numbered bullet), so a
+//! debug reads the whole waterfall instead of probing one provider at a time.
 //!
 //! The per-provider intermediate `Error` is swallowed by the waterfall —
 //! the agent loop's `stream_failed` latch is one-way, so a forwarded
@@ -251,11 +253,11 @@ fn waterfall_drops_to_fallback_after_retries_exhausted() {
     };
     let a = MockProvider::start(usize::MAX, false); // always 500
     let b = MockProvider::start(0, false); // always clean
-    let wf = WaterfallLlm {
-        primary: provider(&a.addr, "primary"),
-        fallbacks: vec![provider(&b.addr, "fallback")],
-        retry: policy,
-    };
+    let wf = WaterfallLlm::with_retry(
+        provider(&a.addr, "primary"),
+        vec![provider(&b.addr, "fallback")],
+        policy,
+    );
     let events = run_once(&wf);
     assert!(
         matches!(
@@ -301,11 +303,11 @@ fn no_switch_after_content_leaked() {
     };
     let a = MockProvider::start(0, true); // delta then stall (hold open)
     let b = MockProvider::start(0, false);
-    let wf = WaterfallLlm {
-        primary: provider(&a.addr, "primary"),
-        fallbacks: vec![provider(&b.addr, "fallback")],
-        retry: policy,
-    };
+    let wf = WaterfallLlm::with_retry(
+        provider(&a.addr, "primary"),
+        vec![provider(&b.addr, "fallback")],
+        policy,
+    );
     let events = run_once(&wf);
     assert!(
         matches!(terminal(&events), StreamEvent::Error(_)),
@@ -332,20 +334,27 @@ fn all_providers_fail_yields_indexed_error() {
     };
     let a = MockProvider::start(usize::MAX, false);
     let b = MockProvider::start(usize::MAX, false);
-    let wf = WaterfallLlm {
-        primary: provider(&a.addr, "primary"),
-        fallbacks: vec![provider(&b.addr, "fallback")],
-        retry: policy,
-    };
+    let wf = WaterfallLlm::with_retry(
+        provider(&a.addr, "primary"),
+        vec![provider(&b.addr, "fallback")],
+        policy,
+    );
     let events = run_once(&wf);
     let StreamEvent::Error(err) = terminal(&events) else {
         panic!("terminal must be a single Error, saw {events:?}");
     };
     assert!(
         err.contains("provider 1"),
-        "error must name the last provider index, got {err:?}"
+        "the aggregate must name the last provider index, got {err:?}"
     );
-    assert!(err.contains("all providers exhausted"), "got {err:?}");
+    assert!(
+        err.contains("provider 0"),
+        "the aggregate must list every provider, not just the last, got {err:?}"
+    );
+    assert!(
+        err.contains("llm providers failed"),
+        "the synthesized all-exhausted error is expected, got {err:?}"
+    );
     assert_eq!(
         events
             .iter()
@@ -372,11 +381,11 @@ fn fallback_success_yields_clean_done_no_intermediate_error() {
     };
     let a = MockProvider::start(usize::MAX, false); // always 500
     let b = MockProvider::start(0, false); // always clean
-    let wf = WaterfallLlm {
-        primary: provider(&a.addr, "primary"),
-        fallbacks: vec![provider(&b.addr, "fallback")],
-        retry: policy,
-    };
+    let wf = WaterfallLlm::with_retry(
+        provider(&a.addr, "primary"),
+        vec![provider(&b.addr, "fallback")],
+        policy,
+    );
     let events = run_once(&wf);
     assert!(
         !events.iter().any(|e| matches!(e, StreamEvent::Error(_))),
@@ -429,16 +438,16 @@ fn solo_behaves_like_historic_single_provider() {
 fn waterfall_through_dyn_backend() {
     let a = MockProvider::start(usize::MAX, false);
     let b = MockProvider::start(0, false);
-    let wf = Arc::new(WaterfallLlm {
-        primary: provider(&a.addr, "primary"),
-        fallbacks: vec![provider(&b.addr, "fallback")],
-        retry: RetryPolicy {
+    let wf = Arc::new(WaterfallLlm::with_retry(
+        provider(&a.addr, "primary"),
+        vec![provider(&b.addr, "fallback")],
+        RetryPolicy {
             max_attempts: 1,
             base_delay_ms: 1,
             max_delay_ms: 2,
             read_timeout_ms: 1000,
         },
-    });
+    ));
     let backend: Arc<dyn LlmBackend + Send + Sync> = wf;
     let events = run_once(backend.as_ref());
     assert!(

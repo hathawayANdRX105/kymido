@@ -105,6 +105,9 @@ pub enum WorkerEvent {
     AgentEnd {
         #[serde(default)]
         stop_reason: String,
+        /// Model of the provider that actually served the round (waterfall).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_model: Option<String>,
     },
     /// Synthetic transport error: the event stream itself failed and the
     /// raw error is surfaced to the consumer instead of killing the iterator.
@@ -594,11 +597,13 @@ impl OrbitEngine {
                                             .ok()
                                             .or(Some(serde_json::Value::String(result))),
                                     },
-                                    protocol::events::AgentEvent::TurnEnd { stop_reason } => {
-                                        WorkerEvent::AgentEnd {
-                                            stop_reason: turn_stop_to_string(&stop_reason),
-                                        }
-                                    }
+                                    protocol::events::AgentEvent::TurnEnd {
+                                        stop_reason,
+                                        active_model,
+                                    } => WorkerEvent::AgentEnd {
+                                        stop_reason: turn_stop_to_string(&stop_reason),
+                                        active_model,
+                                    },
                                 };
                                 let mut s = run_subs.lock().unwrap_or_else(|e| e.into_inner());
                                 s.retain(|(_, tx)| tx.send(we.clone()).is_ok());
@@ -610,6 +615,7 @@ impl OrbitEngine {
                         eprintln!("[orbit-worker] turn panicked, recovered");
                         let ev = WorkerEvent::AgentEnd {
                             stop_reason: "error".to_string(),
+                            active_model: None,
                         };
                         let mut s = run_subs.lock().unwrap_or_else(|e| e.into_inner());
                         s.retain(|(_, tx)| tx.send(ev.clone()).is_ok());
@@ -957,6 +963,10 @@ fn frame_to_event(raw: Value) -> Option<WorkerEvent> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            active_model: raw
+                .get("active_model")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string()),
         },
         "message_start" | "message_update" => {
             let text = raw

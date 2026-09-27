@@ -71,7 +71,10 @@ fn event_kind(event: &WorkerEvent) -> &'static str {
 /// The `stop_reason` an `AgentEnd` carries, or `None` for any other variant.
 fn agent_end_stop_reason(event: &WorkerEvent) -> Option<&str> {
     match event {
-        WorkerEvent::AgentEnd { stop_reason } => Some(stop_reason),
+        WorkerEvent::AgentEnd {
+            stop_reason,
+            active_model: _,
+        } => Some(stop_reason),
         _ => None,
     }
 }
@@ -132,6 +135,7 @@ fn agent_end_serializes_its_stop_reason() {
     for reason in ["end_turn", "error", "aborted", "max_tokens", "max_turns"] {
         let json = serde_json::to_string(&WorkerEvent::AgentEnd {
             stop_reason: reason.to_string(),
+            active_model: None,
         })
         .unwrap();
         assert!(
