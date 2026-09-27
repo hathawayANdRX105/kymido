@@ -408,14 +408,16 @@ jobs:
           send(b"\x1b", "esc")
           settle()
 
-          # 5) Ctrl+D leaves cleanly. Ctrl+D is the TUI's quit key; Ctrl+C
-          # is abort, which leaves the shell running — the driver then
-          # blocked forever in `waitpid` and burned the step's whole budget
-          # (run 36299140253 timed out at 15 min). The wait is bounded and
-          # kills the child if it refuses to go, so a future regression
-          # fails this step instead of the job.
+          # 5) Quit cleanly. Two things this step has to respect about the
+          # TUI: Ctrl+C is abort (not quit), and Ctrl+D quits **only when the
+          # composer is empty** — the `/` typed for the palette check above
+          # is still in it, so clear it first (run 36300305870: the shell
+          # never exited). The wait is bounded and kills the child if it
+          # refuses to go, so a future regression fails this step rather
+          # than burning the job's budget.
+          send(b"\x7f" * 16, "backspaces (clear composer)")
+          settle(quiet_ms=200, deadline_s=5)
           send(b"\x04", "ctrl-d")
-          settle(quiet_ms=300, deadline_s=10)
           deadline = time.time() + 15
           code = None
           while time.time() < deadline:
