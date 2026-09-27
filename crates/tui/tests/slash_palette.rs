@@ -252,7 +252,7 @@ fn unknown_slash_line_reports_status_without_model_turn() {
 }
 
 /// 注册命令的既有落点：`/sessions` 产出开 picker 的意图（事件循环消费，
-/// App 自己无 IO）、`/model` `/theme` 回显本地输出——三条都不进 prompt 路径。
+/// App 自己无 IO）、`/model` 回显本地输出、`/theme` 开主题面板（T17）——三条都不进 prompt 路径。
 #[test]
 fn commands_emit_intents_or_local_output_never_prompts() {
     let mut app = App::new();
@@ -280,15 +280,11 @@ fn commands_emit_intents_or_local_output_never_prompts() {
     );
     assert!(app.take_prompt().is_none());
 
-    // /theme：回显主题现状（没有切换能力就不编）。
+    // /theme：T17 起开主题面板（↑↓ 选 · enter 应用 · esc 取消），不再是旧
+    // 「theme: …」转录回显——意图/面板都不进 prompt 路径。
     type_str(&mut app, "/theme");
     two_stage_enter(&mut app);
-    let theme = app
-        .messages()
-        .last()
-        .map(|m| m.content.as_str())
-        .expect("/theme 要有本地输出");
-    assert!(theme.starts_with("theme:"), "/theme 回显现状：{theme}");
+    assert!(app.theme_panel_open(), "/theme 应打开主题面板（T17）");
     assert!(app.take_prompt().is_none());
 }
 
