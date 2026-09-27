@@ -118,7 +118,9 @@ jobs:
         run: |
           set -euo pipefail
           IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
-          cargo build --locked --all-targets -p "${PKGS[@]}"
+          # cargo takes one package per -p; build the repeated-arg array.
+          ARGS=(); for p in "${PKGS[@]}"; do ARGS+=(-p "$p"); done
+          cargo build --locked --all-targets "${ARGS[@]}"
       - name: Build (full workspace)
         if: steps.scope.outputs.packages == '__ALL__'
         run: cargo build --locked --all-targets
@@ -130,7 +132,8 @@ jobs:
         run: |
           set -euo pipefail
           IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
-          cargo test --locked --all-targets --no-fail-fast -p "${PKGS[@]}" -- --test-threads=2
+          ARGS=(); for p in "${PKGS[@]}"; do ARGS+=(-p "$p"); done
+          cargo test --locked --all-targets --no-fail-fast "${ARGS[@]}" -- --test-threads=2
       - name: Test (full workspace)
         if: steps.scope.outputs.packages == '__ALL__'
         run: cargo test --locked --all-targets --no-fail-fast -- --test-threads=2
