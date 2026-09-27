@@ -24,36 +24,44 @@ anchors:
     source: 'omenic: bin/web/assets/tailwind-input.css:152-158；dsh: AssistantMarkdown 16/28 规格'
   - key: process-header
     find: 'h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit'
-    expect: '「工作过程」折叠行高 24px，chevron 12px，计数为 caption 弱化文本。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:321；dsh: DisclosureRow.module.css:15（头高 24px）'
-  - key: process-chevron
-    find: 'IconChevronRight { size: 12 }'
-    expect: '折叠 chevron 统一 12px（ui-kit IconChevronRight），展开时 rotate-90。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:567,612；dsh: DisclosureRow chevron'
+    expect: '「Work Process」折叠行高 24px，无 chevron（ainotation #2 删除），计数为 caption 弱化文本；最后一轮默认展开、更早轮静止折叠（#4-6）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:619；dsh: DisclosureRow.module.css:15（头高 24px）'
+  - key: process-title
+    find: '"Work Process"'
+    expect: '折叠块标题为英文「Work Process」（ainotation #4-7，原「工作过程」改为英文名）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:624；ainotation #4 第 7 条'
   - key: tool-row-header
     find: 'h-6 flex items-center gap-2 cursor-pointer select-none w-fit'
-    expect: '单条工具调用行（ToolLine）头高 24px，与工作过程行同构。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:367；dsh: DisclosureRow.module.css:15（24px 头）'
+    expect: '单条工具调用行（ToolLine）头高 24px，与工作过程行同构；头行 = kind 图标 + 大写 kind 文本 + 「·」+ 命令标题，无 chevron（ainotation #2/#4）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:660；dsh: DisclosureRow.module.css:15（24px 头）'
   - key: tool-chip
-    find: 'font-mono text-[10px] font-semibold uppercase px-1.5 py-px leading-4 rounded-md'
-    expect: '工具 kind chip：mono 10px 大写、圆角 r6、shrink-0。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:373；dsh: 状态 chip 900 底 + 400 字规格'
+    find: 'font-mono text-[10px] font-semibold uppercase shrink-0'
+    expect: '工具 kind 标签：纯文本（无 chip 底/边框，ainotation #4-1）、mono 10px 大写、首字母大写显示（#4-2），颜色走 400 字级 token，shrink-0。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:666；dsh: 状态色 400 字规格'
+  - key: tool-kind-icon
+    find: 'KindIcon { kind: "{tool.kind}" }'
+    expect: 'kind 前挂一个 12px、text-label-3 的类型图标（ainotation #4-4；字形映射语义对齐 dsh GenericToolCard VARIANT_ICONS）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:44-61,665；dsh: GenericToolCard.tsx VARIANT_ICONS'
+  - key: tool-kind-sep
+    find: 'span { class: "text-[12px] leading-5 text-label-3 shrink-0", "·" }'
+    expect: 'kind 标签与命令标题之间插「·」分隔符（ainotation #4-3）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:669；ainotation #4 第 3 条'
   - key: chip-kind-bash
-    find: '"bash" | "job" | "terminal" => "bg-chip-brand text-brand-300"'
-    expect: 'bash / job / terminal 类工具 chip 同为 brand 配色（三者都是「跑命令」，靠 chip 上的 kind 文字区分，不靠颜色）。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:31；dsh: kind→状态色映射'
+    find: '"bash" | "job" | "terminal" => "text-brand-300"'
+    expect: 'bash / job / terminal 类工具 kind 文本同为 brand-300 字色（三者都是「跑命令」，靠 kind 文字区分，不靠颜色；chip 底已按 #4-1 删除）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:25；dsh: kind→状态色 400 字映射'
   - key: chip-kind-edit
-    find: '"edit" | "write" => "bg-chip-success text-success-2"'
-    expect: 'edit/write 类工具 chip 为 success 配色。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:30；dsh: kind→状态色映射'
+    find: '"edit" | "write" => "text-success-2"'
+    expect: 'edit/write 类工具 kind 文本为 success-2 字色。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:26；dsh: kind→状态色映射'
   - key: chip-kind-read
-    find: '"read" | "grep" | "glob" => "bg-chip-warn text-warn-2"'
-    expect: 'read/grep/glob 类工具 chip 为 warn 配色。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:31；dsh: kind→状态色映射'
+    find: '"read" | "grep" | "glob" => "text-warn-2"'
+    expect: 'read/grep/glob 类工具 kind 文本为 warn-2 字色。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:27；dsh: kind→状态色映射'
   - key: chip-kind-delete
-    find: '"delete" => "bg-chip-danger text-danger"'
-    expect: 'delete 类工具 chip 为 danger 配色。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:32；dsh: kind→状态色映射'
+    find: '"delete" => "text-danger"'
+    expect: 'delete 类工具 kind 文本为 danger 字色。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs:28；dsh: kind→状态色映射'
   - key: statsline
     find: 'text-[12px] leading-5 text-label-3 text-center select-none'
     expect: 'StatsLine 状态行 12/20 tertiary 居中：model · ↑in ↓out · $cost · context %。'

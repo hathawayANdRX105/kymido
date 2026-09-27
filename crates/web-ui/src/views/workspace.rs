@@ -110,7 +110,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// 数据后端：唯一真实来源是本机 omenic daemon。初始化连接失败
+/// 数据后端：唯一真实来源是本机 kymido daemon。初始化连接失败
 /// （无 daemon / ping 不通）→ [`DataBackend::Disconnected`]，全部数据源
 /// 返回空集合（空态），不回退假数据、不 panic。
 #[derive(Debug, Clone)]
@@ -126,7 +126,7 @@ fn daemon_space(data_dir: &str) -> WorkspaceSpace {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "omenic".into());
+        .unwrap_or_else(|| "kymido".into());
     WorkspaceSpace {
         id: data_dir.to_string(),
         name,
@@ -169,63 +169,6 @@ fn create_session_in(
     space_sessions.set(map);
     session_messages.write().insert(new_id.clone(), Vec::new());
     active_space_path.set(space_path);
-    active_session_id.set(new_id.clone());
-    (new_id, title)
-}
-
-/// 新建子会话（内存版；Daemon 模式下调用方再追加 daemon 持久化）。与
-/// [`create_session_in`] 的根会话路径（insert(0)）互补：子会话插在父会话
-/// **之后**——侧栏树里子要紧跟父，而不是顶到列表头。`parent_id` 指向
-/// 父 id；父已不在任何 space（刚被删 / 换 space 的竞态）→ 不挂悬空的
-/// parent_id，退化为根会话插在激活 space 的列表头（侧栏分组对悬空父
-/// 同样当根处理，内存与之一致）。
-#[allow(clippy::too_many_arguments)]
-fn create_child_session_in(
-    parent_id: String,
-    model: String,
-    mut space_sessions: Signal<HashMap<String, Vec<Session>>>,
-    mut session_messages: Signal<HashMap<String, Vec<ChatMessage>>>,
-    mut active_space_path: Signal<String>,
-    mut active_session_id: Signal<String>,
-) -> (String, String) {
-    let ts = now_ms();
-    let new_id = format!("s-{}", ts);
-    let title = format!("会话 {}", ts % 1_000_000);
-    let mut map = space_sessions.read().clone();
-    // 会话 id 跨 space 唯一，命中第一个即可；返回 (space, 父在列表内的下标)
-    let parent_pos = map.iter().find_map(|(path, list)| {
-        list.iter()
-            .position(|s| s.id == parent_id)
-            .map(|p| (path.clone(), p))
-    });
-    let parent_id_field = if parent_pos.is_some() {
-        Some(parent_id)
-    } else {
-        None
-    };
-    let new_session = Session {
-        id: new_id.clone(),
-        title: title.clone(),
-        last_active: "刚刚".into(),
-        model,
-        status: SessionStatus::Idle,
-        last_active_epoch: ts,
-        parent_id: parent_id_field,
-    };
-    match parent_pos {
-        Some((path, pos)) => {
-            map.get_mut(&path).unwrap().insert(pos + 1, new_session);
-            session_messages.write().insert(new_id.clone(), Vec::new());
-            active_space_path.set(path);
-        }
-        None => {
-            let path = active_space_path();
-            map.entry(path.clone()).or_default().insert(0, new_session);
-            session_messages.write().insert(new_id.clone(), Vec::new());
-            active_space_path.set(path);
-        }
-    }
-    space_sessions.set(map);
     active_session_id.set(new_id.clone());
     (new_id, title)
 }
@@ -779,7 +722,7 @@ pub fn Workspace(
     // WP-C：任务看板数据源 = 当前会话的真实 run 记录 + 三份持久存储：
     // CLI 任务（tasks.jsonl）、模型工具写入的 todo（todos.jsonl）与 goal
     // （goals.jsonl）。run 记录是当前会话的瞬时执行，三份存储是跨会话的
-    // 持久记录，都是看板的诚实内容；`oi task add/done/...` 与 slice1 的
+    // 持久记录，都是看板的诚实内容；`kymido task add/done/...` 与 slice1 的
     // 模型工具写入的数据此前 web 完全看不到，这里通过 `task.list` /
     // `todo.list` / `goal.list` 补上。「任务系统」视图本身属于 C8（酒馆
     // 触发，已暂缓），不新造任务子系统，只把四份真实记录投影成任务卡
@@ -927,7 +870,7 @@ pub fn Workspace(
         .cloned()
         .unwrap_or_else(|| WorkspaceSpace {
             id: String::new(),
-            name: "omenic".into(),
+            name: "kymido".into(),
             path: String::new(),
             branch: String::new(),
             is_active: true,
@@ -960,7 +903,6 @@ pub fn Workspace(
     let config_create = config.clone();
     let config_model = config.clone();
     let config_send = config.clone();
-    let config_child = config.clone();
 
     // ── 数据操作（内存即时生效；Daemon 模式再追加 daemon 持久化）──────────
 
@@ -981,25 +923,6 @@ pub fn Workspace(
         if let DataBackend::Daemon(d) = backend() {
             std::thread::spawn(move || {
                 let _ = d.create_session(&new_id, &title);
-            });
-        }
-        view.set(View::Chat);
-    };
-
-    // 创建子会话（5.3/5.5 谱系分组）：内存里插在父之后并挂 parent_id；
-    // daemon 侧走带谱系边的 create_session_with_parent（线程内）
-    let on_create_child = move |parent_id: String| {
-        let (new_id, title) = create_child_session_in(
-            parent_id.clone(),
-            config_child.model.clone(),
-            space_sessions,
-            session_messages,
-            active_space_path,
-            active_session_id,
-        );
-        if let DataBackend::Daemon(d) = backend() {
-            std::thread::spawn(move || {
-                let _ = d.create_session_with_parent(&new_id, &title, Some(&parent_id));
             });
         }
         view.set(View::Chat);
@@ -1382,7 +1305,6 @@ pub fn Workspace(
                 },
                 on_select_space: on_select_space,
                 on_create: on_create_session,
-                on_create_child: on_create_child,
                 on_delete_session: on_delete_session,
                 on_delete_space: on_delete_space,
                 collapsed: sidebar_collapsed(),
