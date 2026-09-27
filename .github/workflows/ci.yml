@@ -241,22 +241,18 @@ jobs:
           grep -q "数到三" "$TMP/attach.out"
           grep -q "hello from the test backend" "$TMP/attach.out"
 
-  # T18 PTY smoke (route-tui §3 T18): the TUI's real-terminal evidence, which
-  # the pipe smoke above structurally cannot produce — pipe stdin never
-  # satisfies the mode probe (TTY + colour + >=44x12), so `oi tui` would fall
-  # back to linear and the enhanced shell would go untested. Here the same
-  # daemon + SSE stub drive `oi tui` through a real pty at 100x30 with colour
-  # support, keystrokes go in as bytes, and sentinels are matched after a
-  # settle-wait (no bare sleeps guessing at frames).
-  #
-  # Kept as its own job so a TTY-level regression names itself, and so the
-  # pty window/TERM setup stays out of the plan-mode and CLI pipe smokes.
-  tui_pty_smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      # T18 PTY smoke (route-tui §3 T18): the TUI's real-terminal evidence,
+      # which the pipe smoke above structurally cannot produce — pipe stdin
+      # never satisfies the mode probe (TTY + colour + >=44x12), so `oi tui`
+      # would fall back to linear and the enhanced shell would go untested.
+      # A real pty at 100x30 with colour support, keystrokes in as bytes, and
+      # sentinels matched after a settle-wait (no bare sleeps guessing at
+      # frames).
+      #
+      # A step here, not its own job: the workspace cold build does not fit
+      # in a fresh job's budget (run 36297952884 timed out at 15 min still
+      # downloading deps), while this job already builds `oi` and `daemon`
+      # for the pipe smoke above. The step name is what names the regression.
       - name: TUI enhanced pty smoke
         run: |
           set -euo pipefail
@@ -412,11 +408,30 @@ jobs:
           send(b"\x1b", "esc")
           settle()
 
-          # 5) Ctrl+C leaves cleanly, and the shell must restore the screen
-          send(b"\x03", "ctrl-c")
-          settle(quiet_ms=300, deadline_s=10)
-          _, status = os.waitpid(pid, 0)
-          code = os.waitstatus_to_exitcode(status)
+          # 5) Quit cleanly. Two things this step has to respect about the
+          # TUI: Ctrl+C is abort (not quit), and Ctrl+D quits **only when the
+          # composer is empty** — the `/` typed for the palette check above
+          # is still in it, so clear it first (run 36300305870: the shell
+          # never exited). The wait is bounded and kills the child if it
+          # refuses to go, so a future regression fails this step rather
+          # than burning the job's budget.
+          send(b"\x7f" * 16, "backspaces (clear composer)")
+          settle(quiet_ms=200, deadline_s=5)
+          send(b"\x04", "ctrl-d")
+          deadline = time.time() + 15
+          code = None
+          while time.time() < deadline:
+              done, status = os.waitpid(pid, os.WNOHANG)
+              if done:
+                  code = os.waitstatus_to_exitcode(status)
+                  break
+              time.sleep(0.1)
+          if code is None:
+              sys.stderr.write("tui did not exit after ctrl-d; killing\n")
+              os.kill(pid, 9)
+              os.waitpid(pid, 0)
+              sys.stderr.write(repr(bytes(buf)) + "\n")
+              sys.exit(1)
           raw = bytes(buf)
           if RE_ALT_LEAVE.search(raw) is None:
               sys.stderr.write("exit did not leave the alternate screen (?1049l)\n")
