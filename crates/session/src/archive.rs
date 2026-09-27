@@ -217,8 +217,7 @@ fn body_lines(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
 pub(crate) fn write_archive_file(path: &Path, payload: &[u8]) -> Result<u64, SessionError> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(dir).map_err(SessionError::Io)?;
-    // Owner-only: an archive is the same plaintext a live session is.
-    restrict_to_owner_dir(dir);
+    restrict_to_owner(dir, 0o700);
     let tmp = dir.join(format!(
         ".{}.tmp",
         path.file_name()
@@ -230,28 +229,23 @@ pub(crate) fn write_archive_file(path: &Path, payload: &[u8]) -> Result<u64, Ses
         f.write_all(payload).map_err(SessionError::Io)?;
         f.sync_all().map_err(SessionError::Io)?;
     }
-    restrict_to_owner_file(&tmp);
+    restrict_to_owner(&tmp, 0o600);
     fs::rename(&tmp, path).map_err(SessionError::Io)?;
     Ok(payload.len() as u64)
 }
 
-#[cfg(unix)]
-fn restrict_to_owner_dir(dir: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+/// Owner-only permission hardening, best-effort: an archive is the same
+/// plaintext a live session is. Non-unix platforms have no POSIX mode bits
+/// to set, so there this is a deliberate no-op.
+fn restrict_to_owner(path: &Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
 }
-
-#[cfg(not(unix))]
-fn restrict_to_owner_dir(_dir: &Path) {}
-
-#[cfg(unix)]
-fn restrict_to_owner_file(file: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(file, fs::Permissions::from_mode(0o600));
-}
-
-#[cfg(not(unix))]
-fn restrict_to_owner_file(_file: &Path) {}
 
 /// Remove an archive file. `true` when a file was actually removed.
 pub fn delete_archive(db_path: &Path, id: &str) -> Result<bool, SessionError> {

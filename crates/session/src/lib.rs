@@ -698,8 +698,8 @@ impl SessionDb {
     /// other mutator here): letting it reach the UPDATE would report a
     /// missing *database file* for what is really an invalid id.
     ///
-    /// An empty `title` is accepted: the deterministic placeholder the web
-    /// UI sends is a legitimate title. This is deliberately looser than
+    /// An empty `title` is accepted: the deterministic stand-in title the
+    /// web UI sends is legitimate. This is deliberately looser than
     /// [`Self::ensure_session`], which rejects a blank title on insert.
     /// `created_at`, `parent_id`, and the turn log are never touched.
     ///
@@ -1227,7 +1227,7 @@ impl SessionDb {
     /// row's `created_at_ms`.
     ///
     /// Creates the session row if it does not yet exist (caller may have
-    /// forgotten to `ensure_session` first; the id is used as a placeholder
+    /// forgotten to `ensure_session` first; the id doubles as the fallback
     /// title).
     ///
     /// `attachments` are stored in the nullable `messages.attachments`
