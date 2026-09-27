@@ -16,12 +16,109 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - name: Build
+      # Scope by the diff: `cargo metadata` gives every workspace member and
+      # its dependency graph, `git diff` says what the PR touched. A change is
+      # expanded to the crates that own the touched files plus everything
+      # that depends on them, so a TUI-only PR builds and tests one crate
+      # instead of all 29 (134 test binaries) — while a change to a widely
+      # depended-on crate (config) still widens to the full tree.
+      # Anything that can move the whole graph (root manifest, lockfile,
+      # workflow, hooks) falls back to the full workspace run.
+      - name: Resolve affected crates
+        id: scope
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 > "$RUNNER_TEMP/metadata.json"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "packages=__ALL__" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin main
+          git diff --name-only "origin/main...HEAD" > "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt"
+          export METADATA="$RUNNER_TEMP/metadata.json"
+          export CHANGED="$RUNNER_TEMP/changed.txt"
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          meta = json.load(open(os.environ["METADATA"]))
+          # Full metadata (not --no-deps): the reverse-dependency closure
+          # needs `resolve`, and only workspace members are ever in scope.
+          members = set(meta["workspace_members"])
+          pkgs = {p["id"]: p for p in meta["packages"] if p["id"] in members}
+          changed = [l.strip() for l in open(os.environ["CHANGED"]) if l.strip()]
+
+          # A path outside every crate directory can move the whole graph.
+          GLOBAL = ("Cargo.toml", "Cargo.lock", ".github/", ".githooks/", "rust-toolchain")
+          if not changed or any(c == GLOBAL[0] or c == GLOBAL[1] or c.startswith(GLOBAL[2:])
+                                 or c.startswith(GLOBAL[3]) or c.startswith(GLOBAL[4]) for c in changed):
+              print("packages=__ALL__")
+              raise SystemExit(0)
+
+          # `git diff` yields repo-relative paths but `manifest_path` is
+          # absolute — rebase both on the workspace root before matching.
+          root = meta["workspace_root"].rstrip("/") + "/"
+          dirs = {
+              pid: os.path.dirname(p["manifest_path"]).replace(root, "", 1)
+              for pid, p in pkgs.items()
+          }
+          direct = set()
+          for path in changed:
+              # Longest manifest-dir prefix wins, so crates/foo/ beats crates/.
+              owner = max(
+                  (pid for pid, d in dirs.items() if path == d or path.startswith(d + "/")),
+                  key=lambda pid: len(dirs[pid]),
+                  default=None,
+              )
+              if owner is not None:
+                  direct.add(owner)
+          if not direct:
+              print("packages=__ALL__")  # docs-only or non-crate change: stay safe
+              raise SystemExit(0)
+
+          # Reverse-dependency closure inside the workspace: a change to
+          # crate X also has to compile and pass in everything that uses X.
+          dependents = {pid: set() for pid in members}
+          for node in meta["resolve"]["nodes"]:
+              if node["id"] not in members:
+                  continue
+              for dep in node["dependencies"]:
+                  # Current cargo lists bare package ids; older ones use
+                  # {pkg, dep_kinds}. Accept both.
+                  dep_id = dep if isinstance(dep, str) else dep.get("pkg")
+                  if dep_id in dependents:
+                      dependents[dep_id].add(node["id"])
+
+          affected, stack = set(direct), list(direct)
+          while stack:
+              for parent in dependents.get(stack.pop(), ()):
+                  if parent not in affected:
+                      affected.add(parent)
+                      stack.append(parent)
+
+          names = sorted(pkgs[pid]["name"] for pid in affected)
+          print("packages=" + (",".join(names) if names else "__ALL__"))
+          PY
+      - name: Build (affected crates)
+        if: steps.scope.outputs.packages != '__ALL__'
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
+          cargo build --locked --all-targets -p "${PKGS[@]}"
+      - name: Build (full workspace)
+        if: steps.scope.outputs.packages == '__ALL__'
         run: cargo build --locked --all-targets
-      - name: Test
-        # --no-fail-fast + per-test-binary output so a hang shows which
-        # binary stalled instead of the whole step going dark. The timeout
-        # stops a hung binary from burning the whole job budget.
+      # --no-fail-fast + per-test-binary output so a hang shows which
+      # binary stalled instead of the whole step going dark. The timeout
+      # stops a hung binary from burning the whole job budget.
+      - name: Test (affected crates)
+        if: steps.scope.outputs.packages != '__ALL__'
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
+          cargo test --locked --all-targets --no-fail-fast -p "${PKGS[@]}" -- --test-threads=2
+      - name: Test (full workspace)
+        if: steps.scope.outputs.packages == '__ALL__'
         run: cargo test --locked --all-targets --no-fail-fast -- --test-threads=2
         timeout-minutes: 25
       - name: Format check
