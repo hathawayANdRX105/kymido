@@ -15,6 +15,7 @@ pub mod questions;
 pub mod search_overlay;
 pub mod session_picker;
 mod slash_palette;
+mod theme_panel;
 pub mod tool_card;
 mod transcript;
 
@@ -63,7 +64,7 @@ fn areas(app: &App, area: Rect) -> Areas {
     let search = overlay_rect(area, panel_y, app.search_rows(), transcript.y);
     // T9 斜杠面板：贴在搜索 overlay 之下（0 行 = 关闭；行数 = 面板候选数，
     // 无命中也留 1 行提示；小屏按 transcript 余量夹紧——同款几何）。
-    let palette = overlay_rect(area, search.y, app.slash_rows(), transcript.y);
+    let palette = overlay_rect(area, search.y, app.panel_rows(), transcript.y);
     // transcript：吃掉斜杠面板 + 搜索 overlay + footer + 面板让出的行。
     let transcript = Rect {
         height: palette.y.saturating_sub(transcript.y),
@@ -107,6 +108,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     transcript::render(frame, areas.transcript, app);
     mark_focus(frame, areas.transcript, app);
     slash_palette::render(frame, areas.palette, app);
+    theme_panel::render(frame, areas.palette, app);
     footer::render(frame, areas.footer, app);
     app.questions().render(frame, areas.panel);
     dock::render(frame, areas.dock, app);

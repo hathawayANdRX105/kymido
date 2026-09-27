@@ -95,7 +95,7 @@ pub fn render(frame: &mut Frame, app: &App, snapshot: &PanelSnapshot) {
     // T3 三明治让行（与 `ui::draw` 同一套算术）：footer 恒 1 行（dock 压底
     // 时才有）+ 问题面板实占行 + T9 斜杠面板行——可见 transcript 底 = 原始
     // 底减去这三层（斜杠面板开着时任务卡要再往上让，不许盖住候选行）。
-    let reserved = u16::from(dock.y > 0) + app.questions().rows() + app.slash_rows();
+    let reserved = u16::from(dock.y > 0) + app.questions().rows() + app.panel_rows();
     let bottom = (transcript.y + transcript.height).saturating_sub(reserved);
     let avail = bottom.saturating_sub(transcript.y);
     if avail == 0 {

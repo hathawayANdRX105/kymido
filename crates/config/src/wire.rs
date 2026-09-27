@@ -54,6 +54,8 @@ pub(crate) struct TuiToml {
     /// Emit an OSC9 notification (besides the bell) when a long turn
     /// batch completes.
     notify_osc9: Option<bool>,
+    /// T17：TUI 起始配色方案（`"dark"` / `"light"`；缺项保持默认）。
+    theme: Option<String>,
 }
 
 /// `[llm]` TOML section for direct LLM credentials. `fallbacks` is a list
@@ -172,6 +174,9 @@ impl TomlConfig {
         }
         if let Some(v) = self.tui.notify_osc9 {
             base.tui_notify_osc9 = v;
+        }
+        if let Some(v) = self.tui.theme {
+            base.tui_theme = v;
         }
         base
     }

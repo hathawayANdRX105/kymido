@@ -92,6 +92,7 @@ fn from_config_carries_mcp_servers() {
         llm_model: None,
         llm_max_tokens: None,
         tui_notify_osc9: false,
+        tui_theme: "dark".to_string(),
         llm_fallbacks: Vec::new(),
         llm_profiles: Vec::new(),
         llm_active_profile: None,

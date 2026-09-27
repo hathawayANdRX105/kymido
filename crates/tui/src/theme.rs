@@ -5,8 +5,107 @@
 //!
 //! `crates/tui/src` 内任何样式都必须从本模块出发；ui/* 只许 import 本模块
 //! 的语义函数，不许把 `Color` 构造泄漏到调用点。
+//!
+//! T17（route §3 T17）：语义函数**签名不变**，取值改由
+//! [`Scheme`]（当前活跃方案）经 [`color`] 单表供给——组件调用点零改动是
+//! 硬指标。方案存在进程级槽 [`ACTIVE`]：面板切换即改，重绘按新值取色。
+//! 单表语义照 dh-rs `tui/theme.rs` 的 palette 对位（组件持语义、表供值、
+//! 组件永不持字面）。首版只两档 scheme，后续扩档只加表项、接线不动。
+
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use ratatui::style::{Color, Modifier, Style};
+
+/// 配色方案（亮 / 暗）。T17 首版两档——扩档只加枚举变体 + [`Scheme::ALL`]
+/// 表项与 [`Scheme::color`] 一行，面板与配置读取都按表迭代，零接线改动。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scheme {
+    /// 暗背景终端（默认，serde default 同值）。
+    #[default]
+    Dark,
+    /// 亮背景终端。
+    Light,
+}
+
+impl Scheme {
+    /// 候选表：面板按此渲染，配置按 `name()` 往返——**扩档只动这里与
+    /// [`Self::color`]**。
+    pub const ALL: [Scheme; 2] = [Scheme::Dark, Scheme::Light];
+
+    /// 稳定名（`/theme` 面板文案 + 配置值同源）。
+    pub fn name(&self) -> &'static str {
+        match self {
+            Scheme::Dark => "dark",
+            Scheme::Light => "light",
+        }
+    }
+
+    /// 按名解析；未知 / 大小写不符 → `None`（调用方回落默认，不 panic）。
+    pub fn from_name(name: &str) -> Option<Scheme> {
+        Scheme::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    /// 调色板单表：`(方案, 语义) → 命名色`。组件永远不持色值，只调
+    /// [`brand`] / [`dim`] / [`danger`]（D11 的收敛点由
+    /// `tests/theme_palette.rs` 钉住）。
+    fn color(self, role: Role) -> Color {
+        match (self, role) {
+            // brand：暗背景要亮色才够对比，亮背景换中蓝免得刺眼。
+            (Scheme::Dark, Role::Brand) => Color::LightBlue,
+            (Scheme::Light, Role::Brand) => Color::Blue,
+            // dim：暗底靠 DarkGray，亮底 DarkGray 几乎看不见 → 改中灰。
+            (Scheme::Dark, Role::Dim) => Color::DarkGray,
+            (Scheme::Light, Role::Dim) => Color::Gray,
+            // danger：亮底上 LightRed 太浅，换深红保住可读性。
+            (Scheme::Dark, Role::Danger) => Color::LightRed,
+            (Scheme::Light, Role::Danger) => Color::Red,
+        }
+    }
+}
+
+/// 语义角色（`theme.rs` 私有——组件只见 [`brand`] / [`dim`] / [`danger`]）。
+#[derive(Debug, Clone, Copy)]
+enum Role {
+    Brand,
+    Dim,
+    Danger,
+}
+
+/// 进程级活跃方案槽（`AtomicU8`：值 = [`Scheme::ALL`] 下标 + 1，0 = 未
+/// 初始化 → 读作 [`Scheme::default`]）。面板切换写它，重绘读它；`App`
+/// 侧无需持状态，故 linear / inline 渲染路径天然零改动。
+static ACTIVE: AtomicU8 = AtomicU8::new(0);
+
+/// 当前活跃方案（未设置过 = [`Scheme::Dark`]）。
+pub fn active() -> Scheme {
+    match ACTIVE.load(Ordering::Relaxed) {
+        1 => Scheme::Light,
+        2 => Scheme::Dark,
+        _ => Scheme::Dark,
+    }
+}
+
+/// 切到指定方案（面板选中即调；重绘由调用方触发——本模块不碰终端）。
+pub fn set_active(scheme: Scheme) {
+    let slot = match scheme {
+        Scheme::Dark => 2,
+        Scheme::Light => 1,
+    };
+    ACTIVE.store(slot, Ordering::Relaxed);
+}
+
+/// 按名切换；未知名 → 回落 [`Scheme::Dark`] 并返回实际生效的方案
+/// （配置读不到 / 非法值不许 panic，也不许静默失败——调用方拿到真值）。
+pub fn set_by_name(name: &str) -> Scheme {
+    let scheme = Scheme::from_name(name).unwrap_or_default();
+    set_active(scheme);
+    scheme
+}
+
+/// 单表取色：语义 + 当前活跃方案 → 命名色。
+fn color(role: Role) -> Color {
+    active().color(role)
+}
 
 /// 正文默认：不着色，跟随终端前景色。
 pub fn base() -> Style {
@@ -15,7 +114,7 @@ pub fn base() -> Style {
 
 /// brand（web `--color-brand` 同族）：强调、用户侧、运行中。
 pub fn brand() -> Style {
-    Style::default().fg(Color::LightBlue)
+    Style::default().fg(color(Role::Brand))
 }
 
 /// brand 加粗：状态点、composer 提示符、transcript 用户前缀。
@@ -25,12 +124,12 @@ pub fn brand_bold() -> Style {
 
 /// dim（web `--color-dim` 同族）：辅助信息、按键提示、空闲态、工具行。
 pub fn dim() -> Style {
-    Style::default().fg(Color::DarkGray)
+    Style::default().fg(color(Role::Dim))
 }
 
 /// danger（web `--color-danger` 同族）：错误、中断、退出确认。
 pub fn danger() -> Style {
-    Style::default().fg(Color::LightRed)
+    Style::default().fg(color(Role::Danger))
 }
 
 /// T12：焦点消息行标记——焦点消息的首条可见行整体加下划线（route §3 T12
@@ -38,4 +137,17 @@ pub fn danger() -> Style {
 /// 终端同样可读（D11 口径）。
 pub fn focus() -> Style {
     base().add_modifier(Modifier::UNDERLINED)
+}
+
+/// 启动读定的起始方案：`Config::load()` 的 `[tui] theme`——读不到 / 解析
+/// 失败 / 值不认识都落回 [`Scheme::Dark`]（不 panic；route §1 已知坑：启动
+/// 读定，不热载）。三个入口（enhanced / inline / linear）共用这一个读取口。
+pub fn active_from_config() -> Scheme {
+    match config::Config::load() {
+        Ok(cfg) => set_by_name(&cfg.tui_theme),
+        Err(_) => {
+            set_active(Scheme::Dark);
+            Scheme::Dark
+        }
+    }
 }
