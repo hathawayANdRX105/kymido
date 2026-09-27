@@ -7,9 +7,9 @@
 > - 技术教训（会重复犯的错与规则）：[LESSONS.md](LESSONS.md)
 > - 编号体系：`C1–C8` 能力域 / `R1–R7` 并发路线 / `G1–G8` 整合门 / `B1–B3` dsh 对照批次 / `P0–P2` 体验批次 / `F1–F4` 审查遗留——均只见于历史 PR 标题，本文不再展开
 
-## 当前位置（2026-09-26）
+## 当前位置（2026-09-27）
 
-main `e7fc982c`（Q1 附件 / Q7 aside / Q8 subagent / Q2 凭据档案 + 三件补账已合）。daemon / web / CLI / TUI（`oi tui`）**四入口**均可构建运行（CI 证实；TUI 真人 TTY 验证 2026-09-25 通过）；web 本地停用中，复起：`hub start omenic-daemon`（`./target/debug/daemon`，**cwd=仓库根**读 `.oi/config.toml`）+ `hub start oi-web`（`./target/debug/oi-web`，端口 8026；daemon 重启后先发一条预热消息避开 known-issue 1）。结构收口已落地：p3 #452（JSONL 原语提取 + God 文件拆分）与 p4 #457（fully-flat 26-crate 树，`crates/agent/orbit` → `crates/agent-loop/src/orbit`、`agent-loop/compaction|instruction` 拍平进父 crate）。
+main `03fccc5`（**TUI 批次 2 全部收口**，epic #458）。daemon / web / CLI / TUI（`oi tui`）**四入口**均可构建运行（CI 证实；main run 36304078814 test + smoke 全绿，211 秒）。**TUI 现为四档 `--tui auto|enhanced|inline|linear`**，批次 1（epic #423，T1–T5）+ 批次 2（epic #458，T6–T18）共 18 个任务全部落地，契约测试 140 条；CI 侧新增真 pty smoke（`smoke` job 的 `TUI enhanced pty smoke` 步骤：进 alternate screen、`/` 面板、Ctrl+K picker、Ctrl+D 干净退出）。**CI 已按 diff 限定范围**（`cargo metadata` + path scope + `git diff`，含反向依赖闭包）——改 `crates/tui/**` 只跑 2 个 crate 而非全仓 29 个，根 manifest / lockfile / workflow 改动回落全量。web 本地停用中，复起：`hub start omenic-daemon`（`./target/debug/daemon`，**cwd=仓库根**读 `.oi/config.toml`）+ `hub start oi-web`（`./target/debug/oi-web`，端口 8026；daemon 重启后先发一条预热消息避开 known-issue 1）。结构收口已落地：p3 #452（JSONL 原语提取 + God 文件拆分）与 p4 #457（fully-flat 26-crate 树，`crates/agent/orbit` → `crates/agent-loop/src/orbit`、`agent-loop/compaction|instruction` 拍平进父 crate）+ web 前端四 crate 合并为 `crates/web-ui`。
 
 ## 已实现（能力级）
 
@@ -21,7 +21,7 @@ main `e7fc982c`（Q1 附件 / Q7 aside / Q8 subagent / Q2 凭据档案 + 三件�
 | compaction + AGENTS.md 注入 | 插件化压缩与指令注入，**生产路径已生效**（非仅测试口径） |
 | web 界面全真数据 | 聊天流式 + tool 折叠卡 / 侧栏谱系树 / 任务看板 / 统计 / 设置页（TOML 往返） |
 | 附件（图片）全链路 | composer 选图 → base64 随消息入队 → sqlite 落库 → resume 回放 → OpenAI 多模态 content 数组；daemon 侧 media type 白名单 + 严格 base64 + 体积上限 |
-| TUI（`oi tui`，第三 daemon 客户端） | `--tui auto\|enhanced\|linear` 探针门三档：linear 线性回显（管道 / dumb / 无色 / 复用器内自动回落）+ enhanced 全屏 alternate screen（transcript + composer dock + 历史/中断键）+ `--reduced-motion` 降动效；契约测试 42 条（`crates/tui/tests/`，14 文件）。T1 #425、T2 #430/#438、T3 #447/#449、T4 #448/#451、T5 #453 文档收口、T6 #462 transcript 滚动 + tail follow、T7 #468 鼠标滚轮（归一化常数，出处 grok-build `mouse.rs` / jcode `navigation.rs`） |
+| TUI（`oi tui`，第三 daemon 客户端） | `--tui auto\|enhanced\|inline\|linear` 探针门四档：linear 线性回显（管道 / dumb / 无色 / 复用器内自动回落）+ enhanced 全屏 alternate screen（transcript + composer dock + 历史/中断键）+ inline 终端原生 scrollback 轨（#455，auto 永不选）+ `--reduced-motion` 降动效。**批次 1**（epic #423）T1 #425、T2 #430/#438、T3 #447/#449、T4 #448/#451、T5 #453；**批次 2**（epic #458）T6 #462 transcript 滚动 + tail follow、T7 #468 鼠标滚轮、T8 #469 inline dock、T9 #476 斜杠面板 + `/help`、T10 #479 运行中排队（首行 Up 召回）、T11 #486 转录搜索 overlay、T12 #493 消息操作 retry/edit/copy（OSC52）、T13 #498 逐轮回退 rewind（ledger 快照）、T14 #504 daemon 自启动、T15 #505 完成通知（响铃/OSC9）、T16 会话管理 picker（`n` 新建 / `r` 改名 / `d` 删除二次确认，**活跃会话不可删**）、T17 主题配置（`[tui] theme` + `/theme` 面板，亮/暗双 scheme）、T18 PTY smoke（CI 真 pty 驱动）。契约测试 **140 条**（`crates/tui/tests/`，25 文件） |
 | 插件面 | 服务容器 + 事件总线 + 生命周期 + 注册表（重名拒绝）；`assemble()` 装配 Compaction/Instruction 两核心插件，daemon bind 前消费 |
 | MCP | stdio + Streamable HTTP 双传输、重连监督（指数退避 + 熔断）、per-server timeout/cwd |
 | session resume | daemon 重启后按 session 回放最近 50 条 user/assistant（dedupe + 切换清 ctx） |

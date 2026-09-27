@@ -285,7 +285,19 @@ fn commands_emit_intents_or_local_output_never_prompts() {
     type_str(&mut app, "/theme");
     two_stage_enter(&mut app);
     assert!(app.theme_panel_open(), "/theme 应打开主题面板（T17）");
+    // 只断言「面板开了」太弱：面板空着、游标没落点、Esc 不关都照样过。补
+    // 两格——面板必须高亮一个候选（游标落在活跃方案上），Esc 必须关闭面板
+    // 且不动方案。候选**列表**是渲染侧的事，归 T17 的 theme_palette.rs。
+    assert!(
+        app.theme_scheme_selected().is_some(),
+        "面板必须高亮一个候选（游标落在活跃方案上）"
+    );
     assert!(app.take_prompt().is_none());
+    // Esc 取消：面板关闭，方案不变。
+    let before = omenic_tui::theme::active();
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.theme_panel_open(), "Esc 应关闭主题面板");
+    assert_eq!(omenic_tui::theme::active(), before, "Esc 不改方案");
 }
 
 /// `/clear` 视图清屏：空闲清本地投影（daemon 数据不动）；运行中禁清
