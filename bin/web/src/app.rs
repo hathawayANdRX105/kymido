@@ -75,9 +75,12 @@ pub async fn launch() {
             el.scrollIntoView({{ behavior: "smooth", block: "start" }});
         }}
 
-        // Minimap: wheel gradient + scroll-spy highlight, all client-side; bars are
-        // visual anchors only — no click-to-jump, no message-follow (聚簇居中).
-        // Bars carry a `data-anchor` (the prompt element id). A discrete 3-level
+        // Minimap: wheel gradient + scroll-spy highlight + hover popover +
+        // click-to-jump, all client-side. Bars carry a `data-anchor` (the prompt
+        // element id); hovering a bar floats a popover with that prompt's text
+        // (server-rendered [data-tip] sibling, pointer-events:none so it never
+        // blocks the next hover); clicking smooth-scrolls #chat-scroll to the
+        // prompt. A discrete 3-level
         // gradient is centered on a reference index (scroll position at rest, the
         // cursor while hovering): only the center bar + the two on each side (5 bars
         // total) are emphasized via LENGTH + BRIGHTNESS — center longest/brightest,
@@ -181,7 +184,6 @@ pub async fn launch() {
             }}
             if (!NS.wired) {{
                 NS.wired = true;
-                // 用户要求：minimap 不做点击跳转，条只是视觉锚点（wheel/hover 渐变保留）。
                 mm.addEventListener('wheel', function(e) {{
                     e.preventDefault();
                     var bs = getBars();
@@ -191,10 +193,13 @@ pub async fn launch() {
                     var nxt = Math.max(0, Math.min(bs.length - 1, cur + dir));
                     scrollToIdx(nxt);
                 }}, {{ passive: false }});
+                // hover：浮出 data-tip popover（服务端已渲染好 prompt 文本）。
+                // 注意取条自身内部的 tip——data-anchor 与 data-tip 同在一个
+                // 条容器里，往父级查会永远命中第一条的 popover。
                 mm.addEventListener('mouseover', function(e) {{
                     var bar = e.target.closest('[data-anchor]');
                     if (!bar) return;
-                    var tip = bar.parentElement.querySelector('[data-tip]');
+                    var tip = bar.querySelector('[data-tip]');
                     if (tip) tip.style.display = 'block';
                 }});
                 mm.addEventListener('mouseout', function(e) {{
@@ -202,8 +207,15 @@ pub async fn launch() {
                     if (!bar) return;
                     var to = e.relatedTarget;
                     if (to && bar.contains(to)) return;
-                    var tip = bar.parentElement.querySelector('[data-tip]');
+                    var tip = bar.querySelector('[data-tip]');
                     if (tip) tip.style.display = 'none';
+                }});
+                // click：平滑滚到该条锚点对应的用户 prompt（ainotation 波2 #3）。
+                mm.addEventListener('click', function(e) {{
+                    var bar = e.target.closest('[data-anchor]');
+                    if (!bar) return;
+                    var idx = getBars().indexOf(bar);
+                    if (idx >= 0) scrollToIdx(idx);
                 }});
                 // Cache bar centers when the hover begins; subsequent snapping reads the
                 // cache (no per-event getBoundingClientRect → no layout thrashing).

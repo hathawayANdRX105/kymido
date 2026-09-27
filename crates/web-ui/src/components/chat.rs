@@ -39,6 +39,46 @@ fn kind_label(kind: &str) -> String {
     }
 }
 
+/// 工具输出正文规整（ainotation 波2 #4：bash 结果曾以转义文本原样直出，
+/// `# kymido\n\n` 只剩字面 \n）。只做反转义：\n \t \r \" \\ 还原成真实字符。
+/// 已含真实换行的输出原样返回——此时字面 \n 多半是正则/代码示例，反转义
+/// 反而坏内容。kind 暂不参与分支（bash/read 一视同仁），留在签名里供将来
+/// 按 kind 定制。
+pub fn format_tool_output(_kind: &str, raw: &str) -> String {
+    if raw.contains('\n') {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut it = raw.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' {
+            match it.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// 终端观感的错误行判定（ainotation 波2 #4②）：含 error/panic/fatal/failed
+/// 的行着 danger 色。故意放宽到 contains——真实日志的错误行形态太多，误染
+/// 一行普通文本好过整屏无色。
+fn line_is_error(line: &str) -> bool {
+    let l = line.to_lowercase();
+    l.contains("error") || l.contains("panic") || l.contains("fatal") || l.contains("failed")
+}
+
 /// kind 前的 12px 图标（dsh GenericToolCard VARIANT_ICONS 的对应物；ui-kit
 /// 字形有限，与 dsh 不同的选型在此说明）：
 /// - bash/terminal/job → IconTerminal（dsh 用 IconApiOutline14；都是「跑命令」族）
@@ -654,6 +694,7 @@ fn ToolLine(tool: ToolCall) -> Element {
     let running = tool.status == "running";
     let chip = kind_chip(&tool.kind);
     let label = kind_label(&tool.kind);
+    let formatted = format_tool_output(&tool.kind, &tool.detail);
 
     rsx! {
         div { class: "flex flex-col",
@@ -680,14 +721,19 @@ fn ToolLine(tool: ToolCall) -> Element {
                     if !tool.summary.is_empty() {
                         div { class: "text-[13px] leading-5 text-label-3", "{tool.summary}" }
                     }
-                    div { class: "bg-codeblock rounded-lg px-3 py-2 font-mono text-[12px] leading-[18px] text-label-2 whitespace-pre-wrap break-all",
-                        for line in tool.detail.lines() {
+                    div { class: "tool-output bg-codeblock rounded-lg px-3 py-2 font-mono text-[12px] leading-[18px] text-label-2 whitespace-pre-wrap break-all",
+                        for line in formatted.lines() {
                             if line.starts_with('+') && !line.starts_with("+++") {
                                 span { class: "text-success-2", "{line}\n" }
                             } else if line.starts_with('-') && !line.starts_with("---") {
                                 span { class: "text-danger", "{line}\n" }
                             } else if line.starts_with("@@") {
                                 span { class: "text-brand", "{line}\n" }
+                            } else if line.starts_with('$') {
+                                // 终端观感：命令行亮于输出行
+                                span { class: "text-label", "{line}\n" }
+                            } else if line_is_error(line) {
+                                span { class: "text-danger", "{line}\n" }
                             } else {
                                 span { "{line}\n" }
                             }
