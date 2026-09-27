@@ -13,8 +13,13 @@ pub fn daemon_client_from_config() -> Result<daemon::DaemonClient, String> {
     daemon::DaemonClient::from_config(&config).map_err(|e| format!("daemon socket error: {e}"))
 }
 
-/// Dispatch `session ...` subcommands. Routes through `DaemonClient`.
+/// Dispatch `session ...` subcommands. Most route through `DaemonClient`;
+/// `compress` opens the database file directly, so it is matched *before*
+/// the client is built and therefore works with no daemon running.
 pub fn session_cmd_dispatch(sub: SessionCmd, json: bool) -> Result<u8, String> {
+    if let SessionCmd::Compress { idle_days, keep } = sub {
+        return session_compress_cmd(idle_days, keep, json);
+    }
     let client = daemon_client_from_config()?;
     match sub {
         SessionCmd::List { query, limit } => session_list_cmd(&client, &query, limit, json),
@@ -40,6 +45,7 @@ pub fn session_cmd_dispatch(sub: SessionCmd, json: bool) -> Result<u8, String> {
         ),
         SessionCmd::Attach { id, limit } => session_attach_cmd(&client, &id, limit, json),
         SessionCmd::Resume { id, message } => session_resume_cmd(&client, &id, &message, json),
+        SessionCmd::Compress { .. } => unreachable!("handled before the client is built"),
     }
 }
 
@@ -340,4 +346,75 @@ pub fn daemon_cmd_dispatch(sub: DaemonCmd, json: bool) -> Result<u8, String> {
             Ok(0)
         }
     }
+}
+
+/// `kymido session compress [--idle-days N] [--keep N]` — archive idle sessions.
+///
+/// Opens the database file directly rather than going through the daemon:
+/// this is offline maintenance, and requiring a running daemon to reclaim
+/// disk would be backwards. Safe to run while a daemon is up — each session
+/// is archived under its own transaction, and a session that vanished
+/// mid-sweep is skipped rather than reported as a failure.
+pub fn session_compress_cmd(idle_days: i64, keep: u32, json: bool) -> Result<u8, String> {
+    let config = Config::load().map_err(|e| format!("config error: {e}"))?;
+    let db_path = config
+        .session_db_path()
+        .map_err(|e| format!("session db path: {e}"))?;
+    if !db_path.is_file() {
+        return Err(format!(
+            "no session database at {} (run a session first)",
+            db_path.display()
+        ));
+    }
+    // `compress_idle_sessions` speaks milliseconds; `--idle-days` is days.
+    // `saturating_mul` so an absurd flag value cannot overflow.
+    let idle_ms = idle_days.max(0).saturating_mul(86_400_000);
+
+    let db = session::SessionDb::open(&db_path).map_err(|e| format!("open session db: {e}"))?;
+    let receipts = db
+        .compress_idle_sessions(idle_ms, keep)
+        .map_err(|e| format!("compress: {e}"))?;
+    // The WAL is a real file next to the database; truncating it after a
+    // sweep is what stops the "archived" bytes from just landing in the WAL.
+    db.checkpoint_wal()
+        .map_err(|e| format!("wal checkpoint: {e}"))?;
+
+    if json {
+        print_json(&serde_json::json!({
+            "idle_days": idle_days,
+            "keep": keep,
+            "archived": receipts.len(),
+            "receipts": receipts,
+        }));
+        return Ok(0);
+    }
+    if receipts.is_empty() {
+        println!("nothing to compress (idle > {idle_days}d, keeping {keep} most recent)");
+        return Ok(0);
+    }
+    println!(
+        "archived {} session(s) idle > {}d:",
+        receipts.len(),
+        idle_days
+    );
+    let mut raw_total = 0u64;
+    let mut arc_total = 0u64;
+    for r in &receipts {
+        raw_total += r.raw_bytes;
+        arc_total += r.archived_bytes;
+        match r.ratio() {
+            Some(x) => println!(
+                "  {} | {} msgs | {} B -> {} B ({x:.1}x)",
+                r.session_id, r.messages, r.raw_bytes, r.archived_bytes
+            ),
+            None => println!("  {} | {} msgs | empty", r.session_id, r.messages),
+        }
+    }
+    println!(
+        "total {} B -> {} B; run `VACUUM` on {} to shrink the database file itself",
+        raw_total,
+        arc_total,
+        db_path.display()
+    );
+    Ok(0)
 }

@@ -1138,9 +1138,10 @@ fn session_error_response(
         SessionError::UnknownRole(_) => "unknown_role",
         SessionError::DatabaseMissing(_) => "database_missing",
         SessionError::MalformedTurnLog { .. } => "malformed_turn_log",
-        SessionError::Libsql(_) | SessionError::Io(_) | SessionError::RuntimeBuild(_) => {
-            "session_io"
-        }
+        SessionError::Libsql(_)
+        | SessionError::Io(_)
+        | SessionError::RuntimeBuild(_)
+        | SessionError::Archive(_) => "session_io",
     };
     Response::err(id, ResponseError::new(code, format!("{command}: {e}")))
 }

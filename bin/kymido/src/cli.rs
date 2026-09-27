@@ -302,6 +302,17 @@ enum SessionCmd {
         /// Message to send to the worker
         message: String,
     },
+    /// Archive sessions idle for longer than `--idle-days` into compressed
+    /// files. Local maintenance: opens the database file directly and does
+    /// NOT need a running daemon. Archived sessions reopen transparently.
+    Compress {
+        /// Compress sessions untouched for at least this many days
+        #[arg(long, default_value_t = 30)]
+        idle_days: i64,
+        /// Always keep at least this many most-recently-used sessions live
+        #[arg(long, default_value_t = 20)]
+        keep: u32,
+    },
 }
 
 #[derive(Subcommand)]
