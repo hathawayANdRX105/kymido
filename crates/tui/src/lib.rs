@@ -263,7 +263,7 @@ fn resolve_session(daemon: &WebDaemon, opts: &TuiOptions) -> Result<String, TuiE
 /// ledger 分配的 `seq`——出站消息的序号由这里带回（T12 retry/edit 读它）。
 fn push_user_message(daemon: &WebDaemon, sid: &str, text: &str) -> Result<i64, TuiError> {
     daemon
-        .append_message(sid, true, text, &[])
+        .append_message(sid, true, text, &[], &[])
         .map_err(client_error)
 }
 
@@ -277,7 +277,7 @@ fn persist_assistant(daemon: &WebDaemon, sid: &str, state: &UiState) -> Result<(
         return Ok(());
     }
     daemon
-        .append_message(sid, false, &text, &[])
+        .append_message(sid, false, &text, &[], &[])
         .map_err(client_error)?;
     Ok(())
 }
