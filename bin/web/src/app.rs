@@ -75,7 +75,8 @@ pub async fn launch() {
             el.scrollIntoView({{ behavior: "smooth", block: "start" }});
         }}
 
-        // Minimap: click/wheel navigation + scroll-spy highlight, all client-side.
+        // Minimap: wheel gradient + scroll-spy highlight, all client-side; bars are
+        // visual anchors only — no click-to-jump, no message-follow (聚簇居中).
         // Bars carry a `data-anchor` (the prompt element id). A discrete 3-level
         // gradient is centered on a reference index (scroll position at rest, the
         // cursor while hovering): only the center bar + the two on each side (5 bars
@@ -90,27 +91,7 @@ pub async fn launch() {
             var NS = window.__mm = window.__mm || {{}};
             if (typeof NS.ref !== 'number') NS.ref = 0;
             // Cached DOM queries; invalidated whenever the chat DOM changes.
-            // 条与消息的几何对齐：每个条的纵向位置 = 目标消息中心在内容坐标系
-            // 里的高度占比（offsetTop/scrollHeight，与滚动无关），条不再聚簇居中。
-            // DOM/内容变化时随 invalidate 重算；滚动不改变内容坐标，无需随滚重排。
-            function layoutBars() {{
-                if (!scrollEl) return;
-                var h = scrollEl.scrollHeight;
-                if (!h) return;
-                var bs = getBars();
-                for (var i = 0; i < bs.length; i++) {{
-                    var a = bs[i].getAttribute('data-anchor');
-                    var el = a ? document.getElementById(a) : null;
-                    if (!el) {{ bs[i].style.display = 'none'; continue; }}
-                    bs[i].style.display = '';
-                    var frac = (el.offsetTop + el.offsetHeight / 2) / h;
-                    bs[i].style.position = 'absolute';
-                    bs[i].style.left = '0';
-                    bs[i].style.top = (frac * 100).toFixed(2) + '%';
-                    bs[i].style.transform = 'translateY(-50%)';
-                }}
-            }}
-            function invalidate() {{ NS.barsCache = null; NS.centers = null; layoutBars(); }}
+            function invalidate() {{ NS.barsCache = null; NS.centers = null; }}
             function getBars() {{
                 if (!NS.barsCache) NS.barsCache = Array.prototype.slice.call(mm.querySelectorAll('[data-anchor]'));
                 return NS.barsCache;
@@ -200,11 +181,7 @@ pub async fn launch() {
             }}
             if (!NS.wired) {{
                 NS.wired = true;
-                mm.addEventListener('click', function(e) {{
-                    var bar = e.target.closest('[data-anchor]');
-                    if (!bar) return;
-                    scrollToIdx(getBars().indexOf(bar));
-                }});
+                // 用户要求：minimap 不做点击跳转，条只是视觉锚点（wheel/hover 渐变保留）。
                 mm.addEventListener('wheel', function(e) {{
                     e.preventDefault();
                     var bs = getBars();
