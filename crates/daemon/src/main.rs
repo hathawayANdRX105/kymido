@@ -62,48 +62,33 @@ fn main() -> Result<(), DaemonError> {
 ///
 /// Runs once per daemon start, never on a timer: startup is the natural
 /// checkpoint, and a background reaper that can wake up under an active
-/// session is exactly the surprise we do not want. The work itself happens
-/// in another process (`kymido session compress`, the sibling of this
-/// binary) so a long backlog can never stall the serve loop; the child
-/// opens the database file directly and serializes against the daemon
-/// through SQLite's own locking, and its `--max-sessions` cap bounds how
-/// long it holds the write lock per batch.
-///
-/// Best-effort by design: a missing sibling binary or a not-yet-created
-/// database (fresh install) skips the sweep instead of failing startup.
+/// session is exactly the surprise we do not want. What to run (or whether
+/// to run at all) is decided by [`daemon::startup_sweep::startup_sweep_command`];
+/// this function only keeps the spawn and the child-reaping glue.
 fn spawn_startup_sweep(config: &Config) {
     let Ok(db_path) = config.session_db_path() else {
         return;
     };
-    if !db_path.is_file() {
-        // Fresh install: nothing has been stored yet, so a sweep child would
-        // only start, report "no session database", and exit.
-        return;
-    }
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
     let Some(dir) = exe.parent() else {
         return;
     };
-    let cli = dir.join("kymido");
-    if !cli.is_file() {
-        println!(
-            "idle-session sweep skipped: kymido CLI not found at {}",
-            cli.display()
-        );
-        return;
-    }
-    let spawn = std::process::Command::new(&cli)
-        .args([
-            "session",
-            "compress",
-            "--idle-days",
-            "30",
-            "--max-sessions",
-            "200",
-            "--json",
-        ])
+    let cmd = match daemon::startup_sweep::startup_sweep_command(&db_path, dir) {
+        Ok(cmd) => cmd,
+        // Fresh install: nothing has been stored yet. Silent, not an error.
+        Err(daemon::startup_sweep::SweepSkip::NoDatabase) => return,
+        Err(daemon::startup_sweep::SweepSkip::CliMissing(cli)) => {
+            println!(
+                "idle-session sweep skipped: kymido CLI not found at {}",
+                cli.display()
+            );
+            return;
+        }
+    };
+    let spawn = std::process::Command::new(&cmd.program)
+        .args(cmd.args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();

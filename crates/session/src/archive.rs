@@ -153,13 +153,17 @@ pub(crate) fn decode_archive(raw: &[u8]) -> Result<DecodedArchive, SessionError>
     let text = zstd::decode_all(raw).map_err(|e| SessionError::Archive(e.to_string()))?;
     let text = String::from_utf8(text).map_err(|e| SessionError::Archive(e.to_string()))?;
 
-    // Split off the trailer: it is the last line and is the integrity witness.
+    // Split off the trailer: it is the last *complete* line and is the
+    // integrity witness. The encoder terminates every line with '\n' —
+    // including the trailer — so strip that trailing terminator first, or
+    // rfind lands on the final byte and hands serde an empty string.
+    let text = text.strip_suffix('\n').unwrap_or(&text);
     let Some(cut) = text.rfind('\n') else {
         return Err(SessionError::Archive("archive has no trailer line".into()));
     };
     let (body, trailer_line) = text.split_at(cut);
     let body_bytes = body.as_bytes();
-    let trailer_line = trailer_line.strip_prefix('\n').unwrap_or(trailer_line);
+    let trailer_line = &trailer_line[1..]; // skip the '\n' that ended the body
 
     let expected = match serde_json::from_str::<ArchiveLine>(trailer_line)
         .map_err(|e| SessionError::Archive(format!("malformed trailer: {e}")))?

@@ -290,3 +290,117 @@ fn session_query_rejects_unknown_kind_in_cli() {
         "stderr={stderr}"
     );
 }
+
+#[test]
+fn session_compress_archives_idle_sessions_without_a_daemon() {
+    let dir = TempDir::new().unwrap();
+    let sock = dir.path().join("compress.sock");
+    let db = dir.path().join("compress.db");
+
+    // Seed through the daemon, then shut it down: compress is offline
+    // maintenance and must work with no daemon running.
+    let mut daemon = start_daemon(dir.path(), "compress");
+    wait_for_socket(&sock);
+    let client = daemon::DaemonClient::connect_to(&sock);
+    must!(client.session_create("cold-1", "first cold"));
+    daemon.shutdown();
+    drop(daemon);
+
+    let (stdout, stderr, ok) = run_oi(
+        dir.path(),
+        &sock,
+        &db,
+        &[
+            "--json",
+            "session",
+            "compress",
+            "--idle-days",
+            "0",
+            "--keep",
+            "0",
+        ],
+    );
+    assert!(ok, "compress failed, stderr: {stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON");
+    assert_eq!(v["archived"], 1, "exactly the seeded session, got {v}");
+    assert_eq!(v["receipts"][0]["session_id"], "cold-1");
+    assert!(
+        dir.path()
+            .join("archive")
+            .join("cold-1.jsonl.zst")
+            .is_file(),
+        "the archive landed next to the database"
+    );
+
+    // A second run over the same database is a no-op, not an error.
+    let (stdout, stderr, ok) = run_oi(
+        dir.path(),
+        &sock,
+        &db,
+        &[
+            "--json",
+            "session",
+            "compress",
+            "--idle-days",
+            "0",
+            "--keep",
+            "0",
+        ],
+    );
+    assert!(ok, "second compress failed, stderr: {stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON");
+    assert_eq!(v["archived"], 0, "nothing left idle, got {v}");
+}
+
+#[test]
+fn a_corrupt_archive_surfaces_as_session_io_through_the_daemon() {
+    let dir = TempDir::new().unwrap();
+    let sock = dir.path().join("corrupt.sock");
+    let db = dir.path().join("corrupt.db");
+
+    let mut daemon = start_daemon(dir.path(), "corrupt");
+    wait_for_socket(&sock);
+    let client = daemon::DaemonClient::connect_to(&sock);
+    must!(client.session_create("cold-2", "second cold"));
+    daemon.shutdown();
+    drop(daemon);
+
+    let (stdout, stderr, ok) = run_oi(
+        dir.path(),
+        &sock,
+        &db,
+        &[
+            "--json",
+            "session",
+            "compress",
+            "--idle-days",
+            "0",
+            "--keep",
+            "0",
+        ],
+    );
+    assert!(ok, "compress failed, stderr: {stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON");
+    assert_eq!(v["archived"], 1, "seeded session archived, got {v}");
+
+    let archive = dir.path().join("archive").join("cold-2.jsonl.zst");
+    std::fs::write(&archive, b"this is not a zstd frame").expect("corrupt");
+
+    // Reopening the session through the daemon must surface the archive
+    // failure with the `session_io` code from session_error_response, not a
+    // crash or a silent miss.
+    let mut daemon = start_daemon(dir.path(), "corrupt");
+    wait_for_socket(&sock);
+    let (_stdout, stderr, ok) = run_oi(
+        dir.path(),
+        &sock,
+        &db,
+        &["--json", "session", "get", "cold-2"],
+    );
+    assert!(!ok, "a corrupt archive must not open cleanly");
+    assert!(
+        stderr.contains("session_io"),
+        "the daemon maps archive failures to session_io, stderr={stderr}"
+    );
+    daemon.shutdown();
+}

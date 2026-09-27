@@ -14,7 +14,13 @@
 //! 4. refusal — restoring over a live session and re-archiving over an
 //!    existing archive are both errors, so no backup is ever silently lost;
 //! 5. the migration is idempotent and pre-migration files stay readable;
-//! 6. the sweep honours both the idle cutoff and the keep-recent floor.
+//! 6. the sweep honours both the idle cutoff and the keep-recent floor;
+//! 7. recency — touching a session lifts it above the keep floor, so an
+//!    active session is never swept from under a user;
+//! 8. the WAL checkpoint really empties the `-wal` sidecar — that is the
+//!    disk the sweep is supposed to reclaim;
+//! 9. a well-formed archive carrying a role this build does not know fails
+//!    the restore loudly, leaving the live database untouched.
 
 use session::{SessionDb, SessionRole};
 use tempfile::tempdir;
@@ -335,5 +341,147 @@ fn compression_actually_shrinks_the_payload() {
     assert!(
         receipt.archived_bytes < receipt.raw_bytes,
         "the archive is smaller than the payload it holds"
+    );
+}
+
+/// Rewrite every row's timestamps through a second connection — the only
+/// way to put a session's clock in the past from outside the crate.
+fn freeze_timestamps(path: &std::path::Path, updated_at: i64, last_access: i64) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let db = libsql::Builder::new_local(path)
+            .build()
+            .await
+            .expect("open raw");
+        let conn = db.connect().expect("connect");
+        conn.execute(
+            "UPDATE sessions SET updated_at = ?1, last_access_ms = ?2",
+            libsql::params![updated_at, last_access],
+        )
+        .await
+        .expect("backdate");
+    });
+}
+
+/// FNV-1a over raw bytes, exactly what the archive trailer's checksum
+/// commits to (offset `0xcbf29ce484222325`, prime `0x100000001b3`,
+/// lowercase hex) — needed to build a *well-formed* forged archive.
+fn fnv1a_hex(bytes: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+#[test]
+fn archiving_a_session_that_does_not_exist_reports_database_missing() {
+    let f = fixture();
+    let err = f.db.archive_session("ghost").expect_err("no such session");
+    assert!(
+        matches!(err, session::SessionError::DatabaseMissing(_)),
+        "a missing session is DatabaseMissing, not an archive error, got {err:?}"
+    );
+    assert!(
+        !session::has_archive(&f.path, "ghost"),
+        "no archive file was left behind"
+    );
+}
+
+#[test]
+fn touching_a_session_moves_it_above_the_keep_floor() {
+    let f = fixture();
+    seed(&f.db, "cold", 2);
+    seed(&f.db, "warm", 2);
+    // Both sessions pinned to the same ancient timestamp, so the sweep can
+    // only tell them apart through `last_access_ms`.
+    freeze_timestamps(&f.path, 1_000, 1_000);
+    f.db.touch_session_access("warm").expect("touch");
+
+    let receipts = f.db.compress_idle_sessions(0, 1, 100).expect("sweep");
+    let ids: Vec<&str> = receipts.iter().map(|r| r.session_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["cold"],
+        "the touched session outranks the untouched one under the keep floor, got {ids:?}"
+    );
+    assert!(
+        f.db.session_live("warm").expect("live").is_some(),
+        "the touched session survives the sweep"
+    );
+    assert!(
+        f.db.session_live("cold").expect("live").is_none(),
+        "the untouched session was archived"
+    );
+}
+
+#[test]
+fn checkpoint_wal_empties_the_wal_sidecar() {
+    let f = fixture();
+    let filler = "checkpoint fodder. ".repeat(50);
+    f.db.ensure_session("wal", "wal").expect("ensure");
+    for _ in 0..30 {
+        f.db.append_message("wal", SessionRole::User, &filler, &[])
+            .expect("append");
+    }
+    let mut wal = f.path.clone().into_os_string();
+    wal.push("-wal");
+    let wal = std::path::PathBuf::from(wal);
+    let before = std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
+    assert!(
+        before > 0,
+        "test setup: the WAL must hold un-checkpointed bytes, or this test proves nothing"
+    );
+
+    f.db.checkpoint_wal().expect("checkpoint");
+    let after = std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
+    assert_eq!(
+        after, 0,
+        "a TRUNCATE checkpoint empties the sidecar ({before} -> {after})"
+    );
+}
+
+#[test]
+fn a_well_formed_archive_with_an_unknown_role_is_rejected() {
+    let f = fixture();
+    seed(&f.db, "s8", 3);
+    f.db.archive_session("s8").expect("archive");
+
+    let archive = session::archive_dir(&f.path).join("s8.jsonl.zst");
+    let raw = std::fs::read(&archive).expect("read archive");
+    let text = zstd::decode_all(raw.as_slice()).expect("zstd decode");
+    let text = String::from_utf8(text).expect("utf8");
+    let cut = text.rfind('\n').expect(" trailer");
+    let body = &text[..cut];
+    // Swap one real role for one this build has never heard of, then reseal
+    // the stream with a *valid* checksum: this emulates a well-formed
+    // archive from a future build, not random corruption.
+    let forged = body.replacen("\"role\":\"user\"", "\"role\":\"ghost\"", 1);
+    assert_ne!(forged, body, "test setup: a role must actually be swapped");
+    let trailer = format!(
+        "{{\"kind\":\"trailer\",\"checksum\":\"{}\"}}\n",
+        fnv1a_hex(forged.as_bytes())
+    );
+    let payload = zstd::encode_all(format!("{forged}{trailer}").as_bytes(), 3).expect("zstd");
+    std::fs::write(&archive, payload).expect("write forged archive");
+
+    let err =
+        f.db.restore_session("s8")
+            .expect_err("an unknown role must fail the restore");
+    assert!(
+        matches!(err, session::SessionError::UnknownRole(_)),
+        "the failure names the unknown role, got {err:?}"
+    );
+    assert!(
+        f.db.session_live("s8").expect("live").is_none(),
+        "a rejected restore writes nothing into the live database"
+    );
+    assert!(
+        session::has_archive(&f.path, "s8"),
+        "the archive stays on disk for inspection"
     );
 }
