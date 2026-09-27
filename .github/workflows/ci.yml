@@ -10,6 +10,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       # Full history on purpose: the scope step needs a merge base (PR:
       # origin/<base>...HEAD; push: the pre-push tip) and `git diff` needs
@@ -20,6 +22,15 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Private git dependency (ui-kit) is ssh-addressed; the runner has no
+      # deploy key and GITHUB_TOKEN cannot reach private repos of a
+      # public-repo event. The UIKIT_PAT secret (fine-grained, ui-kit read
+      # only) is injected into the git URL; cargo uses the git CLI so the
+      # url.insteadOf rewrite applies.
+      - name: Allow cargo to fetch private git deps
+        env:
+          UIKIT_PAT: ${{ secrets.UIKIT_PAT }}
+        run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       # Scope by the diff: `cargo metadata` gives every workspace member and
@@ -147,10 +158,21 @@ jobs:
   # feature-level regression names itself instead of hiding in the suite.
   smoke:
     runs-on: ubuntu-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Private git dependency (ui-kit) is ssh-addressed; the runner has no
+      # deploy key and GITHUB_TOKEN cannot reach private repos of a
+      # public-repo event. The UIKIT_PAT secret (fine-grained, ui-kit read
+      # only) is injected into the git URL; cargo uses the git CLI so the
+      # url.insteadOf rewrite applies.
+      - name: Allow cargo to fetch private git deps
+        env:
+          UIKIT_PAT: ${{ secrets.UIKIT_PAT }}
+        run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Plan-mode daemon round trip
