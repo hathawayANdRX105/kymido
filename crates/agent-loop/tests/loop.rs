@@ -906,7 +906,8 @@ fn bare_continue_extends_the_run_without_injecting_a_message() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::EndTurn
+            stop_reason: TurnStop::EndTurn,
+            active_model: None,
         })
     );
 }
@@ -953,7 +954,8 @@ fn auth_failure_hard_stops_the_run() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::Error
+            stop_reason: TurnStop::Error,
+            active_model: None,
         })
     );
 }
@@ -993,7 +995,8 @@ fn same_error_stops_after_the_cap_and_a_different_one_resets() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::Error
+            stop_reason: TurnStop::Error,
+            active_model: None,
         })
     );
 
@@ -1030,7 +1033,8 @@ fn same_error_stops_after_the_cap_and_a_different_one_resets() {
     assert_eq!(
         events2.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::EndTurn
+            stop_reason: TurnStop::EndTurn,
+            active_model: None,
         })
     );
 }
