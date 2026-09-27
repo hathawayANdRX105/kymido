@@ -1,4 +1,4 @@
-<!-- canon: hathawayANdRX105/canon @ eb4bc4a (synced 2026-09-25) -->
+<!-- canon: hathawayANdRX105/canon @ fd59255 (synced 2026-09-27) -->
 # workflow-state — wf-* 工作流的项目本地状态文件约定
 
 wf-* 九件套的"地图"。方法在全局技能里；**状态在项目仓里**。

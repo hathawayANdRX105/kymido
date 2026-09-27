@@ -99,8 +99,17 @@ web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.gith
 - `chat.yaml`——发送消息后「工作过程」折叠行出现（24px 头 + 计数）；用户气泡右对齐 r22、max-w 525；发送钮 34px 圆形品牌蓝；状态行 12px 居中（model · tokens · $cost · context）。
 - `sidebar.yaml`——logo 行 52px + 18px 字标；新会话钮 h38 r12；项目行 34 / 会话行 32（缩进 22px，状态点 brand/dim/danger）；时间戳 hover 隐藏；底部数据统计/设置行 42px。
 - `stats.yaml`——KPI 卡一行 5 张；指标带一行 7 格；主体三列 320/1fr/340；吞吐折线品牌蓝。
-- `settings.yaml`——弹窗 800px r24、左导航 188px（单元 h40 r12）；「关于」页有版本号 chip。
+- `settings.yaml`——弹窗 800px r16（ui-kit token 系）、左导航 188px（单元 h40 r12）；「关于」页有版本号 chip。
 - `quick-switcher.yaml`——⌘K/Ctrl+K 弹出 560px 顶部对齐面板；输入 h44、会话行 h40；ESC 退出。
 - `taskpanel.yaml`——composer 上方 dock 卡宽随消息列（≤780）；进度条 1px 品牌蓝；filter chip h26 r7；任务卡 r10。
 
 **已知偏差（记录不改）**：dsh 消息列 748px，kymido 消息列与 composer 统一 `max-w-[780px]`（chat.yaml notes）。
+
+## Ainotation 标注栈（kymido-web）
+
+kymido-web 已接 ainotation MCP 闭环（对标 ferrite admin-web 接线，协议细节见 ferrite `apps/admin-web/AINOTATION.md`）：
+
+- **部件**：SDK bundle 内联在 index（`bin/web/src/app.rs` 的 `debug_assertions` 门控；源 `bin/web/ainotation-entry.ts`，`bin/web` 下 `bun run aino` 重打 → 需重新 build + 重启 kymido-web）；同步桥 `bin/web/scripts/ainotation-bridge.mjs`（:44091，避开 ferrite 的 :44090；项目名 `omenic-web`——ainotation 服务的运行时注册键，改名会断既有 grant，留待后续单独处理；注册目录=本仓库根）；grant 文件 `bin/web/assets/ainotation/connection.json` 已 gitignore。
+- **启动顺序**：ainotation service（ferrite 的 `just aino-service` 或 `npx @ainotation/mcp@beta service`，幂等）→ `node bin/web/scripts/ainotation-bridge.mjs`（常驻，自动注册项目并每 2 分钟续租 grant）→ kymido-web（见上文启动序列）。
+- **MCP 作用域**：本仓 `.omp/mcp.json` 将 `ainotation` 钉到 omenic 目录（影子同名的用户级 ferrite 配置）；改完配置需 `/mcp reload` 或新会话。会话先于 service 启动时 ainotation 工具调用会挂起，reload 可修复。
+- **页面**：浮层 A 钮是 `<ainotation-inspector-shell>`（web component + shadow DOM，按普通 div 扫不到）；Dioxus 重渲染替换节点后旧标注目标失效属预期，重标即可。

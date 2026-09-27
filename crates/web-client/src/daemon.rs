@@ -177,6 +177,7 @@ impl WebDaemon {
         role_user: bool,
         text: &str,
         attachments: &[PendingAttachment],
+        tool_calls: &[serde_json::Value],
     ) -> Result<i64, ClientError> {
         let role = if role_user {
             SessionRole::User
@@ -194,7 +195,9 @@ impl WebDaemon {
                 data: a.data.clone(),
             })
             .collect();
-        let outcome = self.client.session_append(sid, role, text, &stored)?;
+        let outcome = self
+            .client
+            .session_append(sid, role, text, &stored, tool_calls)?;
         Ok(outcome.seq)
     }
 

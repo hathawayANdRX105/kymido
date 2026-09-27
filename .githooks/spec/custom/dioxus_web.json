@@ -1,0 +1,72 @@
+{
+  "_comment": "Dioxus/web 语义规范：正则抓不住、必须理解上下文的三条。l1 checklist 负责数得清的部分（rsx 嵌套深度、class 长度、硬编码色、分层方向），这里负责「该不该抽、抽成什么」。criteria 一律写成读文件能核对的证据，豁免形态写进 false——否则全被误报。改这份 = 改约束，走 issue 裁决，不要在提交时就地改。",
+
+  "WEB-CLOSURE-DENSITY": {
+    "intent": "Rust web 组件代码规范（三条之一）：闭包不是不能有，但**当一段逻辑要重复读第三遍、或者内联闭包把状态捕获与渲染结构搅在一起时，应该抽成具名函数**。\n\n判违规的形态（看到就报）：\n1. 同一个 `move |...|` 闭包体超过 3 行，且体内有 if/match 分支——它是分支逻辑，不是回调。抽成 `fn handle_xxx(&self, ...)`，rsx 里只留 `on_click: move |e| handle_xxx(e)`。\n2. 连续三个以上的 `move |` 闭包各自写着相似的字段更新（`foo.set(x); bar.set(y);`），说明有个「一起更新」的概念没被命名。抽成 `fn sync_foo_bar()`。\n3. `let` 绑定累积到 5 个以上、其中有 2 个以上只被某一个闭包用——那是把状态藏进局部变量。抽成具名函数或提到组件 props。\n\n判不违规的形态（必须放行）：\n- 短闭包：2 行以内、没有分支，纯粹是「把值传出去」，抽了反而绕。\n- Dioxus 惯用法：`use_signal` 的 setter 直接写在 `on_click: move |_| signal.set(v)` 这种一行里。\n- 闭包是组件的 props 契约本身（如 `Callback::new` 的实现），不是被内联的渲染逻辑。\n- 已经在具名函数里、只是被闭包薄薄包一层调用。",
+    "paths_include": ["**/*.rs"],
+    "paths_exclude": ["target/", ".wt/", "node_modules/", "tests/"],
+    "state": {
+      "file": true,
+      "diff": true,
+      "context_files": []
+    },
+    "questions": {
+      "has_extractable_closure": {
+        "type": "noul",
+        "instructions": "这个文件里的 rsx 渲染逻辑中，是否存在「应该抽成具名函数」的闭包？（看具体行，不要凭印象）",
+        "criteria": {
+          "true": "能指出具体行号，且该处满足之一：(a) move 闭包体 ≥4 行且含 if/match/多个语句；(b) 连续 3 个以上 move 闭包在做相似的状态更新；(c) 5 个以上 let 绑定中 ≥2 个只被单一闭包使用，且这个闭包体 ≥6 行",
+          "false": "所有闭包都 ≤2 行且无分支；或闭包只是把参数转交给一个已经存在的具名函数；或该文件没有 rsx! 渲染逻辑"
+        },
+        "fail": 0.85,
+        "warn": 0.6
+      }
+    }
+  },
+
+  "WEB-LIST-CHILD-COMPONENT": {
+    "intent": "Rust web 组件代码规范（三条之二）：`.map()` 渲染列表时，行内容应该是一个具名 `#[component]`，而不是一段内联 rsx。\n\n为什么：内联的行模板一旦超过 3 层元素就没法单测、复用或单独改样式；抽成组件后它有名字，调用处 `items.iter().map(SessionRow)` 一眼可读，列表变长也不会把父组件撑爆。\n\n判违规的形态：\n1. `.map(|x| rsx! { ... })` 里内联的元素层级 ≥3（判层级要数 div/span/Sidebar 这类元素，if/for/map 这些块不算）。\n2. 同一个 `.map()` 闭包里既有元素又有 if/match 条件分支——这已经是行组件了，只是没给它名字。\n3. 同一个文件里出现两处以上结构高度相似的 `.map()` 行模板——重复的抽取信号。\n\n判不违规的形态（必须放行）：\n- `.map()` 只渲染一行纯文本或一个已存在的组件，如 `items.iter().map(|s| li { \"{s}\" })`。\n- 行模板只有 1-2 层元素，没有分支。\n- 已经在调用具名组件：`.map(SessionRow)`、`.map(|x| rsx! { SessionRow { id: x.id } })` 这种**只有传参**的算合格。\n- ui-kit 已经提供了对应组件（如 `.map(StatCard)`）。",
+    "paths_include": ["**/*.rs"],
+    "paths_exclude": ["target/", ".wt/", "node_modules/", "tests/"],
+    "state": {
+      "file": true,
+      "diff": true,
+      "context_files": []
+    },
+    "questions": {
+      "has_inlined_list_row": {
+        "type": "noul",
+        "instructions": "这个文件里是否有应该抽成具名 #[component] 的列表行模板？（给出具体行号与行号处的实际代码结构）",
+        "criteria": {
+          "true": "能指出具体行号的 `.map(`，且其闭包内：(a) 元素嵌套 ≥3 层；(b) 含 if/match/条件渲染；(c) 同文件另有结构相似（元素标签与属性名大致相同）的另一个 `.map(` 行模板",
+          "false": "所有 .map() 的闭包只渲染 ≤2 层元素且无分支；或已经在调用具名组件；或闭包只传 props 给已有组件"
+        },
+        "fail": 0.85,
+        "warn": 0.6
+      }
+    }
+  },
+
+  "WEB-UIKIT-REUSE": {
+    "intent": "Rust web 组件代码规范（三条之三）：新写 UI 前先看 ui-kit，不要重复实现它已经有的东西。\n\nui-kit（共享组件库）已经提供：\n- 基础件：Button / ActionButton / IconButton / CloseButton / GhostButton / SubmitButton / Field / FormField / CodeField / PasswordField / SliderField / SegmentedCapsule / Switch / Select\n- 展示件：Avatar / Badge / Skeleton / StatCard / StatusCard / ChoiceCard / MessageBubble / PosterCard / StatTabsCard\n- 反馈件：EmptyState / Loading / Spinner\n- 布局件：AppShell / TopNavBar / SectionRail / StatusBar / AvatarMenu / ScrollSpyNav\n- 浮层件：Dialog / DropdownMenu / Sheet / Toast\n- 图标：28 个 lucide 风格单色图标（icons 模块）\n- 文案：i18n 模块的 t / t_in / plural（Locale::Zh / En）\n- 样式常量：TYPE_*（文字角色）/ C_*（语义色）/ S_* / B_*（表面与描边）/ 页面级常量（PAGE_BG / SECTION / CARD_CONTENT / INPUT …）\n\n判违规的形态：\n1. 手写了一个按钮/输入框/弹窗/卡片/加载态，而 ui-kit 里已有对应组件。\n2. 在 rsx 里手写了 `loading…` 之类的转圈 UI，而没用 `ui_kit::Loading` / `Spinner` / `EmptyState`。\n3. 在 rsx 里写了中文/英文界面文案字面量，而没用 `ui_kit::i18n::t` / `t_in` / `plural`。\n4. 样式写成一长串内联 class，而 ui_kit::styles 已有对应常量。\n\n判不违规的形态（必须放行）：\n- 确实没有对应件：业务专用组件（如「推理过程时间线」「画册卡」）属于本仓，放 components/ 即可。\n- 已经 import 并复用了 ui-kit 的组件或样式常量。\n- 这是一段性的一次性展示（不是可复用件），且没有任何与 ui-kit 重合的结构。\n\n判断依据是**你写了什么**，不是 ui-kit 里此刻恰好有什么文件——先查上面这份清单再下结论。",
+    "paths_include": ["**/*.rs"],
+    "paths_exclude": ["target/", ".wt/", "node_modules/", "tests/"],
+    "state": {
+      "file": true,
+      "diff": true,
+      "context_files": []
+    },
+    "questions": {
+      "duplicates_uikit": {
+        "type": "noul",
+        "instructions": "这段新增/改动的 web UI 代码里，有没有重复实现了 ui-kit 已经提供的东西？指出具体行号，并说明它与 ui-kit 哪个件重合。",
+        "criteria": {
+          "true": "能指出行号，且该处的结构与本规范 intent 里列出的某个 ui-kit 件功能重合（按钮/输入框/弹窗/下拉/卡片/加载态/空态/图标/i18n 文案/样式常量），且该处没有 use ui_kit 或 crate::styles 的引用",
+          "false": "该处是业务专用件（与 intent 列表无功能重合）；或已经 use ui_kit:: / crate::styles 并复用了；或只是一次性展示且无重合结构"
+        },
+        "fail": 0.85,
+        "warn": 0.6
+      }
+    }
+  }
+}

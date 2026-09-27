@@ -218,6 +218,11 @@ pub struct SessionMessage {
     /// deserializable as "no attachments".
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    /// 该消息（assistant 轮）携带的工具调用卡，UI 形状由 web-state 拥有、
+    /// 本层按不透明 JSON 数组透传；空 = 纯文本消息。持久化它，历史重载
+    /// 才能重建「工作过程」折叠区（C5.2b live 投影的回放底座）。
+    #[serde(default)]
+    pub tool_calls: Vec<serde_json::Value>,
 }
 
 // -----------------------------------------------------------------------------
@@ -331,6 +336,7 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             text TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             attachments TEXT,
+            tool_calls TEXT,
             PRIMARY KEY (session_id, seq),
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
          );
@@ -343,6 +349,7 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             text TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             attachments TEXT,
+            tool_calls TEXT,
             identity TEXT NOT NULL,
             snapshotted_at INTEGER NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -448,6 +455,34 @@ async fn apply_messages_attachments_column(conn: &Connection) -> Result<(), Sess
     .await
 }
 
+/// Same idempotent shape as [`apply_messages_attachments_column`], for the
+/// `tool_calls` UI-card passthrough column on both `messages` and its rewind
+/// backup `message_snapshots`（两表列集必须同步，rewind 的 INSERT..SELECT 才不炸）。
+async fn apply_tool_calls_column(conn: &Connection) -> Result<(), SessionError> {
+    for table in ["messages", "message_snapshots"] {
+        let mut rows = conn
+            .query(&format!("PRAGMA table_info({table})"), ())
+            .await?;
+        let mut has_column = false;
+        while let Some(row) = rows.next().await? {
+            if row.get_str(1).is_ok_and(|name| name == "tool_calls") {
+                has_column = true;
+            }
+        }
+        drop(rows);
+        if has_column {
+            continue;
+        }
+        run_with_lock_retry(|| async {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN tool_calls TEXT;"))
+                .await?;
+            Ok(())
+        })
+        .await?;
+    }
+    Ok(())
+}
+
 async fn apply_pragmas(conn: &Connection) -> Result<(), SessionError> {
     conn.execute_batch("PRAGMA synchronous = NORMAL;").await?;
     Ok(())
@@ -490,6 +525,7 @@ async fn init_database(conn: &Connection) -> Result<(), SessionError> {
     apply_turn_log_column(conn).await?;
     apply_parent_id_column(conn).await?;
     apply_messages_attachments_column(conn).await?;
+    apply_tool_calls_column(conn).await?;
     Ok(())
 }
 
@@ -812,6 +848,12 @@ fn parse_attachments(raw: Option<&str>) -> Vec<Attachment> {
         .unwrap_or_default()
 }
 
+/// `tool_calls` 列是 UI 侧工具卡 JSON 数组的透传（对 session 层不透明）。
+fn parse_tool_calls(raw: Option<&str>) -> Vec<serde_json::Value> {
+    raw.and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default()
+}
+
 impl SessionDb {
     /// Append a message to a session inside an `Immediate` transaction.
     /// Returns the assigned `seq` (1-based, monotonic per session) and the
@@ -830,6 +872,7 @@ impl SessionDb {
         role: SessionRole,
         text: &str,
         attachments: &[Attachment],
+        tool_calls: &[serde_json::Value],
     ) -> Result<(i64, i64), SessionError> {
         SessionError::invalid_id_if_blank(session_id)?;
         if text.is_empty() {
@@ -843,6 +886,14 @@ impl SessionDb {
             Some(
                 serde_json::to_string(attachments)
                     .expect("Attachment holds plain strings; serialization cannot fail"),
+            )
+        };
+        let tool_calls_json: Option<String> = if tool_calls.is_empty() {
+            None
+        } else {
+            Some(
+                serde_json::to_string(tool_calls)
+                    .expect("tool calls are pre-parsed JSON values; serialization cannot fail"),
             )
         };
 
@@ -889,8 +940,8 @@ impl SessionDb {
 
             tx.execute(
                 "INSERT INTO messages \
-                 (session_id, seq, role, text, created_at, attachments) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (session_id, seq, role, text, created_at, attachments, tool_calls) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 libsql::params![
                     id_owned.as_str(),
                     next_seq,
@@ -898,6 +949,7 @@ impl SessionDb {
                     text_owned.as_str(),
                     now,
                     attachments_json,
+                    tool_calls_json,
                 ],
             )
             .await?;
@@ -972,8 +1024,8 @@ impl SessionDb {
             let snapshotted = tx
                 .execute(
                     "INSERT INTO message_snapshots \
-                     (session_id, seq, role, text, created_at, attachments, identity, snapshotted_at) \
-                     SELECT session_id, seq, role, text, created_at, attachments, ?2, ?3 \
+                     (session_id, seq, role, text, created_at, attachments, tool_calls, identity, snapshotted_at) \
+                     SELECT session_id, seq, role, text, created_at, attachments, tool_calls, ?2, ?3 \
                      FROM messages WHERE session_id = ?1 AND seq >= ?4",
                     libsql::params![id_owned.as_str(), SNAPSHOT_IDENTITY, now_ms(), from_seq],
                 )
@@ -1042,7 +1094,7 @@ impl SessionDb {
             let conn = &*guard;
             let mut rows = conn
                 .query(
-                    "SELECT session_id, seq, role, text, created_at, attachments \
+                    "SELECT session_id, seq, role, text, created_at, attachments, tool_calls \
                      FROM messages WHERE session_id = ?1 \
                      ORDER BY seq DESC LIMIT ?2",
                     libsql::params![id_owned.as_str(), limit],
@@ -1059,6 +1111,7 @@ impl SessionDb {
                     text: row.get(3)?,
                     created_at_ms: row.get(4)?,
                     attachments: parse_attachments(row.get::<Option<String>>(5)?.as_deref()),
+                    tool_calls: parse_tool_calls(row.get::<Option<String>>(6)?.as_deref()),
                 });
             }
             // SQL walked the tail window backwards (DESC); flip it so
@@ -1101,7 +1154,7 @@ impl SessionDb {
             let mut rows = match scoped_owned {
                 Some(sid) => {
                     conn.query(
-                        "SELECT session_id, seq, role, text, created_at, attachments \
+                        "SELECT session_id, seq, role, text, created_at, attachments, tool_calls \
                          FROM messages \
                          WHERE session_id = ?1 AND text LIKE ?2 COLLATE NOCASE \
                          ORDER BY created_at ASC, session_id ASC, seq ASC \
@@ -1112,7 +1165,7 @@ impl SessionDb {
                 }
                 None => {
                     conn.query(
-                        "SELECT session_id, seq, role, text, created_at, attachments \
+                        "SELECT session_id, seq, role, text, created_at, attachments, tool_calls \
                          FROM messages \
                          WHERE text LIKE ?1 COLLATE NOCASE \
                          ORDER BY created_at ASC, session_id ASC, seq ASC \
@@ -1134,6 +1187,7 @@ impl SessionDb {
                     text: row.get(3)?,
                     created_at_ms: row.get(4)?,
                     attachments: parse_attachments(row.get::<Option<String>>(5)?.as_deref()),
+                    tool_calls: parse_tool_calls(row.get::<Option<String>>(6)?.as_deref()),
                 });
             }
             Ok(out)
