@@ -130,7 +130,7 @@ pub fn Sidebar(
                         }
                     }
                     // 项目/会话树
-                    div { class: "flex-1 min-h-0 overflow-y-auto flex flex-col pb-2",
+                    div { class: "flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col pb-2",
                         for space in spaces {
                             {
                                 let space_path = space.path.clone();
@@ -167,8 +167,10 @@ pub fn Sidebar(
                                             },
                                             IconPlus { size: 13 }
                                         }
+                                        span { class: "text-[12px] leading-5 text-label-3 tabular-nums", "{count}" }
+                                        // 移除项目钮：hover 行才出现，排在行最右
                                         button {
-                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
                                             title: "移除项目",
                                             onclick: move |e: MouseEvent| {
                                                 e.stop_propagation();
@@ -176,7 +178,6 @@ pub fn Sidebar(
                                             },
                                             IconTrash { size: 13 }
                                         }
-                                        span { class: "text-[12px] leading-5 text-label-3 tabular-nums", "{count}" }
                                     }
                                     // 会话行 h32，缩进 22px；树内子会话再逐层缩进
                                     if is_open {
@@ -213,7 +214,7 @@ pub fn Sidebar(
                 }
                 // 右缘拖拽把手
                 div {
-                    class: "absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-brand/40 transition-colors",
+                    class: "absolute top-0 right-0 h-full w-0.5 cursor-col-resize hover:bg-brand/20 transition-colors",
                     onmousedown: move |e: MouseEvent| on_resize_start.call(e.client_coordinates().x as i32),
                 }
             }
@@ -300,6 +301,8 @@ fn SessionRow(
 ) -> Element {
     let id_for_select = session.id.clone();
     let id_for_delete = session.id.clone();
+    // 运行中（事件流实时写入 Active）→ 行左侧旋转指示
+    let running = session.status == SessionStatus::Active;
 
     let row_class = if active {
         "group h-8 px-2 rounded-lg flex items-center gap-2 bg-ihover cursor-pointer transition-colors"
@@ -315,10 +318,14 @@ fn SessionRow(
     rsx! {
         div { class: "{row_class} {depth_indent_class(depth)}",
             onclick: move |_| on_select.call(id_for_select.clone()),
+            if running {
+                ui_kit::Spinner { size: 12, class: "text-brand shrink-0" }
+            }
             span { class: "{title_class}", "{session.title}" }
-            // 行内操作钮常显（默认降透明，hover 行满亮度），不再闪现
+            span { class: "text-[12px] leading-5 text-label-3 shrink-0", "{session.last_active}" }
+            // 删除会话钮：hover 行才出现，排在行最右
             button {
-                class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
                 title: "删除会话",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
@@ -326,7 +333,6 @@ fn SessionRow(
                 },
                 IconTrash { size: 13 }
             }
-            span { class: "text-[12px] leading-5 text-label-3 shrink-0", "{session.last_active}" }
         }
     }
 }
@@ -359,7 +365,7 @@ fn CollapsedRail(
                 IconPlus { size: 15 }
             }
             div { class: "my-1 w-5 h-px bg-b2" }
-            div { class: "flex-1 min-h-0 overflow-y-auto w-full flex flex-col items-center gap-1",
+            div { class: "flex-1 min-h-0 overflow-y-auto no-scrollbar w-full flex flex-col items-center gap-1",
                 for space in spaces {
                     {
                         let sp_name = space.name.clone();
@@ -399,7 +405,8 @@ fn CollapsedRail(
                     }
                 }
             }
-            div { class: "flex flex-col items-center gap-1.5",
+            // 底部「数据统计 / 设置」：shrink-0 防止窗口偏矮时被会话列表挤裁
+            div { class: "shrink-0 flex flex-col items-center gap-1.5",
                 div {
                     class: "h-px w-6 bg-b2 cursor-ew-resize hover:bg-brand",
                     title: "拖拽设定默认宽度",
