@@ -7,24 +7,56 @@ use web_state::types::{ChatMessage, MessagePart, PendingAttachment, StatusLine, 
 
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconPaperclip, IconSquareCheck,
+    IconArrowUp, IconCheck, IconChevronDown, IconFolder, IconGear, IconMoon, IconPaperclip,
+    IconPlus, IconSearch, IconSquareCheck, IconTerminal, IconTrash,
 };
 use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel, Spinner};
 
 use crate::utils::markdown::markdown_to_html;
 
-/// 工具类型的 chip 配色（dsh 状态色 chip：900 底 + 400 字）。
+/// 工具类型的配色（dsh 状态色 400 字级，ainotation #4：去掉 chip 底/边框，
+/// kind 只渲染为 mono 大写小字文本）。
 ///
 /// `job` / `terminal` 复用 brand 家族：它们和 `bash` 一样是"跑命令"，
-/// 换成另一种强调色会让同一类操作在气泡上显得互不相干。三者靠 chip 上的
-/// kind 字符串（`job` / `terminal` / `bash`，见下方渲染处）区分，不靠颜色。
+/// 换成另一种强调色会让同一类操作在气泡上显得互不相干。三者靠 kind 文字
+/// （`job` / `terminal` / `bash`，见下方渲染处）区分，不靠颜色。
 fn kind_chip(kind: &str) -> &'static str {
     match kind {
-        "bash" | "job" | "terminal" => "bg-chip-brand text-brand-300",
-        "edit" | "write" => "bg-chip-success text-success-2",
-        "read" | "grep" | "glob" => "bg-chip-warn text-warn-2",
-        "delete" => "bg-chip-danger text-danger",
-        _ => "bg-layer-2 text-label-3",
+        "bash" | "job" | "terminal" => "text-brand-300",
+        "edit" | "write" => "text-success-2",
+        "read" | "grep" | "glob" => "text-warn-2",
+        "delete" => "text-danger",
+        _ => "text-label-3",
+    }
+}
+
+/// kind 显示名：首字母大写（bash→Bash）；match 键保持小写。
+fn kind_label(kind: &str) -> String {
+    let mut chars = kind.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// kind 前的 12px 图标（dsh GenericToolCard VARIANT_ICONS 的对应物；ui-kit
+/// 字形有限，与 dsh 不同的选型在此说明）：
+/// - bash/terminal/job → IconTerminal（dsh 用 IconApiOutline14；都是「跑命令」族）
+/// - grep → IconSearch，glob → IconFolder（dsh：magnifier 族留 grep，folder 留 glob）
+/// - read → IconFolder 复用（dsh 用 IconBrowseOutline16 眼/浏览器形；ui-kit 无对应字形，留在文件族，kind 文字区分）
+/// - edit/write → IconPlus（dsh 用铅笔 IconEditOutline16；ui-kit 无铅笔/编辑字形，plus 是现有集里语义最接近「写/改」的）
+/// - delete → IconTrash；think → IconMoon；tool 及未知 → IconGear
+#[component]
+fn KindIcon(kind: String) -> Element {
+    let class = "text-label-3 shrink-0";
+    match kind.as_str() {
+        "bash" | "terminal" | "job" => rsx! { IconTerminal { size: 12, class } },
+        "grep" => rsx! { IconSearch { size: 12, class } },
+        "read" | "glob" => rsx! { IconFolder { size: 12, class } },
+        "edit" | "write" => rsx! { IconPlus { size: 12, class } },
+        "delete" => rsx! { IconTrash { size: 12, class } },
+        "think" => rsx! { IconMoon { size: 12, class } },
+        _ => rsx! { IconGear { size: 12, class } },
     }
 }
 
@@ -95,6 +127,15 @@ pub fn Chat(
         .map(|m| (format!("prompt-{}", m.id), m.content.clone()))
         .collect();
 
+    // 最后一条 user 消息之后的所有 assistant 消息 = 最后一轮（ainotation #4-6）。
+    // 该轮的 Work Process 保持展开，更早轮次静止即折叠。无 user 消息时整段都
+    // 算最后一轮（起点取 0）。
+    let last_turn_start = display_messages
+        .iter()
+        .rposition(|m| m.role == "user")
+        .map(|i| i + 1)
+        .unwrap_or(0);
+
     // 状态行耗时段（G5/5.6）：在飞 run 显示「当前时刻 - 开始时刻」，已结束
     // run 显示结算好的总耗时，两者都没有则为空串——空串时整段（含前导
     // 分隔符）不渲染，避免状态行出现 " · " 空档。rsx! 内禁止 let，故在
@@ -158,6 +199,7 @@ pub fn Chat(
                                     message: msg.clone(),
                                     // 流式指示只挂在最后一条 assistant 上
                                     streaming_tail: is_streaming && is_last && msg.role == "assistant",
+                                    last_turn: idx >= last_turn_start,
                                     id: anchor,
                                 }
                             }
@@ -443,7 +485,14 @@ fn MenuPicker(
 
 /// 单条消息：用户右侧气泡 / assistant 按发生顺序（过程折叠 + 最终回复）。
 #[component]
-fn MessageItem(message: ChatMessage, streaming_tail: bool, id: Option<String>) -> Element {
+fn MessageItem(
+    message: ChatMessage,
+    streaming_tail: bool,
+    /// 是否属于最后一个用户轮次（最后一个 user 之后的消息）。最后一轮的
+    /// Work Process 保持展开，更早轮次静止即折叠（ainotation #4-6）。
+    last_turn: bool,
+    id: Option<String>,
+) -> Element {
     let is_user = message.role == "user";
     let dom_id = id.unwrap_or_default();
 
@@ -529,7 +578,10 @@ fn MessageItem(message: ChatMessage, streaming_tail: bool, id: Option<String>) -
                     }
                 } else {
                     if !process.is_empty() {
-                        ProcessBlock { parts: process, active: streaming_tail }
+                        ProcessBlock {
+                            parts: process,
+                            active: last_turn || streaming_tail,
+                        }
                     }
                     if has_final {
                         div { class: "markdown-body",
@@ -552,12 +604,14 @@ fn MessageItem(message: ChatMessage, streaming_tail: bool, id: Option<String>) -
     }
 }
 
-/// 「工作过程」折叠块：最终回复之前的全部内容（文本 + 工具调用）。
-/// 运行中完全展开；最终回复到达后自动折叠。
+/// 「Work Process」折叠块：最终回复之前的全部内容（文本 + 工具调用）。
+/// 默认状态跟随 `active`（最后一轮展开、更早轮折叠 + 流式展开；ainotation
+/// #4-6），用户点击头行可覆盖。chevron 已按 ainotation #2 删除。
 #[component]
 fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
-    let mut is_open = use_signal(|| false);
-    let open = active || is_open();
+    // None = 跟随 active；Some = 用户点过之后的显式开关
+    let mut toggle = use_signal(|| None::<bool>);
+    let open = toggle().unwrap_or(active);
     let count = parts.len();
 
     rsx! {
@@ -565,12 +619,9 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
             div { class: "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit text-[14px] leading-6 text-label-2 hover:text-label",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
-                    is_open.set(!is_open());
+                    toggle.set(Some(!open));
                 },
-                span { class: if open { "text-label-3 rotate-90 transition-transform duration-150" } else { "text-label-3 transition-transform duration-150" },
-                    IconChevronRight { size: 12 }
-                }
-                span { "工作过程" }
+                span { "Work Process" }
                 span { class: "text-caption", "· {count}" }
             }
             if open {
@@ -594,17 +645,15 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
 }
 
 /// 单次工具调用折叠行（dsh DisclosureRow：24px 头 + 展开体）。
+/// 头行 = kind 图标 + 大写 kind 文本 + 「·」+ 命令标题（ainotation #4；
+/// chevron 已按 #2 删除）。
 #[component]
 fn ToolLine(tool: ToolCall) -> Element {
     let mut open = use_signal(|| false);
     let is_err = tool.status == "error";
     let running = tool.status == "running";
     let chip = kind_chip(&tool.kind);
-    let arrow_class = if open() {
-        "text-label-3 transition-transform duration-150 rotate-90"
-    } else {
-        "text-label-3 transition-transform duration-150"
-    };
+    let label = kind_label(&tool.kind);
 
     rsx! {
         div { class: "flex flex-col",
@@ -613,10 +662,11 @@ fn ToolLine(tool: ToolCall) -> Element {
                     e.stop_propagation();
                     open.set(!open());
                 },
-                span { class: "{arrow_class}", IconChevronRight { size: 12 } }
-                span { class: "{chip} inline-flex items-center font-mono text-[10px] font-semibold uppercase px-1.5 py-px leading-4 rounded-md shrink-0",
-                    "{tool.kind}"
+                KindIcon { kind: "{tool.kind}" }
+                span { class: "{chip} font-mono text-[10px] font-semibold uppercase shrink-0",
+                    "{label}"
                 }
+                span { class: "text-[12px] leading-5 text-label-3 shrink-0", "·" }
                 span { class: "font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0", "{tool.title}" }
                 if running {
                     Spinner {}
