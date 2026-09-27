@@ -115,6 +115,9 @@ pub fn run(opts: TuiOptions) -> Result<(), TuiError> {
     // 「队列排空段」在本档退化为单 turn）。
     let mut batch = notify::BatchNotify::new();
     batch.set_osc9(notify::osc9_from_config());
+    // T17：起始配色方案启动读定（不热载；读不到 / 非法值落 dark）。linear
+    // 渲染零 ESC，切换只影响 enhanced/inline 的取色，本档读它只为状态一致。
+    crate::theme::active_from_config();
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let mut line = String::new();

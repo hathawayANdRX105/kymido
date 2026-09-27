@@ -24,6 +24,7 @@ use crate::scroll::ScrollModel;
 use crate::search::{self, SearchState};
 use crate::slash::{self, Action, Intent};
 use crate::termguard::{CrosstermOps, TermGuard};
+use crate::theme;
 use crate::ui::footer;
 use crate::ui::questions::{AnswerRequest, QuestionPanel};
 use crate::{
@@ -44,7 +45,6 @@ const STATS_RANGE: &str = "24h";
 
 /// T9：`/theme` 回显文案（主题能力现状：TUI 只有内置单套命名色，见
 /// `theme.rs` D11；`/theme` 切换是 T17 的活——编不到就不编，明说没有）。
-const THEME_LINE: &str = "theme: default — palette switching not available yet";
 
 /// T12：copy 的短反馈文案（dock 活动行覆写；随下一次按键或状态事件退场，
 /// 见 [`App::handle_key`] 开头的清理点）。OSC52 是否被终端采纳不可证，
@@ -219,6 +219,11 @@ pub struct App {
     /// ——App 无 IO，事件循环 [`Self::take_rewind`] 消费（同 T12
     /// [`Self::take_truncate`] 的分工）。
     rewind_pending: Option<(i64, i64)>,
+    /// T17：`/theme` 方案选择面板的游标（`theme::Scheme::ALL` 下标；
+    /// `Some` = 面板开着）。**模态**：开着时 [`Self::handle_key`] 拦截全部
+    /// 键（↑↓ 选行 / Enter 提交 / Esc 取消），面板与斜杠面板共用让行几何
+    /// （两者互斥——`/theme` 执行时斜杠面板已收）。
+    theme_panel: Option<usize>,
     /// T15：完成通知批次状态机——出站派发（[`Self::take_prompt`]）、可打印
     /// 输入（[`Self::handle_key`]）、`TurnEnd`（[`Self::note_turn_end`]）三个
     /// 钩子收口在 App，事件循环 [`Self::take_notice`] 取字节旁路写 stdout
@@ -283,6 +288,76 @@ impl App {
         matches.get(self.slash_cursor(matches.len())).copied()
     }
 
+    /// T17：主题面板开着 = **模态**，让位次序同 rewind 确认态（其后、搜索
+    /// overlay 之前）——面板期间按键只归 [`Self::theme_panel_key`]。
+    /// 插在 rewind 之后：两个模态不可能同开（`/theme` 要打 `/`，rewind
+    /// 确认态期间 composer 键全被吃掉）。
+
+    /// T17：面板占行总数（主题面板开着 = 方案行数，否则斜杠面板行数）——
+    /// `ui::areas` / `ui::panels` 按这一个数从 transcript 让行，渲染与让行
+    /// 不会漂移（两面板互斥，不叠加）。
+    pub fn panel_rows(&self) -> u16 {
+        if self.theme_panel.is_some() {
+            return theme::Scheme::ALL.len() as u16;
+        }
+        self.slash_rows()
+    }
+
+    /// T17：主题面板是否开着（渲染与按键短路都读这一个判据）。
+    pub fn theme_panel_open(&self) -> bool {
+        self.theme_panel.is_some()
+    }
+
+    /// T17：主题面板当前高亮的方案（面板关 = `None`）。
+    pub fn theme_scheme_selected(&self) -> Option<theme::Scheme> {
+        let cursor = self.theme_panel?;
+        theme::Scheme::ALL.get(cursor).copied()
+    }
+
+    /// T17：开面板（`/theme` 执行落点）。游标落在当前活跃方案上——重开面板
+    /// 不用重新找位置。斜杠面板此刻已随命令执行收掉，两者不叠行。
+    fn open_theme_panel(&mut self) {
+        let active = theme::active();
+        let cursor = theme::Scheme::ALL
+            .iter()
+            .position(|s| *s == active)
+            .unwrap_or(0);
+        self.theme_panel = Some(cursor);
+        self.set_status("theme: ↑↓ select · enter apply · esc cancel");
+    }
+
+    /// T17：主题面板按键（模态——只认 ↑↓/Enter/Esc，其余忽略，绝不漏泄到
+    /// composer / 退出 / 翻页）。提交即切 [`theme::set_active`]，调用方下一
+    /// 帧按新 scheme 重绘（T17「即时重绘」= enhanced 每帧重画，无需额外信号）。
+    fn theme_panel_key(&mut self, key: KeyEvent) -> KeyAction {
+        let Some(cursor) = self.theme_panel else {
+            return KeyAction::None;
+        };
+        let last = theme::Scheme::ALL.len().saturating_sub(1);
+        match key.code {
+            KeyCode::Up => {
+                self.theme_panel = Some(cursor.saturating_sub(1));
+                KeyAction::None
+            }
+            KeyCode::Down => {
+                self.theme_panel = Some((cursor + 1).min(last));
+                KeyAction::None
+            }
+            KeyCode::Enter => {
+                let scheme = theme::Scheme::ALL[cursor.min(last)];
+                theme::set_active(scheme);
+                self.theme_panel = None;
+                self.set_status(&format!("theme: {}", scheme.name()));
+                KeyAction::None
+            }
+            KeyCode::Esc => {
+                self.theme_panel = None;
+                self.set_status("theme: cancelled");
+                KeyAction::None
+            }
+            _ => KeyAction::None,
+        }
+    }
     /// T9：面板占行数（0 = 关闭不占行；无命中也占 1 行提示——`ui::areas`
     /// 按这个数从 transcript 让行）。
     pub fn slash_rows(&self) -> u16 {
@@ -909,6 +984,12 @@ impl App {
         if self.rewind_confirm.is_some() {
             return self.rewind_confirm_key(key);
         }
+        // T17：主题方案面板同样是模态，让位次序紧随 rewind 确认态——面板期
+        // 间按键只归 `theme_panel_key`（↑↓/Enter/Esc），绝不漏泄到 composer /
+        // 退出 / 翻页。两个模态不可能同开（`/theme` 要先打 `/`）。
+        if self.theme_panel.is_some() {
+            return self.theme_panel_key(key);
+        }
         // T12：copy 短反馈只活到下一次按键（route §3 注记①「随下一次按键/
         // 状态事件恢复常态」）——先清再路由，本次按键该置的照置。
         if self.status == COPIED_STATUS {
@@ -1482,9 +1563,10 @@ impl App {
                 };
                 self.push_local(&format!("model: {model}"));
             }
-            // 主题能力现状回显：TUI 只有一套内置命名色（D11），切换是 T17
-            // 的活——编不到就明说没有切换能力。
-            Action::Theme => self.push_local(THEME_LINE),
+            // T17：`/theme` 开方案选择面板（候选 = `theme::Scheme::ALL`），
+            // 选中即切 + 状态行确认；Esc 取消。面板期间是模态
+            // （[`Self::theme_panel_key`]），与斜杠面板共用让行几何。
+            Action::Theme => self.open_theme_panel(),
             // 视图清屏（只清本地投影；运行中禁——落库源就在这张表里）。
             Action::Clear => {
                 if self.running {
@@ -1787,6 +1869,8 @@ fn event_loop(
     // T15：OSC9 开关启动读定（route §1 已知坑：不热载；配置读不到按默认
     // 关，不 panic 不刷错误）。
     app.set_notify_osc9(crate::notify::osc9_from_config());
+    // T17：起始配色方案启动读定（同 T15 口径：不热载、读不到落 dark）。
+    crate::theme::active_from_config();
     if let Ok(items) = client.pending_questions() {
         app.set_pending_questions(items);
     }

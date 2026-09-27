@@ -75,6 +75,9 @@ pub struct Config {
     /// when a long turn batch completes. Off by default: the bell is the
     /// primary channel and OSC9 delivery varies by terminal.
     pub tui_notify_osc9: bool,
+    /// `[tui] theme` — 终端前端的起始配色方案（`"dark"` / `"light"`）。
+    /// 缺省或无法识别都落回 `"dark"`，故过期配置也不会让 TUI 启动 panic。
+    pub tui_theme: String,
 }
 
 /// One external MCP server: a stdio child process (`command`), or a running
@@ -327,6 +330,7 @@ impl Config {
             subagent_providers: Vec::new(),
             memory_enabled: false,
             memory_dir: None,
+            tui_theme: "dark".to_string(),
             cwd: Self::default_cwd(),
             max_turns: None,
             tui_notify_osc9: false,
