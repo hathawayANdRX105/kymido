@@ -11,11 +11,12 @@ fn escaped_newlines_become_real_lines() {
     assert!(!out.contains("\\n"), "输出仍残留字面 \\n: {out:?}");
 }
 
-/// \t \r \" \\ 一起还原；反斜杠后跟未知字符时原样保留。
+/// \t \r \" 与 \\ 一并反转义（JSON 转义集）；反斜杠后跟未知字符（如 \x）
+/// 原样保留。
 #[test]
 fn other_escapes_are_unescaped() {
     let out = format_tool_output("bash", "a\\tb\\r\"c\\\"d\\\\e\\x");
-    assert_eq!(out, "a\tb\rc\"d\\e\\x");
+    assert_eq!(out, "a\tb\r\"c\"d\\e\\x");
 }
 
 /// 反转义与工具类型无关：bash/read/glob 同一输入同一输出（diff 高亮是
