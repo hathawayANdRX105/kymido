@@ -223,3 +223,28 @@ fn markdown_empty_is_zero_rows() {
         );
     }
 }
+
+/// 软换行保留为硬换行：含 N 个 `\n` 的正文必须出 N+1 行，且每行内容
+/// 分属各行——不许塌成一段。
+///
+/// 这条钉的是流式稳定性，不是 markdown 教条：assistant 正文逐 delta 累加、
+/// 每帧重算，单个 `\n` 在 CommonMark 里是「段落内软换行」、要等空行出现
+/// 段落才算闭合。塌成一行意味着视觉行结构在流式期间一直漂移（接
+/// markdown 之前它就是 N+1 行），且 `scroll_follow.rs` 的流式追加契约
+/// 会红——那边的 delta 正是这种形态。
+#[test]
+fn markdown_soft_break_keeps_line_structure() {
+    let text = "s1\ns2\ns3\ns4\ns5";
+    let rows = markdown::rows(text, 44);
+    let lines = markdown::lines(text, 44);
+    assert_eq!(rows, 5, "4 个换行必须出 5 行（软换行不得塌行）");
+    assert_eq!(rows, lines.len(), "count/render 分叉");
+    for (i, line) in lines.iter().enumerate() {
+        let content: String = line.spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(
+            content.contains(&format!("s{}", i + 1)),
+            "第 {i} 行应是 s{}，实际 {content:?}——行序被打乱或内容塌缩",
+            i + 1
+        );
+    }
+}
