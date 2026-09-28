@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             let highlighted = selected.is_some_and(|sel| sel.name == cmd.name);
             lines.push(Line::from(vec![
                 Span::styled(
-                    if highlighted { "> " } else { "  " }.to_string(),
+                    if highlighted { "❯ " } else { "  " }.to_string(),
                     theme::brand_bold(),
                 ),
                 Span::styled(

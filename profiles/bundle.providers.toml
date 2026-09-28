@@ -1,0 +1,29 @@
+# providers template for the bundle profile —— 全家桶凭据 + 瀑布 + 模型能力
+# （与 config.toml 同目录的兄弟文件；凭据唯一来源）。
+# 填 base_url + api_key（或 api_key_env = 环境变量名，免明文共享配置），设 active 路由。
+active = "primary"
+
+[providers.primary]
+# base_url 不带 /v1 后缀（调用方自行拼接口径）。
+base_url = ""
+# api_key 内联，或 api_key_env 读环境变量的字面名（优先于 api_key）。
+api_key = ""
+# active 省略 model 段时的兜底。
+default_model = ""
+# 每请求 max_tokens 缺省；model 行同名字段优先。
+max_tokens = 8192
+# 瀑布（B2b1）：主 provider 吐出任何内容前失败 → 按序切目标路由；
+# 凭据继承目标 provider 行，能力跟目标 model 条目。
+# fallbacks = ["secondary/model-id"]
+
+# 每模型能力条目：context_window 驱动压缩预算（×4 字符换算，未声明走引擎缺省）；
+# input 模态声明（缺省 ["text"]；含 "image" 时 web 附件入口放开）。
+# [[providers.primary.models]]
+# id = ""
+# context_window = 128000
+# input = ["text", "image"]
+
+# 第二个 provider（瀑布目标示例）
+# [providers.secondary]
+# base_url = ""
+# api_key_env = ""

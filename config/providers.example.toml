@@ -1,0 +1,121 @@
+# =====================================================================
+# kymido — providers.toml 实例 + 字段参考（凭据唯一来源；文档在注释里）
+
+# 兄弟文件契约：与 config.toml 成对放在 ./.kymido/ 下。CLI/daemon/TUI
+# （Config::load）的候选：./.kymido/providers.toml → ./providers.toml
+# （进程 cwd，整文件影子，与 data_dir 无关）；缺文件 = 没有直连凭据，
+# daemon 走 omp 兼容模式，不猜。web 设置页的读候选多两档：
+# ./.kymido/ → ../.kymido/ → data_dir/providers.toml（写则落 data_dir）。
+#
+# 【用法】
+#   kymido profile apply boot|bundle   # 成套生成 config.toml + 本文件骨架
+#                                       # （任一已存在即整体拒绝，不半套覆盖）
+#   手动：把本文件拷成 ./.kymido/providers.toml，填 base_url + 密钥
+#   （api_key_env 写环境变量名，免明文入库），设 active 路由。
+#
+# 【路由解析】（active 是 combo 短名、"provider/model" 或裸 "provider"）
+#   - provider 段不存在 = 加载硬错误（typos 保护，不静默换 provider）；
+#     model 段在已声明的 models 表里不存在同样拒载。
+#   - models 表未声明时任意 model id 放行（手写适配器接私有端点，
+#     不靠共享目录）。
+#   - 裸路由 "provider" 走该行的 default_model；base_url 为空/缺 = 解析
+#     不出凭据（不猜端点）。
+#
+# 【密钥优先级】（同一 provider 行内）
+#   api_key_env 指向的环境变量  >  KYMIDO_LLM_API_KEY（行没声明 api_key_env 时）
+#   >  行内 api_key
+#
+# 【能力条目】（[[providers.<name>.models]]）
+#   context_window：每模型上下文窗口（token）。驱动压缩预算：总预算 =
+#                   窗口 × 4 字符（crate 的 ~4 字符/token 账法），verbatim
+#                   窗口 = 总预算 / 4 但不低于引擎下限；未声明 = 引擎缺省
+#                   常数（行为零变化），不会编造数据。
+#   input：输入模态声明，缺省 ["text"]。含 "image" 时 web 附件入口放开，
+#         不含则置灰（文本模型收图 = 400/丢图，所以在入口门控）。
+#   max_tokens：每请求上限；model 行同名字段优先于 provider 行。
+#
+# 【瀑布（B2b1）】provider 级 fallbacks = 目标路由数组。主 provider 吐出
+#   任何内容前失败 → 按序切目标路由：凭据继承目标 provider 行，能力跟
+#   目标 model 条目；已泄内容不切 provider（不回滚）。指向不存在路由的
+#   条目跳过（warn），不整文件拒载。
+
+# 【模型 combos】根表 [combos]：自定义短名 → 底层路由。active 与 fallbacks
+#   都可写短名；解析单跳——目标必须是显式 provider/model 路由（裸 provider
+#   名、combo→combo、指向未声明 model 全部加载拒载，报错点名该 combo）。
+#   解析后 LLM 调用用真实 model id：凭据/能力跟目标 provider 行与 model
+#   条目（context% 与压缩预算自动正确）。
+# 【KYMIDO_LLM_* 环境变量】（Config::load，填 active provider 行字段）
+#   KYMIDO_LLM_BASE_URL / KYMIDO_LLM_API_KEY / KYMIDO_LLM_MAX_TOKENS 照填；
+#   KYMIDO_LLM_MODEL 只在路由不带 model 段时填 default_model。
+#   注意：它们覆盖的是「已声明的 active 行」——行本身必须在这个文件里，
+#   环境变量不能凭空造出 provider。CI/免密场景的最小形：一行
+#   active = "smoke" + 空 [providers.smoke]，字段全靠环境变量注入。
+#
+# 【谁读写这份文件】
+#   CLI / daemon / TUI：只读（Config::load）。
+#   web 设置页（crates/web-client/src/llm.rs）：增量写 data_dir/providers.toml——
+#   受管键：active（缺失才补，不抹手工路由）、provider 行 base_url/api_key、
+#   models 条目；未受管键与注释保留。base_url 或 model 为空拒绝保存（不写
+#   半截凭据）；解析失败先备份 .toml.bak 再全量写。两份文件都没有可写
+#   内容时不建空壳文件。
+#
+# 【常见坑】
+#   1. base_url 不带 /v1 后缀（调用方自行拼接口径）。
+#   2. 相对路径（包括 data_dir 决定的 providers 落点）都相对进程 cwd。
+#   3. 共享配置进 git 时用 api_key_env，别把 api_key 明文提交。
+# =====================================================================
+
+# active spec：combo 短名（见下方 [combos]）、"provider/model"，或裸
+# provider 名（走该行 default_model）。本示例用 combo 短名。
+active = "fast"
+
+# 命名模型 combos：自定义短名 → 底层路由。目标强制是文件内配置过的
+# provider/model（裸 provider、combo→combo、未声明 model 全部拒载）；
+# 单跳，不嵌套。active 与 fallbacks 都可引用短名。
+[combos]
+fast = "deepseek/deepseek-chat"
+vision = "openai/gpt-4o-mini"
+
+[providers.deepseek]
+# 端点根（调用方自行拼 /v1）。
+base_url = "https://api.deepseek.com"
+# 密钥二选一：api_key_env 写环境变量的「字面名」（共享配置进 git 用它；
+# 变量缺失时该行解析不出凭据，daemon 状态行报 MissingKey，不猜）；
+# api_key 内联（仅本地，别入库）。两字段都缺 + KYMIDO_LLM_API_KEY 也缺 = 无凭据。
+api_key_env = "DEEPSEEK_API_KEY"
+# active 省略 model 段时的兜底；裸路由必填，否则解析不出模型。
+default_model = "deepseek-chat"
+# 每请求 max_tokens 缺省（model 行同名字段优先）。
+max_tokens = 8192
+# 瀑布目标（按序）：主 provider 无可用内容前失败即切。可以写 combo 短名——
+# 凭据继承目标 provider 行，能力跟目标 model 条目；已泄内容不切 provider。
+fallbacks = ["vision"]
+
+# 每模型能力条目：context_window 驱动压缩预算（×4 字符换算，未声明 = 引擎
+# 缺省零变化）；input 门控附件入口（缺省 ["text"]）；max_tokens 每请求上限
+# （本行优先于 provider 行）。
+[[providers.deepseek.models]]
+id = "deepseek-chat"
+context_window = 65536
+input = ["text"]
+max_tokens = 8192
+
+[[providers.deepseek.models]]
+id = "deepseek-vision"
+context_window = 128000
+input = ["text", "image"]
+max_tokens = 4096
+
+# 第二个 provider（瀑布目标；本示例的 [combos] vision 指向它）。
+[providers.openai]
+base_url = "https://api.openai.com"
+# 内联密钥（占位值，使用前换成自己的；共享配置请改 api_key_env）。
+api_key = "sk-example-do-not-use"
+default_model = "gpt-4o-mini"
+max_tokens = 4096
+
+[[providers.openai.models]]
+id = "gpt-4o-mini"
+context_window = 128000
+input = ["text", "image"]
+max_tokens = 4096

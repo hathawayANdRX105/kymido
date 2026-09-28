@@ -44,6 +44,25 @@ impl Default for RegionBudget {
     }
 }
 
+impl RegionBudget {
+    /// Derive a char budget from a declared model context window (D3):
+    /// `total_chars = window × 4` (the crate's ~4 chars/token accounting)
+    /// with the verbatim window scaled to a quarter of the total but never
+    /// below `KEEP_RECENT_CHARS`. A `None` window keeps the built-in
+    /// defaults — zero behaviour change for unconfigured models.
+    pub fn from_context_window(context_window: Option<u32>) -> Self {
+        let Some(w) = context_window else {
+            return Self::default();
+        };
+        let total_chars = w as usize * 4;
+        Self {
+            total_chars,
+            keep_recent_chars: total_chars.max(KEEP_RECENT_CHARS * 4) / 4,
+            keep_recent_min: KEEP_RECENT_MIN,
+        }
+    }
+}
+
 /// Per-request overhead compaction can never shrink: the system prompt and
 /// the tool schemas ride every model call. Counted in serialized chars, the
 /// same unit as [`message_chars`].

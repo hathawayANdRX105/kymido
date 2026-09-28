@@ -131,7 +131,11 @@ pub fn panel_block(title: &'static str) -> Block<'static> {
         .style(theme::border())
 }
 
+<<<<<<< HEAD
 /// 画一帧（自上而下）：transcript（含 T24 滚动条预留列）→ 斜杠面板（T9，0 行不画）→ footer 状态条
+=======
+/// 画一帧（自上而下）：transcript → 斜杠面板（T9，0 行不画）→ footer 状态条
+>>>>>>> origin/main
 /// → 问题面板（无题 0 行）→ dock（活动 / 排队 / composer / 按键提示，恒压底
 /// ——hints 仍是屏幕最底一行，T2 布局契约不变）→ 搜索 overlay（T11，0 行
 /// 不画）。**最后一笔**是 overlay：光标钉在查询行，压过 composer 的光标

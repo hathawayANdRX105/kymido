@@ -28,7 +28,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         let highlighted = selected == Some(scheme);
         let mut spans = vec![
             Span::styled(
-                if highlighted { "> " } else { "  " }.to_string(),
+                if highlighted { "❯ " } else { "  " }.to_string(),
                 theme::brand_bold(),
             ),
             Span::styled(

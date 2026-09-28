@@ -4,23 +4,19 @@
 //!
 //! M1.7: config struct + loader.
 
+pub mod providers;
 mod wire;
 
+pub use crate::providers::{
+    MODALITY_IMAGE, MODALITY_TEXT, ModelEntry, ModelInput, ProviderEntry, ProviderStatus,
+    ProvidersFile, ResolvedLlm,
+};
 use crate::wire::TomlConfig;
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
-
-/// A fully resolved primary credential: every field present.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedLlm {
-    pub base_url: String,
-    pub api_key: String,
-    pub model: String,
-    pub max_tokens: Option<u32>,
-}
 
 /// Configuration for kymido.
 #[derive(Debug, Clone)]
@@ -31,25 +27,11 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Model name to use.
     pub model: String,
-    /// Direct LLM API key (TUI chat / adaptor). Optional; call sites may
-    /// fall back to legacy `AGNES_API_KEY` env.
-    pub llm_api_key: Option<String>,
-    /// Direct LLM base URL, no `/v1` suffix (call site appends it).
-    pub llm_base_url: Option<String>,
-    /// Direct LLM model name (e.g. `agnes-2.5-flash`). Distinct from `model`,
-    /// which is the omp model profile selector.
-    pub llm_model: Option<String>,
-    /// Direct LLM max tokens.
-    pub llm_max_tokens: Option<u32>,
-    /// Fallback LLM providers tried in order after the primary `[llm]`
-    /// provider fails before emitting any content. Empty = no waterfall.
-    pub llm_fallbacks: Vec<LlmFallbackConfig>,
-    /// Named credential profiles (`[[llm.profiles]]`). Switching provider
-    /// means switching `llm_active_profile`, not rewriting this file.
-    pub llm_profiles: Vec<LlmProfileConfig>,
-    /// Which profile supplies the primary credential. `None` = use the flat
-    /// `[llm]` fields, which then honor the `KYMIDO_LLM_*` env overrides.
-    pub llm_active_profile: Option<String>,
+    /// Provider credential + capability data, from `providers.toml`
+    /// (a sibling file next to `config.toml` — see `crate::providers`).
+    /// Absent/empty = no direct LLM credential (the daemon runs omp-compat
+    /// mode, the historic path).
+    pub providers: ProvidersFile,
     /// External MCP servers to spawn for extra tools. Empty by default —
     /// MCP is opt-in and nothing is spawned unless the user lists a server.
     pub mcp_servers: Vec<McpServerConfig>,
@@ -171,90 +153,6 @@ pub struct SubagentProviderConfig {
     pub dispose_eof_grace_ms: Option<u64>,
 }
 
-/// One named credential profile.
-///
-/// `api_key_env` names an environment variable to read the key from, so a
-/// shared config file can carry a profile without carrying the secret; when
-/// it is set it wins over `api_key`.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-pub struct LlmProfileConfig {
-    /// Profile name, referenced by `[llm] active_profile`.
-    pub name: String,
-    /// Base URL without a `/v1` suffix (the call site appends it).
-    pub base_url: String,
-    /// Model name.
-    pub model: String,
-    /// Inline key. Prefer `api_key_env` in a shared file.
-    #[serde(default)]
-    pub api_key: Option<String>,
-    /// Environment variable to read the key from.
-    #[serde(default)]
-    pub api_key_env: Option<String>,
-    /// Per-profile max tokens; falls back to `[llm] max_tokens`.
-    #[serde(default)]
-    pub max_tokens: Option<u32>,
-}
-
-/// Whether a profile can actually produce a request. Decided locally, with
-/// no network call: a probe at daemon start would make startup depend on a
-/// third-party endpoint answering, which is exactly the failure a config
-/// check must not introduce.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ProfileStatus {
-    /// Every field present; `active_llm` would resolve it.
-    Ready,
-    /// No usable key: neither `api_key` nor the `api_key_env` variable.
-    MissingKey,
-    /// `base_url` or `model` is blank.
-    Incomplete,
-}
-
-impl ProfileStatus {
-    /// True only for [`ProfileStatus::Ready`].
-    pub fn is_ready(self) -> bool {
-        matches!(self, Self::Ready)
-    }
-}
-
-impl LlmProfileConfig {
-    /// The key to use: `api_key_env` when set (and set in the environment),
-    /// else the inline `api_key`.
-    pub fn resolve_api_key(&self) -> Option<String> {
-        self.api_key_env
-            .as_ref()
-            .and_then(|name| env::var(name).ok())
-            .or_else(|| self.api_key.clone())
-    }
-
-    /// Can this profile serve a request right now?
-    pub fn status(&self) -> ProfileStatus {
-        if self.base_url.trim().is_empty() || self.model.trim().is_empty() {
-            return ProfileStatus::Incomplete;
-        }
-        match self.resolve_api_key() {
-            Some(k) if !k.trim().is_empty() => ProfileStatus::Ready,
-            _ => ProfileStatus::MissingKey,
-        }
-    }
-}
-
-/// One fallback LLM provider (`[[llm.fallbacks]]`), tried in listed order
-/// after the primary `[llm]` provider fails without emitting content.
-/// `max_tokens` absent = inherit nothing (the provider's request carries
-/// no `max_tokens`); set it explicitly to bound the fallback's output.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
-pub struct LlmFallbackConfig {
-    #[serde(default)]
-    pub base_url: Option<String>,
-    #[serde(default)]
-    pub api_key: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub max_tokens: Option<u32>,
-}
-
 /// Errors that can occur during config loading.
 #[derive(Debug)]
 pub enum ConfigError {
@@ -319,13 +217,7 @@ impl Config {
             omp_path: PathBuf::from("omp"),
             data_dir: PathBuf::from("./.kymido"),
             model: String::from("default"),
-            llm_profiles: Vec::new(),
-            llm_active_profile: None,
-            llm_api_key: None,
-            llm_base_url: None,
-            llm_model: None,
-            llm_max_tokens: None,
-            llm_fallbacks: Vec::new(),
+            providers: ProvidersFile::default(),
             mcp_servers: Vec::new(),
             subagent_providers: Vec::new(),
             memory_enabled: false,
@@ -336,16 +228,44 @@ impl Config {
             tui_notify_osc9: false,
         };
 
-        // Load from TOML file (.kymido/config.toml, legacy fallback kymido.toml);
-        // a missing file is not an error.
+        // Load from TOML file (.kymido/config.toml, legacy fallback
+        // kymido.toml); a missing file is not an error. The retired `[llm]`
+        // section is a hard error with a migration hint, never an alias
+        // (D8').
         let candidates = [
             PathBuf::from("./.kymido/config.toml"),
             PathBuf::from("./kymido.toml"),
         ];
-        for toml_path in candidates {
-            if let Ok(content) = std::fs::read_to_string(&toml_path) {
+        for toml_path in &candidates {
+            if let Ok(content) = std::fs::read_to_string(toml_path) {
                 let toml_config: TomlConfig = toml::from_str(&content)?;
+                if toml_config.has_legacy_llm() {
+                    return Err(ConfigError::Invalid {
+                        field: "llm",
+                        message: format!(
+                            "`[llm]` in {} is retired; move the credentials to \
+providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the section",
+                            toml_path.display()
+                        ),
+                    });
+                }
                 config = toml_config.merge_into(config);
+                break;
+            }
+        }
+
+        // `providers.toml` shadows per-file, exactly like `config.toml`:
+        // workspace `.kymido/providers.toml` beats the legacy root
+        // `./providers.toml`; a missing file is not an error (no direct
+        // credential, the daemon runs omp-compat mode).
+        let provider_candidates = [
+            PathBuf::from("./.kymido/providers.toml"),
+            PathBuf::from("./providers.toml"),
+        ];
+        for toml_path in &provider_candidates {
+            if let Ok(content) = std::fs::read_to_string(toml_path) {
+                let providers: ProvidersFile = toml::from_str(&content)?;
+                config.providers = providers;
                 break;
             }
         }
@@ -363,17 +283,32 @@ impl Config {
         if let Ok(v) = env::var("KYMIDO_MODEL") {
             config.model = v;
         }
-        if let Ok(v) = env::var("KYMIDO_LLM_API_KEY") {
-            config.llm_api_key = Some(v);
-        }
-        if let Ok(v) = env::var("KYMIDO_LLM_BASE_URL") {
-            config.llm_base_url = Some(v);
-        }
-        if let Ok(v) = env::var("KYMIDO_LLM_MODEL") {
-            config.llm_model = Some(v);
-        }
-        if let Ok(v) = env::var("KYMIDO_LLM_MAX_TOKENS") {
-            config.llm_max_tokens = v.parse().ok();
+        // `KYMIDO_LLM_*` overrides the *active* provider's fields when one
+        // is named; they cannot invent a provider on their own (a machine
+        // that wants a credential declares it in `providers.toml`).
+        // Key precedence chain: a provider-declared `api_key_env` variable
+        // beats `KYMIDO_LLM_API_KEY`, which beats the inline `api_key` —
+        // a provider-local key declaration wins over the global override.
+        if let Some(route) = config.providers.active.clone()
+            && let Some((provider_name, _)) = ProvidersFile::split_route(&route)
+            && let Some(entry) = config.providers.providers.get_mut(&provider_name)
+        {
+            if let Ok(v) = env::var("KYMIDO_LLM_API_KEY")
+                && entry.api_key_env.is_none()
+            {
+                entry.api_key = Some(v);
+            }
+            if let Ok(v) = env::var("KYMIDO_LLM_BASE_URL") {
+                entry.base_url = Some(v);
+            }
+            if let Ok(v) = env::var("KYMIDO_LLM_MODEL")
+                && !route.contains('/')
+            {
+                entry.default_model = Some(v);
+            }
+            if let Ok(v) = env::var("KYMIDO_LLM_MAX_TOKENS") {
+                entry.max_tokens = v.parse().ok();
+            }
         }
         if let Ok(v) = env::var("KYMIDO_CWD") {
             config.cwd = PathBuf::from(v);
@@ -385,43 +320,70 @@ impl Config {
         Ok(config)
     }
 
-    /// The primary LLM credential: the active profile when one is named,
-    /// otherwise the flat `[llm]` fields.
+    /// The primary LLM credential: the active spec (combo name or route)
+    /// resolved against the provider table. `None` when the route is
+    /// missing, unresolvable, or the provider has no usable key: the
+    /// daemon then runs without an orbit model rather than guessing.
     ///
-    /// A profile is a *complete* credential, so the `KYMIDO_LLM_*` env
-    /// overrides — which only reach the flat fields — do not apply once a
-    /// profile is active. Mixing an env key with a profile's model would be
-    /// worse than ignoring the override. `None` when the active credential is
-    /// incomplete: the daemon then runs without an orbit model rather than
-    /// guessing.
-    /// Every profile with its status, in config order. The daemon logs this
-    /// at start so a broken profile is visible without having to select it
-    /// and discover the failure at request time.
-    pub fn profile_statuses(&self) -> Vec<(&str, ProfileStatus)> {
-        self.llm_profiles
+    /// `Config::validate` already rejects an active spec that names a
+    /// provider or model that does not exist (the typo protection of the
+    /// old `active_profile` contract), so this only returns `None` for
+    /// "no active spec" and "no key resolvable".
+    pub fn active_llm(&self) -> Option<ResolvedLlm> {
+        self.providers
+            .active
+            .as_deref()
+            .and_then(|spec| self.providers.resolve_spec(spec))
+    }
+
+    /// Waterfall hops for the active provider, in listed order. Unknown or
+    /// unresolvable routes are skipped with a warn (B2b1 semantics: a
+    /// typo'd hop must stay visible, not silently take down the daemon);
+    /// a hop that resolves but has no key is the same warn-and-skip.
+    pub fn fallback_llms(&self) -> Vec<ResolvedLlm> {
+        let Some(spec) = self.providers.active.as_deref() else {
+            return Vec::new();
+        };
+        // A combo active spec resolves to its target route first; the
+        // waterfall belongs to the provider row that route names.
+        let route = self.providers.spec_to_route(spec);
+        let Some((provider_name, _)) = ProvidersFile::split_route(route) else {
+            return Vec::new();
+        };
+        let Some(entry) = self.providers.provider(&provider_name) else {
+            return Vec::new();
+        };
+        entry
+            .fallbacks
             .iter()
-            .map(|p| (p.name.as_str(), p.status()))
+            .enumerate()
+            .filter_map(|(i, hop)| match self.providers.resolve_spec(hop) {
+                Some(resolved) => Some(resolved),
+                None => {
+                    eprintln!(
+                        "warn: providers fallback #{i} `{hop}` does not resolve (unknown combo/provider/model, missing base_url or key); skipped"
+                    );
+                    None
+                }
+            })
             .collect()
     }
 
-    pub fn active_llm(&self) -> Option<ResolvedLlm> {
-        if let Some(name) = self.llm_active_profile.as_ref() {
-            let Some(p) = self.llm_profiles.iter().find(|p| p.name == *name) else {
-                return None;
-            };
-            return Some(ResolvedLlm {
-                base_url: p.base_url.clone(),
-                api_key: p.resolve_api_key()?,
-                model: p.model.clone(),
-                max_tokens: p.max_tokens.or(self.llm_max_tokens),
-            });
-        }
-        Some(ResolvedLlm {
-            base_url: self.llm_base_url.clone()?,
-            api_key: self.llm_api_key.clone()?,
-            model: self.llm_model.clone()?,
-            max_tokens: self.llm_max_tokens,
-        })
+    /// Every provider with its status, name-sorted for stable logs. The
+    /// daemon prints this at start so a broken provider is visible without
+    /// having to select it and discover the failure at request time.
+    pub fn provider_statuses(&self) -> Vec<(&str, ProviderStatus)> {
+        let mut names: Vec<&String> = self.providers.providers.keys().collect();
+        names.sort();
+        names
+            .iter()
+            .map(|name| {
+                (
+                    name.as_str(),
+                    self.providers.provider(name).unwrap().status(),
+                )
+            })
+            .collect()
     }
 
     /// Daemon session working directory: the orbit engine searches this
@@ -456,16 +418,116 @@ impl Config {
                 message: format!("'{}' does not exist", omp_str),
             });
         }
-        // active_profile must name a profile that exists. Silently falling
-        // back to the flat `[llm]` fields would hand the run a *different*
-        // provider than the file asked for — the worst possible failure for
-        // a credential typo.
-        if let Some(name) = &self.llm_active_profile {
-            if !self.llm_profiles.iter().any(|p| p.name == *name) {
+
+        // [combos]: every target must be a literal `provider/model` route
+        // naming an existing provider row and (when that provider declares
+        // a capability table) one of its models. A combo is a pinned alias
+        // to a configured model: a bare-provider target or a combo-to-combo
+        // value is a load error, never a silent indirection.
+        let mut combo_names: Vec<&String> = self.providers.combos.keys().collect();
+        combo_names.sort();
+        for name in combo_names {
+            let target = self.providers.combos[name].trim();
+            let (prov, model) = match crate::providers::ProvidersFile::split_route(target) {
+                Some(r) => r,
+                None => {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.combos",
+                        message: format!(
+                            "combo `{name}` target `{target}` must be `provider/model`"
+                        ),
+                    });
+                }
+            };
+            let Some(m) = &model else {
                 return Err(ConfigError::Invalid {
-                    field: "llm.active_profile",
-                    message: format!("no such profile `{name}`"),
+                    field: "providers.combos",
+                    message: format!(
+                        "combo `{name}` target must name a model (got bare provider `{prov}`)"
+                    ),
                 });
+            };
+            let entry = match self.providers.provider(&prov) {
+                Some(e) => e,
+                None => {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.combos",
+                        message: format!(
+                            "combo `{name}` targets provider `{prov}` which is not in providers.toml"
+                        ),
+                    });
+                }
+            };
+            if !entry.models.is_empty() && !entry.models.iter().any(|x| x.id == *m) {
+                return Err(ConfigError::Invalid {
+                    field: "providers.combos",
+                    message: format!(
+                        "combo `{name}` target model `{m}` is not declared by provider `{prov}` (declared: {})",
+                        entry
+                            .models
+                            .iter()
+                            .map(|x| x.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
+            }
+        }
+
+        // providers.toml: the active spec must name a provider that exists,
+        // and a named model must be one the provider declared. Silently
+        // falling back would hand the run a *different* provider than the
+        // file asked for — the worst possible failure for a credential typo.
+        if let Some(spec) = self.providers.active.as_deref() {
+            // A combo active spec was already enforced by the `[combos]`
+            // check (explicit target, provider row, declared model): its
+            // errors name the combo, not the active route. Only literal
+            // and bare-provider specs are validated here.
+            let is_combo = spec != self.providers.spec_to_route(spec);
+            if !is_combo {
+                let (name, model) = match crate::providers::ProvidersFile::split_route(spec) {
+                    Some(r) => r,
+                    None => {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.active",
+                            message: format!(
+                                "route `{spec}` must be `provider` or `provider/model`"
+                            ),
+                        });
+                    }
+                };
+                let entry = match self.providers.provider(&name) {
+                    Some(e) => e,
+                    None => {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.active",
+                            message: format!("no such provider `{name}` in providers.toml"),
+                        });
+                    }
+                };
+                if let Some(m) = &model {
+                    if !entry.models.is_empty() && !entry.models.iter().any(|x| x.id == *m) {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.active",
+                            message: format!(
+                                "provider `{name}` has no model `{m}` (declared: {})",
+                                entry
+                                    .models
+                                    .iter()
+                                    .map(|x| x.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        });
+                    }
+                } else if entry.default_model.is_none() {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.active",
+                        message: format!(
+                            "provider `{name}` names no model and has no default_model; use the route `{name}/<model>`"
+                        ),
+                    });
+                }
             }
         }
 
@@ -610,20 +672,55 @@ impl Config {
             });
         }
 
-        // llm fallbacks: every field is `Option` and inherits from the
-        // primary provider, so an entry that overrides *nothing* replays the
-        // same provider verbatim — a no-op retry rather than a fallback.
-        // Warn (never reject): inheritance is legal, this only spots the
-        // entry that forgot to say what it changes.
-        for (idx, f) in self.llm_fallbacks.iter().enumerate() {
-            if f.base_url.is_none()
-                && f.api_key.is_none()
-                && f.model.is_none()
-                && f.max_tokens.is_none()
-            {
-                eprintln!(
-                    "warn: [[llm.fallbacks]] entry #{idx} overrides nothing; it retries the primary provider unchanged"
-                );
+        // providers: structural rules for the `providers.toml` table.
+        // Capability values are validated here at the boundary so every
+        // consumer (orbit, web status line, attachment gating) sees a
+        // normalised, checked value.
+        for (name, entry) in &self.providers.providers {
+            let mut seen_models = std::collections::HashSet::new();
+            for m in &entry.models {
+                if m.id.trim().is_empty() {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.models",
+                        message: format!("provider `{name}`: model id must not be empty"),
+                    });
+                }
+                if !seen_models.insert(m.id.clone()) {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.models",
+                        message: format!("provider `{name}`: duplicate model id `{}`", m.id),
+                    });
+                }
+                if m.context_window.is_some_and(|w| w == 0) {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.models.context_window",
+                        message: format!(
+                            "provider `{name}` model `{}`: context_window must be a positive integer",
+                            m.id
+                        ),
+                    });
+                }
+                for modality in &m.input {
+                    if crate::providers::ModelInput::parse(modality).is_none() {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.models.input",
+                            message: format!(
+                                "provider `{name}` model `{}`: unknown input modality `{modality}` (expected `text` or `image`)",
+                                m.id
+                            ),
+                        });
+                    }
+                }
+            }
+            for hop in &entry.fallbacks {
+                if crate::providers::ProvidersFile::split_route(hop).is_none() {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.fallbacks",
+                        message: format!(
+                            "provider `{name}`: fallback route `{hop}` must be `provider` or `provider/model`"
+                        ),
+                    });
+                }
             }
         }
 

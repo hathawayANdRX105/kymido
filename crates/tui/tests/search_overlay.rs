@@ -481,7 +481,7 @@ fn jump_positions_and_highlights_hit_line() {
         "a needle in the haystack".to_string(),
     )]);
     let shown = screen(&app);
-    assert!(shown.contains("> needle"), "查询行上屏:\n{shown}");
+    assert!(shown.contains("❯ needle"), "查询行上屏:\n{shown}");
     assert!(shown.contains("1 matches"), "状态行计数上屏:\n{shown}");
     assert!(
         shown.contains("enter next · shift+enter prev · esc restore"),

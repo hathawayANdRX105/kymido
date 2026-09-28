@@ -6,7 +6,7 @@ use crate::components::ui::Modal;
 use dioxus::prelude::*;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{IconGear, IconTerminal, IconTrash, IconX};
-use web_client::llm::{LlmFallbackForm, LlmRuntimeConfig, McpServerForm};
+use web_client::llm::{LlmRuntimeConfig, McpServerForm};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
@@ -115,33 +115,19 @@ fn ConfigForm(
     let mut show_key = use_signal(|| false);
     let mut test_status = use_signal(|| None::<Result<Vec<String>, String>>);
     let mut save_status = use_signal(|| None::<Result<String, String>>);
+
+    // 两个 `move` 闭包（保存 / 测试连接）各持一份：save 闭包移走
+    // `config`，probe 闭包用独立克隆，避免二次 move。
+    let probe_config = config.clone();
     let mut is_testing = use_signal(|| false);
 
-    // Fallback Provider（[[llm.fallbacks]]）表单状态与校验
-    let mut fallbacks = use_signal(|| config.llm_fallbacks.clone());
+    // Fallback 路由（providers.toml 的 provider 行 `fallbacks` 键）表单状态与校验：
+    // 每行一条 "provider/model" 路由文本，主 provider 无可用内容时按序切换。
+    let mut fallbacks = use_signal(|| config.fallback_routes.clone());
     let fallback_list = fallbacks();
-    let mut fallback_empty_model = false;
-    let mut fallback_dup_model = false;
-    let mut fallback_bad_tokens = false;
-    let mut seen_fallback_models = std::collections::HashSet::new();
-    for fallback in &fallback_list {
-        let model = fallback.model.trim();
-        if model.is_empty() {
-            fallback_empty_model = true;
-        } else if !seen_fallback_models.insert(model.to_string()) {
-            fallback_dup_model = true;
-        }
-        let tokens = fallback.max_tokens.trim();
-        if !tokens.is_empty() && tokens.parse::<u32>().is_err() {
-            fallback_bad_tokens = true;
-        }
-    }
-    let fallback_hint: Option<&'static str> = if fallback_empty_model {
-        Some("每个 Fallback Provider 必须填写 model：保存按 model 匹配既有行")
-    } else if fallback_dup_model {
-        Some("存在重复的 fallback model：保存时会更新到同一行，请改名区分")
-    } else if fallback_bad_tokens {
-        Some("fallback max_tokens 必须为空或正整数")
+    let fallback_empty = fallback_list.iter().any(|r| r.trim().is_empty());
+    let fallback_hint: Option<&'static str> = if fallback_empty {
+        Some("fallback 路由不能为空：每行一条「provider/model」路由文本")
     } else {
         None
     };
@@ -342,16 +328,25 @@ fn ConfigForm(
                                     model: model().trim().to_string(),
                                     max_tokens: max_tokens().parse::<u32>().unwrap_or(4096),
                                     data_dir: data_dir().trim().to_string(),
+                                    active_provider: config.active_provider.clone(),
+                                    active: config.active.clone(),
                                     // LLM 保存沿用当前已保存的 MCP 表单状态：
                                     // 空表单时 [mcp] 完全不被触碰。
                                     mcp_servers: config.mcp_servers.clone(),
-                                    // Fallback 表单当前状态随本次保存写出
-                                    // [[llm.fallbacks]]（空表单不碰该段）。
-                                    llm_fallbacks: fallbacks(),
+                                    // Fallback 路由当前状态随本次保存整体写回
+                                    // active provider 行的 fallbacks 键。
+                                    fallback_routes: fallbacks(),
+                                    context_max: config.context_max,
+                                    image_input: config.image_input,
                                 };
-                                match new_cfg.save_to_file() {
+                                match new_cfg
+                                    .save_to_file()
+                                    .and_then(|_| new_cfg.save_providers_to_file())
+                                {
                                     Ok(()) => {
-                                        save_status.set(Some(Ok("配置已写入 .kymido/config.toml 并生效".into())));
+                                        save_status.set(Some(Ok(
+                                            "配置已写入 .kymido/config.toml 与 providers.toml 并生效".into(),
+                                        )));
                                         on_update_config.call(new_cfg);
                                     }
                                     Err(e) => {
@@ -374,10 +369,14 @@ fn ConfigForm(
                                 model: model().trim().to_string(),
                                 max_tokens: max_tokens().parse::<u32>().unwrap_or(4096),
                                 data_dir: data_dir().trim().to_string(),
+                                active_provider: probe_config.active_provider.clone(),
+                                active: probe_config.active.clone(),
                                 // 探针只读 base_url/api_key，不落盘：空 vec
                                 // 让它即使被误存也不会碰 [mcp]。
                                 mcp_servers: Vec::new(),
-                                llm_fallbacks: Vec::new(),
+                                fallback_routes: Vec::new(),
+                                context_max: probe_config.context_max,
+                                image_input: probe_config.image_input,
                             };
                             let res = probe_cfg.test_connection();
                             test_status.set(Some(res));
@@ -388,30 +387,46 @@ fn ConfigForm(
                 }
             }
 
-            // Fallback Provider 卡（[[llm.fallbacks]]，主 provider 失败后按序切换）
+            // Fallback 路由卡（providers.toml 的 provider 行 fallbacks 键，
+            // 主 provider 无可用内容时按序瀑布切换）
             div { class: "bg-layer-1 border border-b1 rounded-2xl px-6 py-5 flex flex-col gap-4",
                 div { class: "flex items-center justify-between pb-3 border-b border-b1",
-                    div { class: "text-[15px] leading-[22px] font-medium text-label", "Fallback Provider（主 provider 失败后按序切换）" }
+                    div { class: "text-[15px] leading-[22px] font-medium text-label", "Fallback 路由（主 provider 失败后按序切换）" }
                     Button {
                         variant: ButtonVariant::Outline,
                         size: ButtonSize::Sm,
-                        onclick: move |_| fallbacks.write().push(LlmFallbackForm::default()),
-                        "添加 Fallback Provider"
+                        onclick: move |_| fallbacks.write().push(String::new()),
+                        "添加 Fallback 路由"
                     }
                 }
 
                 if fallback_list.is_empty() {
                     div { class: "bg-layer-1 border border-b1 rounded-xl px-4 py-6 flex flex-col items-center gap-1.5",
-                        span { class: "text-[13px] leading-5 text-label-3", "尚未配置 Fallback Provider" }
-                        span { class: "text-[12px] leading-4 text-caption", "主 provider 无可用内容时按列表顺序切换；base_url / api_key 留空 = 继承主 provider" }
+                        span { class: "text-[13px] leading-5 text-label-3", "尚未配置 Fallback 路由" }
+                        span { class: "text-[12px] leading-4 text-caption", "主 provider 无可用内容时按列表顺序切换；每行一条「provider/model」路由，凭据继承目标 provider 行" }
                     }
                 }
-                for (i, fallback) in fallback_list.iter().enumerate() {
-                    // `{i}-{model}` key: deleting a middle row must not make
-                    // the rows above inherit the deleted row's component
-                    // state (`show_key`), while the `i` prefix keeps keys
-                    // unique while a duplicate model is mid-edit.
-                    LlmFallbackCard { key: "{i}-{fallback.model}", index: i, fallback: fallback.clone(), fallbacks }
+                for (i, route) in fallback_list.iter().enumerate() {
+                    // `{i}` key 前缀保证中间行删除时上方行不继承被删组件状态，
+                    // 重复路由编辑期间键仍唯一。
+                    div { key: "{i}", class: "flex items-center gap-2.5",
+                        span { class: "text-[12px] leading-5 text-caption font-mono w-[32px] text-right", "#{i + 1}" }
+                        input {
+                            class: "w-full h-9 rounded-[10px] bg-layer-2 border border-b2 px-3 text-[14px] leading-[22px] text-label font-mono outline-none transition-colors focus:border-brand placeholder:text-caption",
+                            value: "{route}",
+                            oninput: move |e| fallbacks.write()[i] = e.value(),
+                            placeholder: "other-provider/model-id",
+                        }
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::IconSm,
+                            title: "删除",
+                            onclick: move |_| {
+                                fallbacks.write().remove(i);
+                            },
+                            IconTrash { size: 14 }
+                        }
+                    }
                 }
                 if let Some(hint) = fallback_hint {
                     span { class: "{err_class}", "{hint}" }
@@ -578,10 +593,14 @@ fn McpServersPane(
                                 model: config.model.clone(),
                                 max_tokens: config.max_tokens,
                                 data_dir: config.data_dir.clone(),
+                                active_provider: config.active_provider.clone(),
+                                active: config.active.clone(),
                                 mcp_servers: servers(),
                                 // MCP 保存不动 LLM 区：沿用当前已保存的
-                                // fallbacks（空表单时 [[llm.fallbacks]] 不被触碰）。
-                                llm_fallbacks: config.llm_fallbacks.clone(),
+                                // fallback 路由。
+                                fallback_routes: config.fallback_routes.clone(),
+                                context_max: config.context_max,
+                                image_input: config.image_input,
                             };
                             match new_cfg.save_to_file() {
                                 Ok(()) => {
@@ -714,105 +733,6 @@ fn McpServerCard(
                         value: "{server.args}",
                         oninput: move |e| servers.write()[index].args = e.value(),
                         placeholder: "--root, /path/to/directory",
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// 单个 Fallback Provider 的编辑卡：卡头是 model（mono）+ 端点摘要 + 删除钮，
-/// 卡体两列网格排 base_url / api_key / max_tokens。所有输入直接写回
-/// `fallbacks[index]`。api_key 是 password 输入框，同卡内一个 Ghost 钮切换显隐。
-#[component]
-fn LlmFallbackCard(
-    fallback: LlmFallbackForm,
-    index: usize,
-    mut fallbacks: Signal<Vec<LlmFallbackForm>>,
-) -> Element {
-    let input_class = "w-full h-9 rounded-[10px] bg-layer-2 border border-b2 px-3 text-[14px] leading-[22px] text-label outline-none transition-colors focus:border-brand placeholder:text-caption";
-    let label_class = "text-[13px] leading-5 font-medium text-label-2";
-
-    let mut show_key = use_signal(|| false);
-
-    let summary = if fallback.base_url.trim().is_empty() {
-        "继承主 provider 端点".to_string()
-    } else {
-        let key_state = if fallback.api_key.trim().is_empty() {
-            "无 key（继承主 provider）"
-        } else {
-            "已设 key"
-        };
-        format!("{} · {}", fallback.base_url.trim(), key_state)
-    };
-    let card_class = "bg-layer-1 border border-b1 rounded-xl px-4 py-4 flex flex-col gap-3";
-
-    rsx! {
-        div { class: "{card_class}",
-            // 卡头：model + 端点摘要 + 删除
-            div { class: "flex items-center justify-between gap-3",
-                div { class: "min-w-0 flex flex-col gap-0.5",
-                    span { class: "text-[14px] leading-5 font-medium text-label truncate",
-                        if fallback.model.trim().is_empty() { "（未填写 model）" } else { "{fallback.model}" }
-                    }
-                    span { class: "text-[12px] leading-4 text-caption font-mono truncate", "{summary}" }
-                }
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::IconSm,
-                    title: "删除",
-                    onclick: move |_| {
-                        fallbacks.write().remove(index);
-                    },
-                    IconTrash { size: 14 }
-                }
-            }
-
-            div { class: "grid grid-cols-2 gap-3",
-                div { class: "flex flex-col gap-1.5 col-span-2",
-                    label { class: "{label_class}", "model (必填)" }
-                    input {
-                        class: "{input_class} font-mono",
-                        value: "{fallback.model}",
-                        oninput: move |e| fallbacks.write()[index].model = e.value(),
-                        placeholder: "fallback-model-id",
-                    }
-                }
-                div { class: "flex flex-col gap-1.5",
-                    label { class: "{label_class}", "base_url (空 = 继承主 provider)" }
-                    input {
-                        class: "{input_class} font-mono",
-                        value: "{fallback.base_url}",
-                        oninput: move |e| fallbacks.write()[index].base_url = e.value(),
-                        placeholder: "http://127.0.0.1:3182",
-                    }
-                }
-                div { class: "flex flex-col gap-1.5",
-                    div { class: "flex justify-between",
-                        label { class: "{label_class}", "api_key (空 = 继承主 provider)" }
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            size: ButtonSize::Sm,
-                            onclick: move |_| show_key.set(!show_key()),
-                            if show_key() { "隐藏" } else { "显示" }
-                        }
-                    }
-                    input {
-                        class: "{input_class} font-mono",
-                        r#type: if show_key() { "text" } else { "password" },
-                        value: "{fallback.api_key}",
-                        oninput: move |e| fallbacks.write()[index].api_key = e.value(),
-                        placeholder: "sk-...",
-                    }
-                }
-                div { class: "flex flex-col gap-1.5 col-span-2",
-                    label { class: "{label_class}", "max_tokens (留空 = 不带 max_tokens)" }
-                    input {
-                        class: "{input_class}",
-                        r#type: "number",
-                        value: "{fallback.max_tokens}",
-                        oninput: move |e| fallbacks.write()[index].max_tokens = e.value(),
-                        placeholder: "4096",
                     }
                 }
             }

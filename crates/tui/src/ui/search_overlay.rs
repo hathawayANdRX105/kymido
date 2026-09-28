@@ -61,7 +61,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 /// 定位过就报 `k/n` 是假精度）。
 fn query_line(state: &SearchState) -> Line<'static> {
     let mut spans = vec![
-        Span::styled("> ".to_string(), theme::brand_bold()),
+        Span::styled("❯ ".to_string(), theme::brand_bold()),
         Span::styled(state.query().to_string(), theme::base()),
     ];
     if state.jumped() && !state.hits().is_empty() {

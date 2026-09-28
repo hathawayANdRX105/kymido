@@ -8,6 +8,7 @@ publish = false
 web-state = { path = "../web-state" }
 daemon = { path = "../daemon" }
 session = { path = "../session" }
+config = { path = "../config" }
 store = { path = "../store" }
 serde = { workspace = true }
 serde_json = { workspace = true }

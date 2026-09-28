@@ -199,7 +199,7 @@ fn confirm_and_edit_modes_render() {
     st.handle_key(key(KeyCode::Char('r')));
     let screen = draw(&st);
     assert!(
-        screen.contains("rename>"),
+        screen.contains("rename ❯"),
         "edit mode must be visible:\n{screen}"
     );
     assert!(

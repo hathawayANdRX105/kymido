@@ -6,41 +6,31 @@ use web_state::types::ChatMessage;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlmRuntimeConfig {
+    /// active 路由解析出的 base_url（无 providers 文件或解析失败时为空）。
     pub base_url: String,
+    /// active 路由解析出的 api_key（`api_key_env` 优先于内联 `api_key`）。
     pub api_key: String,
+    /// active 路由解析出的 model（provider 行 `default_model` 或路由命名 model）。
     pub model: String,
+    /// active 路由的 max_tokens（model 行 > provider 行 > 页面默认）。
     pub max_tokens: u32,
     pub data_dir: String,
+    /// active 路由所属 provider 名（"provider/model" 的 provider 部分）；
+    /// 保存时写回 `providers.toml` 的 `[providers.<active_provider>]` 行。
+    pub active_provider: String,
+    /// active 路由原文（`providers.toml` 根 `active`）；空串 = 未配置。
+    pub active: String,
     /// 设置页「MCP 服务器」表单的行数据。空 vec 表示表单没有服务器，
     /// 保存时完全不碰 `[mcp]`（不创建、不改写）。
     pub mcp_servers: Vec<McpServerForm>,
-    /// 设置页「Fallback Provider」表单的行数据（`[[llm.fallbacks]]`，
-    /// 主 provider 失败后按序切换）。空 vec 表示表单没有行，保存时
-    /// 完全不碰 `[llm].fallbacks`（不创建、不改写、不删除既有行）。
-    pub llm_fallbacks: Vec<LlmFallbackForm>,
-}
-
-/// 设置页单个 fallback LLM provider 的表单行（web 侧 DTO，不依赖 config
-/// crate）：与 `crates/infra/config` 的 `LlmFallbackConfig` 一一对应，但
-/// 统一成文本框友好的 `String`——空串表示「未设置」（保存时该键被清掉，
-/// 等价 config crate 的 `Option::None`）。
-///
-/// `model` 是必填的匹配键：保存按它定位既有 `[[llm.fallbacks]]` 表
-/// （同 [`McpServerForm`] 按 `name` 匹配的先例），model 为空的行保存中止。
-/// 空 `base_url` / `api_key` = 继承主 provider；空 `max_tokens` = 该
-/// fallback 请求不带 max_tokens。
-///
-/// `Default` 是「添加 Fallback Provider」按钮的空白行：全空串。
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct LlmFallbackForm {
-    /// fallback provider 的 base_url（API 基地址）；空串 = 继承主 provider
-    pub base_url: String,
-    /// fallback provider 的 api_key；空串 = 继承主 provider
-    pub api_key: String,
-    /// fallback provider 的 model（必填：空串的表单行不会保存）
-    pub model: String,
-    /// fallback provider 的 max_tokens 十进制文本；空串 = 该 provider 不带 max_tokens
-    pub max_tokens: String,
+    /// active provider 的 fallback 路由（providers 行 `fallbacks`，顺序即瀑布序）。
+    /// 保存时整体写回该行的 `fallbacks` 键（删行 = 删条目）。
+    pub fallback_routes: Vec<String>,
+    /// active model 声明的 context window（token）；0 = 未声明（引擎默认预算，
+    /// 展示层用 web-state 的 DEFAULT_CONTEXT_MAX 兜底）。
+    pub context_max: u32,
+    /// active model 是否声明 image 输入（T5 附件门）；未声明 = false（附件关闭）。
+    pub image_input: bool,
 }
 
 /// 设置页单个 MCP 服务器的表单行（web 侧 DTO，不依赖 config crate）：
@@ -77,17 +67,16 @@ impl Default for LlmRuntimeConfig {
 }
 
 impl LlmRuntimeConfig {
-    /// Load settings from `.kymido/config.toml`, environment variables, or fallback to local new-api.
+    /// Load settings: `config.toml` for the root keys (`data_dir` / `model`)
+    /// and `[[mcp.servers]]`; `providers.toml` (same directory) for
+    /// credentials and capability data — the flat `[llm]` section no longer
+    /// exists (loading one is a config-crate hard error).
     pub fn load_from_system() -> Self {
-        let mut base_url = "http://127.0.0.1:3182".to_string();
-        let mut api_key = "sk-config-not-set".to_string();
-        let mut model = "agnes-2.5-flash".to_string();
-        let mut max_tokens = 4096;
+        let mut model = String::new();
         let mut data_dir = "./.kymido".to_string();
         let mut mcp_servers = Vec::new();
-        let mut llm_fallbacks = Vec::new();
 
-        // 1. Try reading config.toml
+        // 1. config.toml candidates (same shadowing as the daemon).
         for path in [
             "./.kymido/config.toml",
             "../.kymido/config.toml",
@@ -100,24 +89,6 @@ impl LlmRuntimeConfig {
                     }
                     if let Some(m) = value.get("model").and_then(|v: &toml::Value| v.as_str()) {
                         model = m.to_string();
-                    }
-                    if let Some(llm) = value.get("llm") {
-                        if let Some(b) = llm.get("base_url").and_then(|v: &toml::Value| v.as_str())
-                        {
-                            base_url = b.to_string();
-                        }
-                        if let Some(k) = llm.get("api_key").and_then(|v: &toml::Value| v.as_str()) {
-                            api_key = k.to_string();
-                        }
-                        if let Some(m) = llm.get("model").and_then(|v: &toml::Value| v.as_str()) {
-                            model = m.to_string();
-                        }
-                        if let Some(t) = llm
-                            .get("max_tokens")
-                            .and_then(|v: &toml::Value| v.as_integer())
-                        {
-                            max_tokens = t as u32;
-                        }
                     }
 
                     // [mcp] → 表单行。没有该段（或 servers 不是表数组）时
@@ -133,37 +104,59 @@ impl LlmRuntimeConfig {
                             }
                         }
                     }
-
-                    // [[llm.fallbacks]] → 表单行（主 provider 失败后按序切换
-                    // 的 fallback provider）。没有该段时保持空 vec。
-                    if let Some(fallbacks) = value
-                        .get("llm")
-                        .and_then(|l| l.get("fallbacks"))
-                        .and_then(toml::Value::as_array)
-                    {
-                        for fallback in fallbacks {
-                            if let Some(form) = llm_fallback_form_from_value(fallback) {
-                                llm_fallbacks.push(form);
-                            }
-                        }
-                    }
                 }
                 break;
             }
         }
 
-        // 2. Env overrides
-        if let Ok(v) = std::env::var("NEWAPI_RELAY_TOKEN") {
-            api_key = v;
-        } else if let Ok(v) = std::env::var("KYMIDO_LLM_API_KEY") {
-            api_key = v;
-        }
-
-        if let Ok(v) = std::env::var("KYMIDO_LLM_BASE_URL") {
-            base_url = v;
-        }
-        if let Ok(v) = std::env::var("KYMIDO_LLM_MODEL") {
-            model = v;
+        // 2. providers.toml next to the config file (sibling-file contract).
+        let mut base_url = String::new();
+        let mut api_key = String::new();
+        let mut max_tokens = 4096u32;
+        let mut active_provider = String::new();
+        let mut active = String::new();
+        let mut fallback_routes = Vec::new();
+        let mut context_max = 0u32;
+        let mut image_input = false;
+        for path in [
+            Path::new("./.kymido").join("providers.toml"),
+            Path::new("../.kymido").join("providers.toml"),
+            Path::new(&data_dir).join("providers.toml"),
+        ] {
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            match toml::from_str::<config::ProvidersFile>(&content) {
+                Ok(file) => {
+                    if let Some(route_text) = file.active.as_deref() {
+                        active = route_text.to_string();
+                        // active 可以是 combo 短名（[combos]）：显示保持原文，
+                        // 解析与 provider 归属走 combo 目标路由。
+                        let target = file.spec_to_route(route_text);
+                        if let Some(route) = file.resolve_spec(route_text) {
+                            if let Some((provider, _)) = config::ProvidersFile::split_route(target)
+                            {
+                                active_provider = provider;
+                            }
+                            let image = route.image_input();
+                            base_url = route.base_url;
+                            api_key = route.api_key;
+                            model = route.model;
+                            max_tokens = route.max_tokens.unwrap_or(4096);
+                            context_max = route.context_window.unwrap_or(0);
+                            image_input = image;
+                            if let Some(entry) = file.provider(&active_provider) {
+                                fallback_routes = entry.fallbacks.clone();
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warn: providers.toml ({}) 解析失败: {e}", path.display());
+                }
+            }
+            break;
         }
 
         Self {
@@ -172,23 +165,24 @@ impl LlmRuntimeConfig {
             model,
             max_tokens,
             data_dir,
+            active_provider,
+            active,
             mcp_servers,
-            llm_fallbacks,
+            fallback_routes,
+            context_max,
+            image_input,
         }
     }
 
-    /// Persist to `.kymido/config.toml`.
+    /// Persist the root keys + `[[mcp.servers]]` to `.kymido/config.toml`.
     ///
     /// **增量写回**：若文件已存在，用 [`toml_edit::DocumentMut`] 只更新本结构体
-    /// 管理的键——根表的 `omp_path` / `data_dir` / `model`、`[llm]` 段下的
-    /// `base_url` / `api_key` / `model` / `max_tokens`，以及按 `name` 逐台
-    /// 编辑的 `[[mcp.servers]]`（见 [`Self::mcp_servers`]）——**其余内容
-    /// 原样保留**：`[memory]` / `[daemon]` 等未管理段、MCP 服务器上的
-    /// `env` / `reconnect` / 未知键、注释、空行与排版。表单状态里没有的
-    /// MCP 服务器一律不动（表单是追加/按名编辑，不做整体重写）。
-    ///
-    /// 旧实现用 `format!()` 整文件重写，只写上述 6 个键，会把配置页一次保存
-    /// 变成对 `[mcp]` / `[memory]` / `[daemon]` 的静默抹除。
+    /// 管理的键——根表的 `omp_path` / `data_dir` / `model` 与按 `name` 逐台编辑的
+    /// `[[mcp.servers]]`（见 [`Self::mcp_servers`]）——**其余内容原样保留**：
+    /// `[memory]` / `[daemon]` 等未管理段、MCP 服务器上的 `env` / `reconnect` /
+    /// 未知键、注释、空行与排版。凭据与能力数据**不在此文件**（`[llm]` 段已随
+    /// 切换移除，写回它会让 daemon 的 `Config::load` 直接报错）——走
+    /// [`Self::save_providers_to_file`]。
     pub fn save_to_file(&self) -> Result<(), String> {
         let dir = Path::new(&self.data_dir);
         if !dir.exists() {
@@ -209,8 +203,6 @@ impl LlmRuntimeConfig {
                 // 解析失败时绝不能让用户配置凭空消失：先备份原文，再回退全量写。
                 Err(e) => {
                     let backup_path = target_path.with_extension("toml.bak");
-                    // 备份本身失败时必须中止：继续全量写会覆盖掉唯一一份原文，
-                    // 而它连备份都没有——正是本修复要消除的静默丢失。
                     if let Err(backup_err) = std::fs::write(&backup_path, &content) {
                         return Err(format!(
                             "配置文件 {} 解析失败({})，且备份原始内容到 {} 也失败({})；已中止写入以避免丢失配置",
@@ -226,8 +218,6 @@ impl LlmRuntimeConfig {
                         e,
                         backup_path.display()
                     );
-                    // 全量写也只补默认 omp_path——原文里若已有自定义路径，写死
-                    // "omp" 会抹掉它（与 write_managed_keys 的缺失才补同语义）。
                     return self
                         .write_full_config(&target_path, preserve_omp_path(&content).as_deref());
                 }
@@ -237,60 +227,182 @@ impl LlmRuntimeConfig {
         self.write_full_config(&target_path, None)
     }
 
-    /// 全量写一份只含管理键的新配置（文件不存在或原文件不可解析时使用）。
-    /// `omp_path` 由调用方决定：`None` 用默认 `"omp"`，`Some(v)` 沿用原值。
-    /// 空表单不写 `[mcp]` 段（与增量路径一致）；非空时复用
-    /// `write_mcp_servers` 落地，否则首次保存（文件本不存在）或解析失败回退
-    /// 到全量写时整张 `[[mcp.servers]]` 会被静默丢掉。
-    fn write_full_config(&self, target_path: &Path, omp_path: Option<&str>) -> Result<(), String> {
-        let mut toml_content = format!(
-            "# kymido configuration\n\
-             omp_path = \"{}\"\n\
-             data_dir = \"{}\"\n\
-             model = \"{}\"\n\n\
-             [llm]\n\
-             base_url = \"{}\"\n\
-             api_key = \"{}\"\n\
-             model = \"{}\"\n\
-             max_tokens = {}\n",
-            omp_path.unwrap_or("omp"),
-            self.data_dir,
-            self.model,
-            self.base_url,
-            self.api_key,
-            self.model,
-            self.max_tokens
-        );
+    /// Persist the providers side to `.kymido/providers.toml`（与
+    /// `save_to_file` 的两文件分工，见设计文档 T6）。
+    ///
+    /// 管理键：根 `active` 与 `[providers.<active_provider>]` 行下的
+    /// `base_url` / `api_key` / `default_model` / `max_tokens` / `fallbacks`
+    /// （`api_key_env`、`models` 表与未知键逐字保留）。`active_provider` 为
+    /// 空（首次配置、providers 文件尚不存在）时用稳定名 `"default"` 建行。
+    pub fn save_providers_to_file(&self) -> Result<(), String> {
+        // 什么可编辑内容都没有时不建文件（避免空壳 providers.toml）。
+        if self.active_provider.is_empty()
+            && self.base_url.trim().is_empty()
+            && self.model.trim().is_empty()
+        {
+            return Ok(());
+        }
+        let dir = Path::new(&self.data_dir);
+        if !dir.exists() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let target_path = dir.join("providers.toml");
 
-        for fallback in &self.llm_fallbacks {
-            let model = fallback.model.trim();
-            if model.is_empty() {
-                return Err("[llm].fallbacks 存在缺少 model 的 provider，已中止保存".to_string());
-            }
-            toml_content.push_str(&format!("\n[[llm.fallbacks]]\nmodel = \"{}\"\n", model));
-            let base_url = fallback.base_url.trim();
-            if !base_url.is_empty() {
-                toml_content.push_str(&format!("base_url = \"{}\"\n", base_url));
-            }
-            let api_key = fallback.api_key.trim();
-            if !api_key.is_empty() {
-                toml_content.push_str(&format!("api_key = \"{}\"\n", api_key));
-            }
-            let max_tokens = fallback.max_tokens.trim();
-            if !max_tokens.is_empty() {
-                let tokens: u32 = max_tokens.parse().map_err(|_| {
-                    format!(
-                        "[llm].fallbacks 的 max_tokens {:?} 不是有效的正整数",
-                        max_tokens
-                    )
-                })?;
-                toml_content.push_str(&format!("max_tokens = {}\n", tokens));
+        if let Ok(content) = std::fs::read_to_string(&target_path) {
+            match content.parse::<toml_edit::DocumentMut>() {
+                Ok(mut doc) => {
+                    self.write_providers_managed_keys(doc.as_table_mut())?;
+                    return std::fs::write(&target_path, doc.to_string()).map_err(|e| {
+                        format!("写入 providers 文件 {} 失败: {}", target_path.display(), e)
+                    });
+                }
+                Err(e) => {
+                    // providers 文件解析失败：备份后全量写（与 config.toml 同语义）。
+                    let backup_path = target_path.with_extension("toml.bak");
+                    if let Err(backup_err) = std::fs::write(&backup_path, &content) {
+                        return Err(format!(
+                            "providers 文件 {} 解析失败({})，且备份到 {} 也失败({})；已中止写入",
+                            target_path.display(),
+                            e,
+                            backup_path.display(),
+                            backup_err
+                        ));
+                    }
+                    eprintln!(
+                        "warn: providers 文件 {} 解析失败({})，已备份为 {} 后回退全量写",
+                        target_path.display(),
+                        e,
+                        backup_path.display()
+                    );
+                    return self.write_full_providers(&target_path);
+                }
             }
         }
 
-        // 没有服务器时保持纯字符串写（与历史输出逐字节一致）；非空服务器表
-        // 必须走 `write_mcp_servers`：它是增量路径写 args/env/timeout/url
-        // 的唯一实现，全量写自己拼一份会静默丢掉整张 [[mcp.servers]]。
+        self.write_full_providers(&target_path)
+    }
+
+    /// 全量写一份只含管理键的 `providers.toml`（文件不存在或不可解析时使用）。
+    fn write_full_providers(&self, target_path: &Path) -> Result<(), String> {
+        let provider = if self.active_provider.is_empty() {
+            "default".to_string()
+        } else {
+            self.active_provider.clone()
+        };
+        let active = if self.active.trim().is_empty() {
+            provider.clone()
+        } else {
+            self.active.clone()
+        };
+        let fallbacks: Vec<String> = self
+            .fallback_routes
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let content = format!(
+            "# kymido providers（与 config.toml 同目录的兄弟文件；凭据唯一来源）\n\
+             active = \"{}\"\n\n\
+             [providers.{provider}]\n\
+             base_url = \"{}\"\n",
+            active,
+            self.base_url.trim()
+        );
+        let mut content = if self.api_key.trim().is_empty() {
+            content
+        } else {
+            format!("{content}api_key = \"{}\"\n", self.api_key.trim())
+        };
+        content.push_str(&format!(
+            "default_model = \"{}\"\nmax_tokens = {}\n",
+            self.model.trim(),
+            self.max_tokens
+        ));
+        if !fallbacks.is_empty() {
+            let items = fallbacks
+                .iter()
+                .map(|f| format!("\"{f}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            content.push_str(&format!("fallbacks = [{items}]\n"));
+        }
+        std::fs::write(target_path, content)
+            .map_err(|e| format!("写入 providers 文件 {} 失败: {}", target_path.display(), e))
+    }
+
+    /// 把 providers 管理键写进已解析的文档；其它键、注释、排版一律不动。
+    fn write_providers_managed_keys(&self, root: &mut toml_edit::Table) -> Result<(), String> {
+        let provider = if self.active_provider.is_empty() {
+            "default".to_string()
+        } else {
+            self.active_provider.clone()
+        };
+        // 根 `active`：缺失才补（不抹掉用户手工路由）；值为 provider 名
+        // （走 default_model 解析）或既有路由原文。
+        if !root.contains_key("active") {
+            let active = if self.active.trim().is_empty() {
+                provider.clone()
+            } else {
+                self.active.trim().to_string()
+            };
+            root.insert("active", toml_edit::value(active));
+        }
+
+        let base_url = self.base_url.trim();
+        if base_url.is_empty() {
+            return Err("base_url 为空，已中止保存（providers 行必须可发起请求）".to_string());
+        }
+        if self.model.trim().is_empty() {
+            return Err(
+                "model 为空，已中止保存（default_model 是 provider 行的硬要求）".to_string(),
+            );
+        }
+
+        let providers = ensure_sub_table(root, "providers")?;
+        let entry = ensure_sub_table(providers, &provider)?;
+        set_item(entry, "base_url", toml_edit::value(base_url));
+        set_or_clear_str(entry, "api_key", &self.api_key);
+        set_item(entry, "default_model", toml_edit::value(self.model.trim()));
+        // TOML 整数是 i64；u32 → i64 无损。
+        set_item(
+            entry,
+            "max_tokens",
+            toml_edit::value(self.max_tokens as i64),
+        );
+
+        let fallbacks: Vec<String> = self
+            .fallback_routes
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if fallbacks.is_empty() {
+            entry.remove("fallbacks");
+        } else {
+            let mut arr = toml_edit::Array::new();
+            for f in &fallbacks {
+                arr.push(f.as_str());
+            }
+            set_item(entry, "fallbacks", toml_edit::value(arr));
+        }
+        Ok(())
+    }
+
+    /// 全量写一份只含管理键的新配置（文件不存在或原文件不可解析时使用）。
+    /// `omp_path` 由调用方决定：`None` 用默认 `"omp"`，`Some(v)` 沿用原值。
+    /// 空表单不写 `[mcp]` 段（与增量路径一致）；非空时复用
+    /// `write_mcp_servers` 落地。
+    fn write_full_config(&self, target_path: &Path, omp_path: Option<&str>) -> Result<(), String> {
+        let toml_content = format!(
+            "# kymido configuration\n\
+             omp_path = \"{}\"\n\
+             data_dir = \"{}\"\n\
+             model = \"{}\"\n",
+            omp_path.unwrap_or("omp"),
+            self.data_dir,
+            self.model
+        );
+
         if self.mcp_servers.is_empty() {
             return std::fs::write(target_path, toml_content)
                 .map_err(|e| format!("写入配置文件 {} 失败: {}", target_path.display(), e));
@@ -303,7 +415,8 @@ impl LlmRuntimeConfig {
             .map_err(|e| format!("写入配置文件 {} 失败: {}", target_path.display(), e))
     }
 
-    /// 把本结构体管理的键写进已解析的文档；文档里的其它键、段、注释、排版一律不动。
+    /// 把本结构体管理的键写进已解析的 config.toml 文档；其它键、段、注释、
+    /// 排版一律不动。凭据/能力数据在 providers.toml（[`Self::save_providers_to_file`]）。
     fn write_managed_keys(&self, doc: &mut toml_edit::DocumentMut) -> Result<(), String> {
         let root = doc.as_table_mut();
         // `omp_path` 没有对应字段，只在缺失时补上默认值——直接写死 "omp" 会抹掉
@@ -313,24 +426,6 @@ impl LlmRuntimeConfig {
         }
         set_item(root, "data_dir", toml_edit::value(self.data_dir.as_str()));
         set_item(root, "model", toml_edit::value(self.model.as_str()));
-
-        if !root.contains_key("llm") {
-            root.insert("llm", toml_edit::Item::Table(toml_edit::Table::new()));
-        }
-        // 只在「llm 存在但不是表」（如 `llm = "x"`）时失败：上面刚确保过键存在，
-        // 到这里还取不到表说明用户配置本身畸形。panic 会让保存路径崩溃，返回
-        // 错误让调用方决定更安全。
-        let llm = root
-            .get_mut("llm")
-            .and_then(toml_edit::Item::as_table_mut)
-            .ok_or_else(|| "[llm] 段已存在但不是表，无法增量更新".to_string())?;
-        set_item(llm, "base_url", toml_edit::value(self.base_url.as_str()));
-        set_item(llm, "api_key", toml_edit::value(self.api_key.as_str()));
-        set_item(llm, "model", toml_edit::value(self.model.as_str()));
-        // TOML 整数是 i64；u32 → i64 无损。
-        set_item(llm, "max_tokens", toml_edit::value(self.max_tokens as i64));
-
-        write_llm_fallbacks(llm, &self.llm_fallbacks)?;
         write_mcp_servers(root, &self.mcp_servers)
     }
 
@@ -435,90 +530,19 @@ fn set_item(table: &mut toml_edit::Table, key: &str, item: toml_edit::Item) {
     }
 }
 
-/// 把表单的 fallback provider 行写进 `[llm].fallbacks` 表数组（`[[llm.fallbacks]]`，
-/// G8-B 语义的 MCP 先例照搬，匹配键换成 `model`）：
-///
-/// - 空表单**完全不碰** `[llm].fallbacks`——不创建该数组，既有的行、注释、
-///   排版原样保留；
-/// - 表单里的每一行按 `model` 匹配既有表：命中就只替换管理键
-///   （base_url/api_key/model/max_tokens），未知键及其注释逐字保留；
-///   未命中才追加新表；
-/// - 文件里有、表单里没有的 fallback 一律不动——表单是追加/按 model 编辑，
-///   绝不整体重写（删卡不等于删配置）。
-fn write_llm_fallbacks(
-    llm: &mut toml_edit::Table,
-    forms: &[LlmFallbackForm],
-) -> Result<(), String> {
-    if forms.is_empty() {
-        return Ok(());
+/// 确保 `parent.child` 是表并返回其可变引用；缺失就创建，存在但不是表就报错
+///（与 `[mcp]` 的畸形段防御同语义）。
+fn ensure_sub_table<'a>(
+    parent: &'a mut toml_edit::Table,
+    child: &str,
+) -> Result<&'a mut toml_edit::Table, String> {
+    if !parent.contains_key(child) {
+        parent.insert(child, toml_edit::Item::Table(toml_edit::Table::new()));
     }
-
-    if !llm.contains_key("fallbacks") {
-        llm.insert(
-            "fallbacks",
-            toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new()),
-        );
-    }
-    let fallbacks = llm
-        .get_mut("fallbacks")
-        .and_then(toml_edit::Item::as_array_of_tables_mut)
-        .ok_or_else(|| {
-            "[llm].fallbacks 已存在但不是 [[llm.fallbacks]] 表数组，无法增量更新".to_string()
-        })?;
-
-    for form in forms {
-        let model = form.model.trim();
-        if model.is_empty() {
-            // model 是匹配键：没有它既无法定位旧表也无法命名新表，
-            // 与 [mcp] 的「缺少 name 中止保存」同语义。
-            return Err("[llm].fallbacks 存在缺少 model 的 provider，已中止保存".to_string());
-        }
-        let existing = fallbacks
-            .iter()
-            .position(|t| t.get("model").and_then(toml_edit::Item::as_str) == Some(model));
-        match existing {
-            Some(idx) => {
-                // 匹配键本身不重写（保住 model 上的注释与排版），只动管理键。
-                let table = fallbacks
-                    .get_mut(idx)
-                    .expect("position 刚返回的索引必然存在");
-                update_fallback_managed_keys(table, form)?;
-            }
-            None => {
-                let mut table = toml_edit::Table::new();
-                table.insert("model", toml_edit::value(model));
-                update_fallback_managed_keys(&mut table, form)?;
-                fallbacks.push(table);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// 把一个 fallback 表单行的管理键写进单个 `[[llm.fallbacks]]` 表：
-/// 空串字段清键（等价 config crate 的 `Option::None`，不留下 `= ""`），
-/// 非空写值；`max_tokens` 解析 u32 后写 i64（TOML 整数是 i64，u32 → i64 无损）。
-fn update_fallback_managed_keys(
-    table: &mut toml_edit::Table,
-    form: &LlmFallbackForm,
-) -> Result<(), String> {
-    set_or_clear_str(table, "base_url", &form.base_url);
-    set_or_clear_str(table, "api_key", &form.api_key);
-
-    let tokens_text = form.max_tokens.trim();
-    if tokens_text.is_empty() {
-        table.remove("max_tokens");
-    } else {
-        let tokens: u32 = tokens_text.parse().map_err(|_| {
-            format!(
-                "[llm].fallbacks provider {:?} 的 max_tokens 不是有效的正整数: {:?}",
-                form.model.trim(),
-                tokens_text
-            )
-        })?;
-        set_item(table, "max_tokens", toml_edit::value(tokens as i64));
-    }
-    Ok(())
+    parent
+        .get_mut(child)
+        .and_then(toml_edit::Item::as_table_mut)
+        .ok_or_else(|| format!("[{child}] 段已存在但不是表，无法增量更新"))
 }
 
 /// 把表单的 MCP 服务器行写进文档的 `[[mcp.servers]]` 表数组（G8-B 语义的
@@ -699,22 +723,6 @@ fn toml_str_field(server: &toml::Value, key: &str) -> String {
         .and_then(toml::Value::as_str)
         .unwrap_or_default()
         .to_string()
-}
-
-/// 把一个 `[[llm.fallbacks]]` 的 toml 值转成表单行；缺 `model` 的条目返回
-/// `None`（不进表单——model 是保存路径的匹配键，同 mcp 的 name）。
-fn llm_fallback_form_from_value(fallback: &toml::Value) -> Option<LlmFallbackForm> {
-    let model = fallback.get("model")?.as_str()?;
-    Some(LlmFallbackForm {
-        base_url: toml_str_field(fallback, "base_url"),
-        api_key: toml_str_field(fallback, "api_key"),
-        model: model.to_string(),
-        max_tokens: fallback
-            .get("max_tokens")
-            .and_then(toml::Value::as_integer)
-            .map(|n| n.to_string())
-            .unwrap_or_default(),
-    })
 }
 
 /// 从一份**不可解析**的原始配置里抢救 `omp_path` 的值（若有）。

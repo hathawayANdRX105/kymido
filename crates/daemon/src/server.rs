@@ -65,11 +65,12 @@ pub struct DaemonConfig {
     /// [`DaemonConfig::from_config`]). Their tools ride the orbit engine
     /// only — see [`Self::orbit_setup`]. Empty = nothing is spawned.
     pub mcp_servers: Vec<config::McpServerConfig>,
-    /// Fallback LLM providers tried in order after the primary `[llm]`
-    /// provider fails before emitting any content
-    /// (`.kymido/config.toml` `[[llm.fallbacks]]`). Empty = single-provider
-    /// behaviour (`agent_loop::orbit::HttpLlm`, historic path, zero change).
-    pub llm_fallbacks: Vec<config::LlmFallbackConfig>,
+    /// Waterfall fallback routes for the active provider, resolved at
+    /// daemon start (`providers.toml` provider-level `fallbacks`), tried
+    /// in listed order when the primary fails before emitting content.
+    /// Empty = single-provider behaviour (`agent_loop::orbit::HttpLlm`,
+    /// historic path, zero change).
+    pub llm_fallbacks: Vec<config::ResolvedLlm>,
     /// Out-of-process subagent providers (`[[subagent.providers]]` in
     /// `.kymido/config.toml`), each a spawned ACP child agent the daemon can
     /// delegate runs to. Wired in by [`DaemonConfig::from_config`]; empty =
@@ -81,13 +82,13 @@ pub struct DaemonConfig {
 }
 
 impl DaemonConfig {
-    /// llm 三件套（base_url/api_key/model）在 `.kymido/config.toml` 齐全时
-    /// 构建 orbit 模型配置——设置页写该文件即生效。
+    /// Active provider route（providers.toml）齐全时构建 orbit 模型配置——
+    /// 设置页 / providers.toml 改动即生效；能力字段（context_window /
+    /// input 模态）随凭据一起透传。
     fn resolve_orbit_model(cfg: &config::Config) -> Option<llm::Model> {
-        // `active_llm` picks the active profile, else the flat `[llm]`
-        // fields (which `Config::load` has already let `KYMIDO_LLM_*`
-        // override), and yields nothing when the chosen credential is
-        // incomplete.
+        // `active_llm` resolves the active route from `providers.toml`
+        // (provider credentials + the model entry's capability data) and
+        // yields nothing when the route is missing or unresolvable.
         let resolved = cfg.active_llm()?;
         let base = resolved.base_url.trim();
         let key = resolved.api_key.trim();
@@ -104,6 +105,8 @@ impl DaemonConfig {
             model: model.to_string(),
             base_url: Some(url),
             max_tokens: resolved.max_tokens,
+            context_window: resolved.context_window,
+            input: resolved.input,
         })
     }
 
@@ -113,12 +116,12 @@ impl DaemonConfig {
         let session_db_path = Some(cfg.session_db_path()?);
         let omp_path = cfg.omp_path.to_string_lossy().into_owned();
         let orbit_model = Self::resolve_orbit_model(cfg);
-        // A profile the user cannot select is invisible until a request
-        // fails, so say so at start instead. Ready profiles stay quiet —
+        // A provider the user cannot select is invisible until a request
+        // fails, so say so at start instead. Ready providers stay quiet —
         // the common case should not produce log noise.
-        for (name, status) in cfg.profile_statuses() {
+        for (name, status) in cfg.provider_statuses() {
             if !status.is_ready() {
-                eprintln!("daemon: llm profile `{name}` unusable: {status:?}");
+                eprintln!("daemon: provider `{name}` unusable: {status:?}");
             }
         }
         Ok(DaemonConfig {
@@ -132,7 +135,7 @@ impl DaemonConfig {
                 .max_turns
                 .unwrap_or(agent_loop::orbit::DEFAULT_MAX_TURNS),
             mcp_servers: cfg.mcp_servers.clone(),
-            llm_fallbacks: cfg.llm_fallbacks.clone(),
+            llm_fallbacks: cfg.fallback_llms(),
             subagent_providers: cfg.subagent_providers.clone(),
             plan_policy_section: None,
         })
@@ -223,20 +226,16 @@ impl Daemon {
         // we take the instance lock or bind the socket — no half-started
         // daemon and no stale lock/socket files to clean up.
         //
-        // Plan mode is registered by the daemon (not the composition root):
-        // its review transport only exists here, and the plugin needs the
-        // broker's port at register time.
+        // Plan mode is per session (S5): the registry assembles each
+        // session's plan closure + scoped `exit_plan_mode` against that
+        // session's `ExecState`. No daemon-wide plan plugin — the shared
+        // registration was a dormant duplicate with zero consumers.
         let questions = std::sync::Arc::new(crate::questions::QuestionBroker::new());
         let plan_section = cfg
             .plan_policy_section
             .clone()
             .unwrap_or_else(|| DEFAULT_PLAN_POLICY_SECTION.to_string());
-        let plan_plugin = plugin::plugins::PlanModePlugin::new(plan_mode::PlanModeConfig {
-            section: Some(plan_section.clone()),
-            review_port: Some(questions.review_port()),
-        });
-        let plan_mode = plan_plugin.runtime().clone();
-        let (fiber, plugins) = Self::assemble_plugins(&cfg, plan_plugin)?;
+        let (fiber, plugins) = Self::assemble_plugins(&cfg)?;
 
         let lock = InstanceLock::acquire(&socket_path)?;
         let session_db = session::SessionDb::open(&session_db_path)?;
@@ -263,7 +262,7 @@ impl Daemon {
         // tools don't exist for the daemon worker; omp peers have their own
         // external-tool registration path (task CLI).
         let orbit_setup = match cfg.orbit_model.as_ref() {
-            Some(model) => Some(Self::orbit_setup(&fiber, model, &cfg, &plan_mode)?),
+            Some(model) => Some(Self::orbit_setup(&fiber, model, &cfg)?),
             None => None,
         };
 
@@ -272,7 +271,16 @@ impl Daemon {
         // session id) serves session-less prompts; in omp-compat mode every
         // request routes to it, so a single external worker process is
         // never multiplied.
-        let workers = Arc::new(SessionRegistry::new(cfg.omp_path.clone(), orbit_setup));
+        // S5: the registry re-binds the per-session stateful faces (plan
+        // runtime + session `exit_plan_mode` + scoped review port) at
+        // handle creation; `plan_section` is the policy text each session's
+        // closure injects while that session's plan mode is active.
+        let workers = Arc::new(SessionRegistry::new(
+            cfg.omp_path.clone(),
+            orbit_setup,
+            std::sync::Arc::clone(&questions),
+            plan_section,
+        ));
 
         // S3: attach bookkeeping + tree-gated unloading. The tick thread
         // starts below, next to the accept loop.
@@ -291,10 +299,16 @@ impl Daemon {
         {
             let bus = events.clone();
             questions.set_on_submit(move |item| {
-                let frame = crate::protocol::EventFrame::new(
+                // S5: stamp the submitting session so review cards route
+                // to the owning session view (legacy questions stamp
+                // nothing, mirroring the S2 event-frame rule).
+                let mut frame = crate::protocol::EventFrame::new(
                     USER_QUESTION_TOPIC,
                     serde_json::to_value(item).unwrap_or(serde_json::Value::Null),
                 );
+                if !item.session_id.is_empty() {
+                    frame = frame.with_session_id(&item.session_id);
+                }
                 if let Ok(line) = serde_json::to_string(&frame) {
                     bus.broadcast(USER_QUESTION_TOPIC, &line);
                 }
@@ -331,7 +345,6 @@ impl Daemon {
             next_conn: Arc::new(AtomicU64::new(1)),
             task_data_dir: daemon.task_data_dir.clone(),
             questions: Arc::clone(&questions),
-            plan_mode: plan_mode.clone(),
             attach: daemon.reaper.attach_tracker().clone(),
         })?;
         daemon.accept_thread = Some(accept_thread);
@@ -358,7 +371,6 @@ impl Daemon {
         fiber: &plugin::Fiber,
         model: &llm::Model,
         cfg: &DaemonConfig,
-        plan_mode: &plan_mode::PlanModeRuntime,
     ) -> Result<crate::rpc::worker::OrbitSetup, DaemonError> {
         let catalog = fiber
             .resolve::<tools::ToolCatalog>("harness.tools")
@@ -366,7 +378,14 @@ impl Daemon {
         let compaction = fiber
             .resolve::<agent_loop::compaction::CharBudgetPolicy>("harness.compaction")
             .unwrap_or_else(|| {
-                std::sync::Arc::new(agent_loop::compaction::CharBudgetPolicy::default())
+                // No plugin-supplied policy: the built-in char budget,
+                // derived from the model's declared context window when one
+                // is set (window × 4 chars/token); an undeclared window
+                // keeps the historic constants — zero behaviour change.
+                std::sync::Arc::new(agent_loop::compaction::CharBudgetPolicy::with_region(
+                    agent_loop::compaction::NoopSummarizer,
+                    agent_loop::compaction::RegionBudget::from_context_window(model.context_window),
+                ))
             });
         let max_turns = fiber
             .resolve::<agent_loop::LoopEngine>("harness.loop")
@@ -375,11 +394,13 @@ impl Daemon {
         // The fork subagent shares the engine's turn budget (documented
         // choice: one knob, no new config surface in this task).
         let subagent_max_turns = max_turns;
-        // B2b1 — waterfall LLM fallback: with `[[llm.fallbacks]]`
-        // configured the backend becomes `WaterfallLlm` (primary +
+        // B2b1 — waterfall LLM fallback: with provider-level `fallbacks`
+        // routes configured the backend becomes `WaterfallLlm` (primary +
         // fallbacks, per-provider retry inside, no switch after content
-        // leaks). Empty list keeps the historic `HttpLlm` path verbatim —
-        // zero behaviour change for single-provider configs.
+        // leaks). Unresolvable routes were already skipped with a warn at
+        // daemon start (`Config::fallback_llms`); an empty list keeps the
+        // historic `HttpLlm` path verbatim — zero behaviour change for
+        // single-provider configs.
         let backend: std::sync::Arc<dyn agent_loop::orbit::LlmBackend + Send + Sync> =
             if cfg.llm_fallbacks.is_empty() {
                 std::sync::Arc::new(agent_loop::orbit::HttpLlm)
@@ -389,36 +410,19 @@ impl Daemon {
                     model: model.model.clone(),
                     base_url: model.base_url.clone(),
                     max_tokens: model.max_tokens,
+                    context_window: model.context_window,
+                    input: model.input.clone(),
                 };
                 let fallbacks = cfg
                     .llm_fallbacks
                     .iter()
-                    .enumerate()
-                    .filter_map(|(i, f)| {
-                        // A model-less fallback row can never be dialed (the
-                        // waterfall switches by model id) — skip it, but say
-                        // so: a typo'd row silently dropping out of the
-                        // waterfall otherwise looks identical to one that is
-                        // simply never reached.
-                        let fallback_model = f
-                            .model
-                            .as_deref()
-                            .map(str::trim)
-                            .filter(|m| !m.is_empty())
-                            .map(str::to_string);
-                        if fallback_model.is_none() {
-                            eprintln!("warn: [[llm.fallbacks]] entry #{i} has no model; skipped");
-                        }
-                        fallback_model.map(|fallback_model| agent_loop::orbit::LlmProvider {
-                            api_key: f
-                                .api_key
-                                .clone()
-                                .or_else(|| Some(model.api_key.clone()))
-                                .unwrap_or_default(),
-                            model: fallback_model,
-                            base_url: f.base_url.clone().or_else(|| model.base_url.clone()),
-                            max_tokens: f.max_tokens,
-                        })
+                    .map(|f| agent_loop::orbit::LlmProvider {
+                        api_key: f.api_key.clone(),
+                        model: f.model.clone(),
+                        base_url: Some(f.base_url.clone()),
+                        max_tokens: f.max_tokens,
+                        context_window: f.context_window,
+                        input: f.input.clone(),
                     })
                     .collect();
                 std::sync::Arc::new(agent_loop::orbit::WaterfallLlm::new(primary, fallbacks))
@@ -534,19 +538,12 @@ impl Daemon {
                     .push_back(msg);
             }));
         }
-        // plan:policy provider: the engine recomputes the system prompt per
-        // turn, so flipping plan mode mid-session takes effect on the next
-        // prompt. The closure returns "" while plan mode is off — the engine
-        // then falls back to its own default prompt build (see worker.rs).
-        let plan_section = cfg
-            .plan_policy_section
-            .clone()
-            .unwrap_or_else(|| DEFAULT_PLAN_POLICY_SECTION.to_string());
-        let plan_runtime = plan_mode.clone();
-        let plan_policy_section: Option<std::sync::Arc<dyn Fn() -> String + Send + Sync>> =
-            Some(std::sync::Arc::new(move || {
-                plan_runtime.plan_policy_section(&plan_section)
-            }));
+        // S5: the template no longer bakes a plan-policy closure — a
+        // daemon-wide runtime would leak plan state across sessions. The
+        // registry re-binds this face per session against that session's
+        // `ExecState` (plan runtime + scoped review port), so the template
+        // ships `None` and the per-session assembly supplies the closure.
+        let plan_policy_section: Option<std::sync::Arc<dyn Fn() -> String + Send + Sync>> = None;
         Ok(crate::rpc::worker::OrbitSetup {
             model: model.clone(),
             backend,
@@ -698,7 +695,6 @@ impl Daemon {
     /// engine rather than being short-circuited.
     fn assemble_plugins(
         cfg: &DaemonConfig,
-        plan_plugin: plugin::plugins::PlanModePlugin,
     ) -> Result<(plugin::Fiber, plugin::PluginRegistry), DaemonError> {
         let mut doc = serde_json::Map::new();
         if let Some(model) = cfg.orbit_model.as_ref() {
@@ -712,20 +708,10 @@ impl Daemon {
             "max_turns".into(),
             serde_json::Value::from(cfg.max_turns as u64),
         );
-        // plan-mode config slice (same named-slice convention as guard):
-        // the plugin reads config["plan"]["section"] at register time.
-        let plan_section = cfg
-            .plan_policy_section
-            .clone()
-            .unwrap_or_else(|| DEFAULT_PLAN_POLICY_SECTION.to_string());
-        doc.insert(
-            "plan".into(),
-            serde_json::json!({ "section": plan_section }),
-        );
-        // Plan mode rides the daemon-owned broker (see `start`), so the
-        // composition root stays unaware of the review transport.
-        let plugins: Vec<std::sync::Arc<dyn plugin::DshPlugin>> =
-            vec![std::sync::Arc::new(plan_plugin)];
+        // No host plugins: the daemon-owned plan surface is per session
+        // (registry assembly), and the container's core services cover the
+        // rest. An empty host list is a valid composition.
+        let plugins: Vec<std::sync::Arc<dyn plugin::DshPlugin>> = Vec::new();
         Ok(plugin::assemble(serde_json::Value::Object(doc), plugins)?)
     }
 
@@ -822,7 +808,6 @@ struct AcceptLoopCtx {
     next_conn: Arc<AtomicU64>,
     task_data_dir: PathBuf,
     questions: Arc<crate::questions::QuestionBroker>,
-    plan_mode: plan_mode::PlanModeRuntime,
     attach: AttachTracker,
 }
 
@@ -842,7 +827,6 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 next_conn,
                 task_data_dir,
                 questions,
-                plan_mode,
                 attach,
             } = ctx;
             // We poll the shutdown flag between accepts and use a short
@@ -863,7 +847,6 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 let conn_id = next_conn.fetch_add(1, Ordering::Relaxed);
                 let task_data_dir = task_data_dir.clone();
                 let questions = Arc::clone(&questions);
-                let plan_mode = plan_mode.clone();
                 thread::spawn(move || {
                     if let Err(e) = handle_connection(
                         conn,
@@ -877,7 +860,6 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                         conn_id,
                         task_data_dir,
                         &questions,
-                        &plan_mode,
                     ) {
                         eprintln!("daemon: connection error: {e}");
                     }
@@ -901,7 +883,6 @@ fn handle_connection(
     conn_id: u64,
     task_data_dir: PathBuf,
     questions: &Arc<crate::questions::QuestionBroker>,
-    plan_mode: &plan_mode::PlanModeRuntime,
 ) -> Result<(), DaemonError> {
     // R2 3.3: responses and pushed events share one write channel drained by
     // a dedicated writer thread, so a subscribed connection can receive
@@ -931,7 +912,6 @@ fn handle_connection(
         &task_data_dir,
         &out,
         questions,
-        plan_mode,
     );
     // Teardown: stop pushes, wake the writer thread, let queued frames flush.
     events.remove_conn(conn_id);
@@ -960,7 +940,6 @@ fn connection_read_loop(
     task_data_dir: &std::path::Path,
     out: &std::sync::mpsc::Sender<String>,
     questions: &Arc<crate::questions::QuestionBroker>,
-    plan_mode: &plan_mode::PlanModeRuntime,
 ) -> Result<(), DaemonError> {
     // S1: this connection's most recent explicitly targeted session — the
     // default for steer/abort requests that carry no `session_id`.
@@ -1047,7 +1026,6 @@ fn connection_read_loop(
                 out: out.clone(),
                 task_data_dir: task_data_dir.to_path_buf(),
                 questions: Arc::clone(questions),
-                plan_mode: plan_mode.clone(),
             };
             crate::dispatch::dispatch(&mut ctx, req)
         });

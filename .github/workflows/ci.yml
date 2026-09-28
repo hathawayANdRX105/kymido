@@ -33,144 +33,157 @@ jobs:
         run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
-      # Scope by the diff: `cargo metadata` gives every workspace member and
-      # its dependency graph, `git diff` says what the PR touched. A change is
-      # expanded to the crates that own the touched files plus everything
-      # that depends on them, so a TUI-only PR builds and tests one crate
-      # instead of all 29 (134 test binaries) — while a change to a widely
-      # depended-on crate (config) still widens to the full tree.
-      # Anything that can move the whole graph (root manifest, lockfile,
-      # workflow, hooks) falls back to the full workspace run.
+      # Scope by the diff through the shared resolver (`scripts/ci_scope.py`,
+      # byte-identical in ferrite), which answers three questions at once:
+      # which crates own the changed files, what depends on them (reverse
+      # closure over `cargo metadata --no-deps` path edges), and whether
+      # anything moves the whole graph (root manifest, toolchain, orphan
+      # `.rs`). Docs, workflow and gate-rule edits now SKIP instead of
+      # paying for the full workspace — that fallback used to be 53% of runs.
+      #
+      # `--no-deps` never resolves the registry graph, so the private ui-kit
+      # git dependency is never fetched (12 of this repo's failed runs died
+      # on that authentication); `CARGO_NET_OFFLINE` makes it impossible to
+      # try. Outputs: `skip` / `full` / `names` (concrete package list, all
+      # members when FULL, empty when skipping) / `seed` / `reason`.
       - name: Resolve affected crates
         id: scope
+        env:
+          CARGO_NET_OFFLINE: "true"
         run: |
           set -euo pipefail
-          cargo metadata --format-version 1 > "$RUNNER_TEMP/metadata.json"
+          # PR: make sure the base branch is local (the resolver diffs the
+          # merge base of origin/<base> and HEAD; a push already has
+          # `github.event.before` in the full-history checkout).
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags origin "$GITHUB_BASE_REF"
-            git diff --name-only "origin/$GITHUB_BASE_REF...HEAD" > "$RUNNER_TEMP/changed.txt"
-          else
-            # push: the pre-push tip is the base — origin/<branch> already
-            # tracks HEAD after the ref update, so diffing against it is
-            # empty and would turn every main push into the full run.
-            # New-branch pushes (zero SHA) fall back to HEAD^.
-            BASE="${{ github.event.before }}"
-            case "$BASE" in
-              ""|0000000000000000000000000000000000000000) BASE="HEAD^" ;;
-            esac
-            git diff --name-only "$BASE..HEAD" > "$RUNNER_TEMP/changed.txt"
           fi
-          cat "$RUNNER_TEMP/changed.txt"
-          export METADATA="$RUNNER_TEMP/metadata.json"
-          export CHANGED="$RUNNER_TEMP/changed.txt"
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os
-
-          meta = json.load(open(os.environ["METADATA"]))
-          # Full metadata (not --no-deps): the reverse-dependency closure
-          # needs `resolve`, and only workspace members are ever in scope.
-          members = set(meta["workspace_members"])
-          pkgs = {p["id"]: p for p in meta["packages"] if p["id"] in members}
-          changed = [l.strip() for l in open(os.environ["CHANGED"]) if l.strip()]
-
-          # A path outside every crate directory can move the whole graph.
-          GLOBAL = ("Cargo.toml", "Cargo.lock", ".github/", ".githooks/", "rust-toolchain")
-          if not changed or any(c == GLOBAL[0] or c == GLOBAL[1] or c.startswith(GLOBAL[2:])
-                                 or c.startswith(GLOBAL[3]) or c.startswith(GLOBAL[4]) for c in changed):
-              print("packages=__ALL__")
-              raise SystemExit(0)
-
-          # `git diff` yields repo-relative paths but `manifest_path` is
-          # absolute — rebase both on the workspace root before matching.
-          root = meta["workspace_root"].rstrip("/") + "/"
-          dirs = {
-              pid: os.path.dirname(p["manifest_path"]).replace(root, "", 1)
-              for pid, p in pkgs.items()
-          }
-          direct = set()
-          for path in changed:
-              # Longest manifest-dir prefix wins, so crates/foo/ beats crates/.
-              owner = max(
-                  (pid for pid, d in dirs.items() if path == d or path.startswith(d + "/")),
-                  key=lambda pid: len(dirs[pid]),
-                  default=None,
-              )
-              if owner is not None:
-                  direct.add(owner)
-          if not direct:
-              print("packages=__ALL__")  # docs-only or non-crate change: stay safe
-              raise SystemExit(0)
-
-          # Reverse-dependency closure inside the workspace: a change to
-          # crate X also has to compile and pass in everything that uses X.
-          dependents = {pid: set() for pid in members}
-          for node in meta["resolve"]["nodes"]:
-              if node["id"] not in members:
-                  continue
-              for dep in node["dependencies"]:
-                  # Current cargo lists bare package ids; older ones use
-                  # {pkg, dep_kinds}. Accept both.
-                  dep_id = dep if isinstance(dep, str) else dep.get("pkg")
-                  if dep_id in dependents:
-                      dependents[dep_id].add(node["id"])
-
-          affected, stack = set(direct), list(direct)
-          while stack:
-              for parent in dependents.get(stack.pop(), ()):
-                  if parent not in affected:
-                      affected.add(parent)
-                      stack.append(parent)
-
-          # daemon's subagent e2e execs `mock_acp_server`, an example of its
-          # own dependency `subagent` (crates/subagent/examples). Examples of
-          # a *dependency* are never in the dependents closure, so a
-          # daemon-scoped run used to exec a binary that was never built
-          # (run 36377398489: "spawn failed: No such file or directory").
-          # Pull subagent in explicitly whenever daemon is in scope —
-          # the Build step's --all-targets then builds the example.
-          daemon_id = next(
-              (pid for pid, p in pkgs.items() if p["name"] == "daemon"), None
-          )
-          if daemon_id and daemon_id in affected:
-              for pid, p in pkgs.items():
-                  if p["name"] == "subagent":
-                      affected.add(pid)
-
-          names = sorted(pkgs[pid]["name"] for pid in affected)
-          print("packages=" + (",".join(names) if names else "__ALL__"))
-          PY
+          python3 scripts/ci_scope.py --format github \
+            --seed '.githooks/spec/**=web' \
+            --also daemon=subagent
+      # `names` is always the concrete package list (all members when FULL,
+      # empty when SKIP), so the same array drives build and test and an `if:`
+      # can token-match a single crate without a `__ALL__` sentinel.
       - name: Build (affected crates)
-        if: steps.scope.outputs.packages != '__ALL__'
+        if: steps.scope.outputs.skip == 'false' && steps.scope.outputs.full == 'false'
         run: |
           set -euo pipefail
-          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
+          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.names }}"
           # cargo takes one package per -p; build the repeated-arg array.
           ARGS=(); for p in "${PKGS[@]}"; do ARGS+=(-p "$p"); done
           cargo build --locked --all-targets "${ARGS[@]}"
       - name: Build (full workspace)
-        if: steps.scope.outputs.packages == '__ALL__'
+        if: steps.scope.outputs.full == 'true'
         run: cargo build --locked --all-targets
+      - name: Build (nothing in scope)
+        if: steps.scope.outputs.skip == 'true'
+        run: echo "scope=skip — ${{ steps.scope.outputs.reason }}"
       # --no-fail-fast + per-test-binary output so a hang shows which
       # binary stalled instead of the whole step going dark. The timeout
-      # stops a hung binary from burning the whole job budget.
+      # stops a hung binary from burning the whole job budget, and the
+      # output is tee'd so the "Name failing test binaries" step below can
+      # turn a wall of `error: test failed` into one named repro command.
       - name: Test (affected crates)
-        if: steps.scope.outputs.packages != '__ALL__'
+        if: steps.scope.outputs.skip == 'false' && steps.scope.outputs.full == 'false'
+        timeout-minutes: 25
         run: |
           set -euo pipefail
-          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.packages }}"
+          IFS=',' read -ra PKGS <<< "${{ steps.scope.outputs.names }}"
           ARGS=(); for p in "${PKGS[@]}"; do ARGS+=(-p "$p"); done
-          cargo test --locked --all-targets --no-fail-fast "${ARGS[@]}" -- --test-threads=2
+          cargo test --locked --all-targets --no-fail-fast "${ARGS[@]}" -- --test-threads=4 2>&1 | tee "$RUNNER_TEMP/test.log"
       - name: Test (full workspace)
-        if: steps.scope.outputs.packages == '__ALL__'
-        run: cargo test --locked --all-targets --no-fail-fast -- --test-threads=2
+        if: steps.scope.outputs.full == 'true'
         timeout-minutes: 25
+        run: cargo test --locked --all-targets --no-fail-fast -- --test-threads=4 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - name: Test (nothing in scope)
+        if: steps.scope.outputs.skip == 'true'
+        run: echo "scope=skip — ${{ steps.scope.outputs.reason }}"
+      # A red suite should name the binary rather than make the reader
+      # infer it from `test result: FAILED` lines scrolled away above. The
+      # log is the same one the test step tee'd, so this costs one pass over
+      # a file; a failure before the test step (build, fmt) just notices that.
+      - name: Name failing test binaries
+        if: failure()
+        run: |
+          set -euo pipefail
+          LOG="$RUNNER_TEMP/test.log"
+          if [ ! -f "$LOG" ]; then
+            echo "::notice title=failing test binary::no test log — the failure happened before the test step (build/fmt/scope)"
+            exit 0
+          fi
+          python3 - "$LOG" <<'PY'
+          import os, re, sys
+          from pathlib import Path
+
+          sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], "scripts"))
+          import ci_scope
+
+          log = Path(sys.argv[1])
+          # libtest may colourise on a non-tty runner; strip CSI anyway so the
+          # `Running …` / `test result:` pairs parse.
+          text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", log.read_text(errors="replace"))
+
+          running = None          # (source target, binary id) currently under test
+          failed = []
+          for line in text.splitlines():
+              m = re.search(r"Running (\S+) \(target/[^\s)]*?/deps/([^)/]+)\)", line)
+              if m:
+                  running = (m.group(1), m.group(2))
+              if "test result: FAILED" in line and running is not None:
+                  failed.append(running)
+                  running = None
+
+          if not failed:
+              print("::notice title=failing test binary::no `test result: FAILED` in the log — build/link/timeout, not a test")
+              raise SystemExit(0)
+
+          ws = ci_scope.Workspace(Path(os.environ["GITHUB_WORKSPACE"]))
+          # target name -> (kind, package), so a failure prints the command
+          # that reproduces just it: `--test foo` for an integration target,
+          # `--bin foo` for a binary's unit tests, `-p pkg` for the lib.
+          owner = {}
+          for pkg, meta in ws.packages.items():
+              for t in meta.get("targets", []):
+                  kinds = t.get("kind", [])
+                  if "test" in kinds:
+                      owner[t["name"]] = ("test", pkg)
+                  elif "lib" in kinds:
+                      owner.setdefault(t["name"], ("lib", pkg))
+                  elif "bin" in kinds:
+                      owner.setdefault(t["name"], ("bin", pkg))
+                  elif "example" in kinds:
+                      owner.setdefault(t["name"], ("example", pkg))
+
+          seen = set()
+          for target, binary in failed:
+              name = re.sub(r"[-_][0-9a-f]{16}$", "", binary)  # strip cargo's hash
+              kind_pkg = owner.get(name)
+              if kind_pkg is None:
+                  repro = f"cargo test --locked --all-targets -- {name}"
+                  where = target
+              else:
+                  kind, pkg = kind_pkg
+                  repro = {
+                      "test": f"cargo test --locked -p {pkg} --test {name} -- --nocapture",
+                      "bin": f"cargo test --locked -p {pkg} --bin {name} -- --nocapture",
+                      "example": f"cargo test --locked -p {pkg} --example {name} -- --nocapture",
+                      "lib": f"cargo test --locked -p {pkg} --lib -- --nocapture",
+                  }[kind]
+                  where = f"{pkg} {target}"
+              key = (name, repro)
+              if key in seen:
+                  continue
+              seen.add(key)
+              print(f"::error title=failing test binary::{name} ({where}) — local repro: {repro}")
+          PY
       - name: Format check
         run: cargo fmt --all -- --check
 
-  # Batch smoke: the P1 plan-mode feature end-to-end through a real daemon
-  # socket (test LLM calls exit_plan_mode, user.answer approves) plus the
-  # `kymido profile` CLI against the real binary. Kept as its own job so a
-  # feature-level regression names itself instead of hiding in the suite.
+  # Batch smoke: the TUI over a real daemon socket, in both renderers —
+  # the linear pipe smoke and the enhanced pty smoke. Kept as its own job so
+  # a feature-level regression names itself instead of hiding in the suite;
+  # everything else the job used to re-run (plan_mode_e2e, profile_cli,
+  # ui_contract) is covered by the test job's scope closure above.
   smoke:
     runs-on: ubuntu-latest
     env:
@@ -190,20 +203,19 @@ jobs:
         run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - name: Plan-mode daemon round trip
-        run: cargo test --locked -p daemon --test plan_mode_e2e -- --nocapture
-        timeout-minutes: 15
-      - name: Profile CLI
-        run: cargo test --locked -p kymic --test profile_cli -- --nocapture
-        timeout-minutes: 15
-      - name: UI contract anchors
-        run: cargo test --locked -p web --test ui_contract -- --nocapture
-        timeout-minutes: 10
+      # Plan-mode / Profile CLI / UI contract anchors used to be re-run here
+      # as their own steps (~40s of duplicated work). The test job's reverse
+      # dependency closure already guarantees they run whenever they can
+      # break: each is an integration test of a workspace package (daemon /
+      # kymic / web), and `.githooks/spec/**` is seeded into `web` by
+      # `ci_scope.py`. A scope SKIP means no Rust changed, so none of them
+      # could have regressed.
       # T1 linear pipe smoke (route-tui §6): real daemon + one full turn over
       # a pipe — zero ESC bytes on stdout, exit 0; unknown --session = one-line
       # error, exit 2; then `session attach` proves the turn landed in the DB.
-      # LLM traffic goes to a throwaway SSE test server via KYMIDO_LLM_BASE_URL (same
-      # idea as plan_mode_e2e's MockOpenAi), so no API key is needed.
+      # LLM traffic goes to a throwaway SSE test server; credentials come from a
+      # workspace .kymido/providers.toml fixture whose row fields the KYMIDO_LLM_*
+      # env vars fill in (post-cutover, env alone can no longer mint credentials).
       - name: TUI linear pipe smoke
         run: |
           set -euo pipefail
@@ -256,6 +268,15 @@ jobs:
           }
           trap cleanup EXIT
 
+          # providers.toml fixture: the credential source is the active provider
+          # row; KYMIDO_LLM_* below only override its fields. Without the file the
+          # daemon would fall back to the omp worker and CI has no `omp` binary.
+          mkdir -p .kymido
+          cat > .kymido/providers.toml <<'TOML'
+          active = "smoke"
+
+          [providers.smoke]
+          TOML
           export KYMIDO_LLM_BASE_URL="http://127.0.0.1:18099"
           export KYMIDO_LLM_API_KEY="test-key"
           export KYMIDO_LLM_MODEL="test-model"
@@ -295,8 +316,9 @@ jobs:
       # never satisfies the mode probe (TTY + colour + >=44x12), so `kymido tui`
       # would fall back to linear and the enhanced shell would go untested.
       # A real pty at 100x30 with colour support, keystrokes in as bytes, and
-      # sentinels matched after a settle-wait (no bare sleeps guessing at
-      # frames).
+      # every wait driven by a sentinel the TUI has actually painted (no bare
+      # sleeps guessing at frames, and no waiting for a quiet stream a live
+      # TUI never produces).
       #
       # A step here, not its own job: the workspace cold build does not fit
       # in a fresh job's budget (run 36297952884 timed out at 15 min still
@@ -356,22 +378,36 @@ jobs:
           }
           trap cleanup EXIT
 
+          # Same providers.toml fixture as the pipe step above; the differing
+          # port is injected via KYMIDO_LLM_BASE_URL. mkdir -p + `cat >` is
+          # idempotent, so it is safe whether or not the pipe step ran first.
+          mkdir -p .kymido
+          cat > .kymido/providers.toml <<'TOML'
+          active = "smoke"
+
+          [providers.smoke]
+          TOML
           export KYMIDO_LLM_BASE_URL="http://127.0.0.1:18100"
           export KYMIDO_LLM_API_KEY="test-key"
           export KYMIDO_LLM_MODEL="test-model"
           ./target/debug/kymido daemon start
 
           # The pty driver: stdlib only (no repo dependency, no extra package).
-          # `settle` = read until the stream goes quiet for QUIET_MS, so a
-          # sentinel is matched against a finished frame rather than a
-          # half-drawn one; `deadline` bounds each step so a wedged TUI fails
-          # the job instead of hanging it.
+          #
+          # Every wait is sentinel-driven (`must`: read until what we expect
+          # is on the screen, optionally holding for HOLD_MS so a half-drawn
+          # frame cannot satisfy it). The previous `settle()` waited for the
+          # *stream to go quiet* — but the enhanced TUI repaints continuously
+          # (measured locally: 19 writes/s, longest gap 72ms, zero 500ms
+          # silences in 8s), so quiet never arrived and every wait burned its
+          # whole deadline: 115s of dead time, on the job that was already
+          # the critical path (226s vs the test job's 191s).
           cat > "$TMP/pty_drive.py" <<'PY'
           import fcntl, os, pty, re, select, struct, sys, termios, time
 
           CMD = sys.argv[1]
-          QUIET_MS = int(os.environ.get("QUIET_MS", "500"))
           DEADLINE_S = float(os.environ.get("DEADLINE_S", "20"))
+          HOLD_MS = int(os.environ.get("HOLD_MS", "400"))
           COLS, ROWS = 100, 30
 
           # Alt-screen private modes we can assert on: the enhanced shell must
@@ -398,93 +434,138 @@ jobs:
 
           buf = bytearray()
 
-          def settle(quiet_ms=QUIET_MS, deadline_s=DEADLINE_S):
-              """Read until QUIET_MS of silence or the deadline expires."""
-              end = time.time() + deadline_s
-              last = time.time()
-              while time.time() < end:
-                  r, _, _ = select.select([fd], [], [], 0.1)
-                  if r:
-                      try:
-                          chunk = os.read(fd, 65536)
-                      except OSError:
-                          break
-                      if not chunk:
-                          break
-                      buf.extend(chunk)
-                      last = time.time()
-                  elif (time.time() - last) * 1000 >= quiet_ms:
-                      return
+          def read_once(timeout=0.1):
+              """One read attempt: 'data' (something was painted), 'closed'
+              (the slave side is gone — the child exited, no more output will
+              ever arrive) or 'idle' (nothing within `timeout`)."""
+              r, _, _ = select.select([fd], [], [], timeout)
+              if not r:
+                  return "idle"
+              try:
+                  chunk = os.read(fd, 65536)
+              except OSError:
+                  return "closed"
+              if not chunk:
+                  return "closed"
+              buf.extend(chunk)
+              return "data"
 
-          def expect(label, needle, data=None):
-              hay = strip_ansi(bytes(buf) if data is None else data)
-              if needle.encode() not in hay:
-                  sys.stderr.write("MISSING %s: %r\n" % (label, needle))
-                  sys.stderr.write("--- pty output (cat -v) ---\n")
-                  sys.stderr.write(repr(bytes(buf)) + "\n")
-                  sys.exit(1)
-              sys.stdout.write("ok: %s -> %r\n" % (label, needle))
+          def delta_since(mark):
+              """Screen text produced after `mark`. The buffer is a
+              transcript, not a screen: text painted before `mark` stays in
+              it forever, so a palette that has been dismissed is still
+              "present" in `buf` and only absent from its tail."""
+              return strip_ansi(bytes(buf[mark:]))
+
+          def fail(msg):
+              sys.stderr.write("FAIL: %s\n" % msg)
+              sys.stderr.write("--- pty output ---\n")
+              sys.stderr.write(repr(bytes(buf)) + "\n")
+              sys.stderr.flush()
+              sys.exit(1)
+
+          def must(label, predicate, hold_ms=0, deadline_s=DEADLINE_S):
+              """Read until `predicate()` holds; with `hold_ms` it must keep
+              holding that long while the TUI keeps painting. Fails the step
+              with the transcript instead of hanging the job."""
+              end = time.time() + deadline_s
+              ok_since = None
+              while time.time() < end:
+                  read_once()
+                  if predicate():
+                      if ok_since is None:
+                          ok_since = time.time()
+                      if hold_ms == 0 or (time.time() - ok_since) * 1000 >= hold_ms:
+                          sys.stdout.write("ok: %s\n" % label)
+                          return
+                  else:
+                      ok_since = None
+              fail("timeout after %ss waiting for %s" % (deadline_s, label))
+
+          def pump(ms):
+              """Read for a fixed slice of time — only where there is no
+              sentinel to wait for (letting queued keystrokes be processed),
+              never as a substitute for one."""
+              end = time.time() + ms / 1000.0
+              while time.time() < end:
+                  if read_once(0.05) == "closed":
+                      return
 
           def send(data, label):
               os.write(fd, data)
               sys.stdout.write("sent: %s\n" % label)
 
           # 1) the shell paints and enters the alternate screen
-          settle()
-          if not RE_ALT_ENTER.search(bytes(buf)):
-              sys.stderr.write("enhanced shell never entered the alternate screen (?1049h)\n")
-              sys.stderr.write("--- pty output (cat -v) ---\n")
-              sys.stderr.write(repr(bytes(buf)) + "\n")
-              sys.exit(1)
-          sys.stdout.write("ok: entered alternate screen (?1049h)\n")
+          must("entered alternate screen (?1049h)",
+               lambda: RE_ALT_ENTER.search(bytes(buf)) is not None)
 
           # 2) the slash-command palette opens on a line-leading '/'
           before = len(buf)
           send(b"/", "'/'")
-          settle()
-          expect("slash palette lists /help", "/help", bytes(buf[before:]))
+          must("slash palette lists /help", lambda: b"/help" in delta_since(before))
 
-          # 3) Esc closes the palette again
+          # 3) Esc closes the palette again. Judged on what was painted
+          #    *after* the key (the transcript still holds the old frame),
+          #    and only once HOLD_MS has passed with no palette in it — a
+          #    frame still being drawn cannot satisfy that.
           before = len(buf)
           send(b"\x1b", "esc")
-          settle()
+          must("slash palette closed (esc)",
+               lambda: len(buf) > before and b"/help" not in delta_since(before),
+               hold_ms=HOLD_MS)
 
           # 4) Ctrl+K opens the session picker (T4 key routing at the TTY level)
           before = len(buf)
           send(b"\x0b", "ctrl-k")
-          settle()
-          expect("picker shows its cancel hint", "esc cancel", bytes(buf[before:]))
+          must("picker shows its cancel hint", lambda: b"esc cancel" in delta_since(before))
+          before = len(buf)
           send(b"\x1b", "esc")
-          settle()
+          must("picker closed (esc)",
+               lambda: len(buf) > before and b"esc cancel" not in delta_since(before),
+               hold_ms=HOLD_MS)
 
           # 5) Quit cleanly. Two things this step has to respect about the
           # TUI: Ctrl+C is abort (not quit), and Ctrl+D quits **only when the
           # composer is empty** — the `/` typed for the palette check above
           # is still in it, so clear it first (run 36300305870: the shell
-          # never exited). The wait is bounded and kills the child if it
-          # refuses to go, so a future regression fails this step rather
-          # than burning the job's budget.
+          # never exited). There is no sentinel for "the composer is empty"
+          # (an empty composer repaints nothing distinctive), so this is the
+          # one fixed soak in the driver: give the backspaces a beat to be
+          # handled, then ask for the exit.
           send(b"\x7f" * 16, "backspaces (clear composer)")
-          settle(quiet_ms=200, deadline_s=5)
+          pump(HOLD_MS)
           send(b"\x04", "ctrl-d")
-          # Drain before reading `raw`: the teardown bytes (?1049l, cursor
-          # show) are written after the process exits and would still be
-          # sitting unread in the pty buffer without this wait.
-          settle(quiet_ms=400, deadline_s=10)
-          deadline = time.time() + 15
+
+          # Drain and reap together: the teardown bytes (?1049l, cursor
+          # show) are written after the last frame and just before the slave
+          # side reports EOF, so reading only *after* the wait would miss
+          # them and reading only *before* it would exit early.
+          deadline = time.time() + 20
           code = None
           while time.time() < deadline:
+              state = read_once(0.1)
               done, status = os.waitpid(pid, os.WNOHANG)
               if done:
                   code = os.waitstatus_to_exitcode(status)
+                  while read_once(0.05) == "data":   # final drain
+                      pass
                   break
-              time.sleep(0.1)
+              if state == "closed":
+                  break
+          if code is None:
+              # EOF but not reaped yet: the child is gone or going, give it
+              # a bounded moment rather than hanging the job on it.
+              for _ in range(30):
+                  done, status = os.waitpid(pid, os.WNOHANG)
+                  if done:
+                      code = os.waitstatus_to_exitcode(status)
+                      break
+                  time.sleep(0.1)
           if code is None:
               sys.stderr.write("tui did not exit after ctrl-d; killing\n")
               os.kill(pid, 9)
               os.waitpid(pid, 0)
-              sys.stderr.write(repr(bytes(buf)) + "\n")
-              sys.exit(1)
+              fail("tui did not exit after ctrl-d")
           raw = bytes(buf)
           if RE_ALT_LEAVE.search(raw) is None:
               sys.stderr.write("exit did not leave the alternate screen (?1049l)\n")

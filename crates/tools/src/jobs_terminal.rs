@@ -43,7 +43,13 @@
 
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+<<<<<<< HEAD
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+=======
+#[cfg(debug_assertions)]
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, Ordering};
+>>>>>>> origin/main
 use std::time::{Duration, Instant};
 
 use crate::{Tool, ToolError};
@@ -80,6 +86,10 @@ const READ_CHUNK_BYTES: usize = 16 * 1024;
 /// (anything up to a few hundred columns of mostly-ASCII) fit whole; past
 /// that the frame is cut and the cut says so, with `terminal_screenshot` as
 /// the uncapped way through.
+<<<<<<< HEAD
+=======
+#[cfg(debug_assertions)]
+>>>>>>> origin/main
 const SCREEN_CHUNK_BYTES: usize = 16 * 1024;
 
 /// Where `terminal_screenshot` writes a frame's `.txt` / `.svg` / `.json`
@@ -90,11 +100,19 @@ const SCREEN_CHUNK_BYTES: usize = 16 * 1024;
 /// is the same reason [`truncate_output`](crate::truncate_output) puts one in
 /// its spill filenames: a restarted daemon restarts its `term-N` sequence and
 /// would otherwise write over the previous run's frames.
+<<<<<<< HEAD
+=======
+#[cfg(debug_assertions)]
+>>>>>>> origin/main
 const SCREENSHOT_DIR: &str = "/tmp/kymido-screenshots";
 
 /// Per-process counter behind the `NNN-` prefix of a screenshot's files, so
 /// two shots in one session never collide and their call order is readable
 /// off the name.
+<<<<<<< HEAD
+=======
+#[cfg(debug_assertions)]
+>>>>>>> origin/main
 static SCREENSHOT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // -----------------------------------------------------------------------------
@@ -373,7 +391,9 @@ pub fn session_tools(
     jobs: Arc<LocalJobRegistry>,
     terminals: Arc<TerminalRegistry>,
 ) -> Vec<Arc<dyn Tool>> {
-    vec![
+    // `mut` is only exercised by the debug-only pushes below.
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
+    let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(JobsStart::new(Arc::clone(&jobs))),
         Arc::new(JobsWait::new(Arc::clone(&jobs))),
         Arc::new(JobsList::new(Arc::clone(&jobs))),
@@ -384,17 +404,26 @@ pub fn session_tools(
         Arc::new(TerminalResize::new(Arc::clone(&terminals))),
         Arc::new(TerminalKill::new(Arc::clone(&terminals))),
         Arc::new(TerminalList::new(Arc::clone(&terminals))),
+<<<<<<< HEAD
         Arc::new(TerminalScreen::new(Arc::clone(&terminals))),
         Arc::new(TerminalScreenshot::new(terminals)),
     ]
+=======
+    ];
+    // The two screen tools are a development aid (T0 TUI observability):
+    // compiled only into debug builds, so a release binary never registers
+    // them and the model never sees them.
+    #[cfg(debug_assertions)]
+    tools.push(Arc::new(TerminalScreen::new(Arc::clone(&terminals))));
+    #[cfg(debug_assertions)]
+    tools.push(Arc::new(TerminalScreenshot::new(terminals)));
+    tools
+>>>>>>> origin/main
 }
 
-/// Names of every tool [`session_tools`] registers, in registration order.
-///
-/// Exposed so the daemon and its tests can assert on the set without building
-/// registries, and so the web UI's tool-name vocabulary can be checked against
-/// the real list rather than a hand-copied duplicate.
-pub const SESSION_TOOL_NAMES: &[&str] = &[
+/// Names of the job/terminal tools [`session_tools`] always registers, in
+/// registration order.
+const BASE_TOOL_NAMES: &[&str] = &[
     "jobs_start",
     "jobs_wait",
     "jobs_list",
@@ -408,3 +437,23 @@ pub const SESSION_TOOL_NAMES: &[&str] = &[
     "terminal_screen",
     "terminal_screenshot",
 ];
+
+/// The screen tools are a development aid (T0 TUI observability): compiled
+/// only into debug builds, so their names join the list only there.
+#[cfg(debug_assertions)]
+const SCREEN_TOOL_NAMES: &[&str] = &["terminal_screen", "terminal_screenshot"];
+#[cfg(not(debug_assertions))]
+const SCREEN_TOOL_NAMES: &[&str] = &[];
+
+/// Names of every tool [`session_tools`] registers, in registration order.
+///
+/// Exposed so the daemon and its tests can assert on the set without building
+/// registries, and so the web UI's tool-name vocabulary can be checked against
+/// the real list rather than a hand-copied duplicate.
+pub fn session_tool_names() -> Vec<&'static str> {
+    BASE_TOOL_NAMES
+        .iter()
+        .chain(SCREEN_TOOL_NAMES.iter())
+        .copied()
+        .collect()
+}

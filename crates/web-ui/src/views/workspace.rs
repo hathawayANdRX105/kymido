@@ -431,6 +431,13 @@ pub fn Workspace(
     let mut statusline = use_signal(|| {
         let mut st = StatusLine::empty();
         st.model = config.model.clone();
+        // T4：active 模型声明的 context window（providers.toml）；未声明（0）
+        // 回落引擎默认预算。
+        st.context_max = if config.context_max > 0 {
+            config.context_max as u64
+        } else {
+            web_state::types::DEFAULT_CONTEXT_MAX
+        };
         st.cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
@@ -1296,35 +1303,53 @@ pub fn Workspace(
             on_resize: Callback::new(on_root_mousemove),
             on_resize_end: Callback::new(on_root_mouseup),
             sidebar: rsx! {
-            Sidebar {
-                spaces: spaces(),
-                space_sessions: sidebar_sessions,
-                active_id: active_session_id(),
-                on_select: move |id: String| {
-                    active_session_id.set(id);
-                    view.set(View::Chat);
+            // 侧栏点击也视为「面板外」→ 关闭任务看板（ainnotation 波3 #5）。
+            // display:contents 不生成盒子，aside 仍是 AppFrame grid 直属
+            // 子项，布局零变化；onclick 靠冒泡接住侧栏内点击。
+            div { class: "contents",
+                onclick: move |_| {
+                    if show_tasks() {
+                        show_tasks.set(false);
+                    }
                 },
-                on_select_space: on_select_space,
-                on_create: on_create_session,
-                on_delete_session: on_delete_session,
-                on_delete_space: on_delete_space,
-                collapsed: sidebar_collapsed(),
-                on_toggle: on_toggle_sidebar,
-                on_expand: on_expand_sidebar,
-                width: sidebar_width(),
-                on_resize_start: on_resize_start,
-                on_preset_start: move |x: i32| {
-                    preset_dragging.set(true);
-                    let _ = x;
-                },
-                on_open_search: move |_| show_quick_switcher.set(true),
-                on_open_stats: move |_| view.set(View::Stats),
-                on_open_settings: move |_| show_settings.set(true),
+                Sidebar {
+                    spaces: spaces(),
+                    space_sessions: sidebar_sessions,
+                    active_id: active_session_id(),
+                    on_select: move |id: String| {
+                        active_session_id.set(id);
+                        view.set(View::Chat);
+                    },
+                    on_select_space: on_select_space,
+                    on_create: on_create_session,
+                    on_delete_session: on_delete_session,
+                    on_delete_space: on_delete_space,
+                    collapsed: sidebar_collapsed(),
+                    on_toggle: on_toggle_sidebar,
+                    on_expand: on_expand_sidebar,
+                    width: sidebar_width(),
+                    on_resize_start: on_resize_start,
+                    on_preset_start: move |x: i32| {
+                        preset_dragging.set(true);
+                        let _ = x;
+                    },
+                    on_open_search: move |_| show_quick_switcher.set(true),
+                    on_open_stats: move |_| view.set(View::Stats),
+                    on_open_settings: move |_| show_settings.set(true),
+                }
             }
             },
             // 中栏：面包屑头 + 视图
             header: rsx! {
+                // 中栏头（面包屑）点击也视为「面板外」→ 关闭任务看板。
+                // 头 div 在本页（workspace.rs）撰写、作为 AppFrame 的 header 槽
+                // 传入，故无需改 app_frame.rs 即可覆盖「其他非面板区域」。
                 div { class: "min-h-[44px] pl-7 pr-5 pt-3 pb-2 border-b border-b1 flex items-center gap-2 shrink-0",
+                    onclick: move |_| {
+                        if show_tasks() {
+                            show_tasks.set(false);
+                        }
+                    },
                     if view() == View::Stats {
                         span { class: "text-[14px] leading-5 font-medium text-label", "数据统计" }
                     } else {
@@ -1354,6 +1379,8 @@ pub fn Workspace(
                         Chat {
                             messages: current_messages,
                             statusline: statusline(),
+                            // T5：当前模型不声明 image 输入时，composer 附件入口置灰。
+                            image_input: config.image_input,
                             is_streaming: active_session_running(space_sessions, active_session_id),
                             on_send: on_send,
                             on_model_change: on_model_change,
@@ -1362,6 +1389,11 @@ pub fn Workspace(
                             question: pending_question(),
                             on_answer: on_answer,
                             on_toggle_tasks: move |_| show_tasks.set(!show_tasks()),
+                            on_outside_tasks: move |_| {
+                                if show_tasks() {
+                                    show_tasks.set(false);
+                                }
+                            },
                             dock: show_tasks().then(|| rsx! {
                                 TaskPanel {
                                     // 持久编排（tasks.jsonl）在前，瞬时执行（run 记录）随后；

@@ -7,8 +7,11 @@
 //! 退出码 3 单行错误（route §3 边界）。
 
 // TUI-P0-T20：app.rs 本批由 T20PanelBorders 独占（仅下方行数 +2 算术与本标记行）。
+<<<<<<< HEAD
 // TUI-P1-T25：spinner 计时缝（[`SPINNER_FRAMES`] / [`SPINNER_ADVANCE_MS`] +
 // [`App::tick_spinner`] / [`App::spinner_frame`]）——T25Spinner 独占。
+=======
+>>>>>>> origin/main
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};

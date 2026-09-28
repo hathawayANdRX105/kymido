@@ -26,7 +26,7 @@ cargo run -p web-cli
 
 - **工作区**：左侧会话列表、右侧聊天流 + 任务编排看板、输入框上方状态栏（模型/分支/Token/费用/上下文占用）
 - **数据统计**：仿 OH MY PI Observability 面板（KPI 指标卡、Token 分布、吞吐趋势折线图、最近请求 Feed）
-- **配置**：模型与 Provider 渠道配置
+- **配置**：模型与 Provider 渠道配置（凭据在兄弟文件 `.kymido/providers.toml`，`[llm]` 扁平段已移除）
 
 ## Daemon
 
@@ -43,7 +43,7 @@ kymido session resume <id> "follow-up prompt" # 向 worker 续发 prompt，run �
 
 路径与环境变量：
 
-- 配置文件：`.kymido/config.toml`（或 `kymido.toml`）；`KYMIDO_DATA_DIR` 改数据目录
+- 配置文件：`.kymido/config.toml`（或 `kymido.toml`）+ 兄弟文件 `.kymido/providers.toml`（provider 凭据 + 模型能力，`[llm]` 段已移除）；`KYMIDO_DATA_DIR` 改数据目录
 - socket：`$XDG_CONFIG_HOME/kymido/daemon.sock`，`KYMIDO_DAEMON_SOCKET` 覆盖
 - 会话数据库：`$XDG_CONFIG_HOME/kymido/sessions.db`，`KYMIDO_SESSION_DB` 覆盖
 - worker 后端：`KYMIDO_OMP_PATH` 指定 omp 可执行文件（缺省时 prompt 会失败并在 ledger 记 `spawn_failed`）

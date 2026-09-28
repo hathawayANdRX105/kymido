@@ -104,6 +104,8 @@ fn model() -> llm::Model {
         model: "test".into(),
         base_url: None,
         max_tokens: None,
+        context_window: None,
+        input: Vec::new(),
     }
 }
 
@@ -280,7 +282,7 @@ fn real_session_tools_register_every_name_in_the_constant() {
     let built = tools::jobs_terminal::session_tools(jobs, terminals);
 
     let mut built_names: Vec<String> = built.iter().map(|t| t.name().to_string()).collect();
-    let mut declared: Vec<String> = tools::jobs_terminal::SESSION_TOOL_NAMES
+    let mut declared: Vec<String> = tools::jobs_terminal::session_tool_names()
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -289,6 +291,6 @@ fn real_session_tools_register_every_name_in_the_constant() {
     declared.sort();
     assert_eq!(
         built_names, declared,
-        "SESSION_TOOL_NAMES must list exactly the registered tools"
+        "session_tool_names must list exactly the registered tools"
     );
 }

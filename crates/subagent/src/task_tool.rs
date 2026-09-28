@@ -240,6 +240,8 @@ fn resolve_model(spec: Option<&Value>) -> Result<Model, ToolError> {
             model,
             base_url,
             max_tokens: Some(4096),
+            context_window: None,
+            input: Vec::new(),
         });
     }
     let api_key = std::env::var("AGNES_API_KEY")
@@ -253,5 +255,7 @@ fn resolve_model(spec: Option<&Value>) -> Result<Model, ToolError> {
         model,
         base_url,
         max_tokens: Some(4096),
+        context_window: None,
+        input: Vec::new(),
     })
 }

@@ -238,6 +238,8 @@ mod tests {
                 model: "test".into(),
                 base_url: None,
                 max_tokens: None,
+                context_window: None,
+                input: Vec::new(),
             },
             backend: Arc::new(NoBackend),
             config: OrbitConfig {
@@ -268,7 +270,12 @@ mod tests {
         );
         let runs =
             RunLedger::open_for_socket(&dir.path().join("daemon.sock")).expect("open ledger");
-        let registry = SessionRegistry::new("/nonexistent/omp".into(), Some(stub_setup()));
+        let registry = SessionRegistry::new(
+            "/nonexistent/omp".into(),
+            Some(stub_setup()),
+            std::sync::Arc::new(crate::questions::QuestionBroker::new()),
+            String::new(),
+        );
         let reaper = SessionReaper::new(
             registry.clone(),
             AttachTracker::new(),

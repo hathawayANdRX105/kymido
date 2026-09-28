@@ -154,6 +154,8 @@ fn daemon_cfg(dir: &std::path::Path, mock: &MockOpenAi) -> DaemonConfig {
             model: "b2a-resume".into(),
             base_url: Some(mock.addr.clone()),
             max_tokens: Some(1024),
+            context_window: None,
+            input: Vec::new(),
         }),
         cwd: dir.to_path_buf(),
         max_turns: 4,

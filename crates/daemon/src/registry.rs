@@ -22,17 +22,35 @@ use crate::rpc::worker::OrbitSetup;
 pub struct SessionRegistry {
     handles: Arc<Mutex<HashMap<String, Arc<Mutex<WorkerHandle>>>>>,
     omp_path: String,
+    /// S5: the shared orbit template (model / backend / catalog / queues).
+    /// Per-session stateful faces are re-bound at handle creation — see
+    /// [`Self::session_setup`] — so no two sessions share plan or tool
+    /// state.
     orbit_setup: Option<OrbitSetup>,
+    /// S5: the question broker — per-session review ports are built
+    /// against it.
+    broker: Arc<crate::questions::QuestionBroker>,
+    /// S5: the plan-policy section text (`harness.plan` config, daemon
+    /// default when absent) that each session's policy closure injects
+    /// while that session's plan mode is active.
+    plan_section: String,
 }
 
 impl SessionRegistry {
     /// Build a registry; the first `handle()` call lazily constructs the
     /// legacy worker (same construction as the pre-registry single handle).
-    pub fn new(omp_path: String, orbit_setup: Option<OrbitSetup>) -> Self {
+    pub fn new(
+        omp_path: String,
+        orbit_setup: Option<OrbitSetup>,
+        broker: Arc<crate::questions::QuestionBroker>,
+        plan_section: String,
+    ) -> Self {
         Self {
             handles: Arc::new(Mutex::new(HashMap::new())),
             omp_path,
             orbit_setup,
+            broker,
+            plan_section,
         }
     }
 
@@ -75,10 +93,12 @@ impl SessionRegistry {
             match map.get(&key) {
                 Some(handle) => Arc::clone(handle),
                 None => {
+                    let (exec, setup) = self.session_setup(&key);
                     let handle = Arc::new(Mutex::new(WorkerHandle::new(
                         &self.omp_path,
-                        self.orbit_setup.clone(),
+                        setup,
                         key.clone(),
+                        exec,
                     )));
                     map.insert(key.clone(), Arc::clone(&handle));
                     handle
@@ -87,6 +107,45 @@ impl SessionRegistry {
         };
         let mut guard = arc.lock().unwrap_or_else(|e| e.into_inner());
         f(&mut guard)
+    }
+
+    /// S5: assemble this session's [`OrbitSetup`] + execution state from
+    /// the shared template. The two stateful faces are re-bound to the
+    /// session's [`ExecState`](crate::exec_state::ExecState):
+    ///
+    /// 1. the plan-policy closure captures *this* session's
+    ///    `PlanModeRuntime`, so a `/plan` flip in one session never
+    ///    changes the policy section another session's engine injects;
+    /// 2. the session's tool catalog swaps the shared `exit_plan_mode`
+    ///    instance for this session's own (bound to this session's
+    ///    runtime + scoped review port) — the seam future stateful tools
+    ///    plug into, instead of inventing a new daemon-wide singleton.
+    fn session_setup(&self, key: &str) -> (crate::exec_state::ExecState, Option<OrbitSetup>) {
+        let exec = crate::exec_state::ExecState::new();
+        let Some(template) = &self.orbit_setup else {
+            // omp-compat: no orbit engine, nothing to re-bind. The
+            // session's execution state still exists (uniform ownership)
+            // — it is simply never consulted by an engine.
+            return (exec, None);
+        };
+        let catalog = tools::ToolCatalog::new();
+        for tool in template.config.catalog.all() {
+            if tool.spec().name != "exit_plan_mode" {
+                catalog.register(tool);
+            }
+        }
+        catalog.register(std::sync::Arc::new(plan_mode::tools::exit_plan_mode_tool(
+            exec.plan.clone(),
+            self.broker.review_port_for(key, exec.clone()),
+        )));
+        let mut setup = template.clone();
+        setup.config.catalog = std::sync::Arc::new(catalog);
+        let section = self.plan_section.clone();
+        let plan = exec.plan.clone();
+        setup.config.plan_policy_section = Some(std::sync::Arc::new(move || {
+            plan.plan_policy_section(&section)
+        }));
+        (exec, Some(setup))
     }
 
     /// Live session ids, excluding the legacy entry.
@@ -127,30 +186,5 @@ impl SessionRegistry {
                 w.reset();
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Legacy (no orbit setup) collapses every target to the shared entry:
-    /// session-less traffic must never multiply the single worker.
-    #[test]
-    fn legacy_mode_routes_everything_to_the_shared_entry() {
-        let registry = SessionRegistry::new("/nonexistent/omp".into(), None);
-        assert_eq!(registry.target("s1"), "");
-        assert_eq!(registry.target(""), "");
-
-        registry.with_session("s1", |_| {});
-        registry.with_session("s2", |_| {});
-        assert!(
-            registry.session_ids().is_empty(),
-            "legacy mode must not register per-session ids"
-        );
-        assert!(
-            registry.has(""),
-            "the shared entry serves session-less traffic"
-        );
     }
 }

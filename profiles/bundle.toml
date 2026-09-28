@@ -1,21 +1,10 @@
 # bundle profile —— 全家桶：orbit worker + 瀑布回退 + MCP 工具 + 子代理 + 持久记忆。
-# 用法：oi profile apply bundle（.kymido/config.toml 已存在时拒绝覆盖）。
+# 用法：kymido profile apply bundle（.kymido/config.toml 已存在时拒绝覆盖）。
+# 凭据与模型能力在兄弟文件 .kymido/providers.toml（本 profile 同时生成模板）。
 # 每一节都可整段删掉：删了即回 boot 形态，注释掉的段是同一形状的模板。
 omp_path = "omp"
 data_dir = "./.kymido"
 model = "default"
-
-[llm]
-base_url = ""
-api_key = ""
-model = ""
-max_tokens = 8192
-
-# 主 provider 吐出任何内容前失败 → 按序切 fallback（B2b1 瀑布）。
-# [[llm.fallbacks]]
-# base_url = ""
-# api_key = ""
-# model = ""
 
 [daemon]
 cwd = "."
