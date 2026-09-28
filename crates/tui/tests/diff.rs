@@ -141,10 +141,12 @@ fn diff_falls_back_on_parse_error() {
 /// 不许几千行上下文刷屏；间隔小（≤3）则不插。
 #[test]
 fn diff_gap_marker_inserted() {
-    // 上下文 10 行（> 3）→ 插标记。
+    // 上下文 10 行（> 3）→ 插标记。头计数必须与实际行数精确一致：
+    // 旧侧 = 1 删 + 2 上下文 + …… 由 10 段上下文拼出 12 行；否则 diffy
+    // 拒收、走纯文本回落（那是另一条测试的事）。
     let far = format!(
-        "@@ -1,2 +1,2 @@\n-a\n+b\n{}\n@@ -20,2 +20,2 @@\n-c\n+d",
-        (2..12).map(|i| format!(" ctx{i}")).collect::<String>()
+        "@@ -1,3 +1,3 @@\n-a\n+b\n ctx1\n{}\n@@ -20,1 +20,1 @@\n-c\n+d",
+        (2..12).map(|i| format!(" ctx{i}\n")).collect::<String>()
     );
     let lines = diff::lines(&far, 80);
     let joined: String = lines
@@ -156,8 +158,8 @@ fn diff_gap_marker_inserted() {
         "大间隔必须插空隙标记:\n{joined}"
     );
     assert!(
-        joined.contains("10 lines skipped"),
-        "空隙行数必须精确:\n{joined}"
+        joined.contains("17 lines skipped"),
+        "空隙行数必须精确（20 - 上一 hunk 结束 3）:\n{joined}"
     );
 
     // 上下文 2 行（≤ 3）→ 不插。
@@ -179,7 +181,7 @@ fn diff_row_cap() {
     let body: String = (0..500)
         .map(|i| format!("+    inserted line {i:03}\n"))
         .collect();
-    let text = format!("--- a/f\n+++ b/f\n{body}");
+    let text = format!("--- a/f\n+++ b/f\n@@ -0,0 +1,500 @@\n{body}");
     let rows = diff::rows(&text, 80);
     let lines = diff::lines(&text, 80);
     assert_eq!(rows, lines.len(), "超限 diff 的 count/render 分叉");
