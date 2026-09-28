@@ -21,6 +21,11 @@ use serde_json::{Value, json};
 /// How long a single event read may block before the test gives up.
 pub const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a *silent* stream is read as "still working" once the first frame
+/// has arrived. The daemon pushes worker events as it goes, so a gap this long
+/// means the turn is over rather than that it is thinking.
+pub const DRAIN_QUIET: Duration = Duration::from_millis(1500);
+
 /// A tiny OpenAI-compatible server: one thread per connection, replays the
 /// canned SSE stream for the request whose index it is, and records every raw
 /// request body so a test can assert on what the loop really sent.
@@ -198,18 +203,22 @@ pub fn prompt(client: &daemon::DaemonClient, message: &str) {
     assert!(resp.success, "prompt failed: {:?}", resp.error);
 }
 
-/// Drain worker events until the stream goes quiet. Each `next_event` bounds
-/// its own wait, so this returns as soon as the daemon stops pushing.
+/// Drain worker events until the daemon stops pushing. The first read waits a
+/// full [`EVENT_TIMEOUT`] (the worker may take a moment to produce anything);
+/// every read after the first only asks for [`DRAIN_QUIET`] of silence, so a
+/// finished turn costs 1.5s instead of the 10s this used to leave on the
+/// table — `aside_channel`, `plan_mode_e2e`, `g6_e2e` and friends each paid a
+/// whole `EVENT_TIMEOUT` per call, which is 10s of the ~20s those binaries
+/// spent in CI.
 pub fn drain_events(sub: &mut Subscription) -> Vec<EventFrame> {
     let mut out = Vec::new();
+    let mut quiet = EVENT_TIMEOUT;
     loop {
-        match sub
-            .next_event(EVENT_TIMEOUT)
-            .expect("subscription readable")
-        {
+        match sub.next_event(quiet).expect("subscription readable") {
             Some(frame) => {
                 assert_eq!(frame.topic, "worker", "pushed on the subscribed topic");
                 out.push(frame);
+                quiet = DRAIN_QUIET;
             }
             None => return out,
         }
