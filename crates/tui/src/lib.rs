@@ -138,7 +138,11 @@ pub fn run(opts: TuiOptions) -> Result<(), TuiError> {
         let run_id = format!("r-{}", now_epoch_ms());
         // 先订阅后 prompt（route §3 边界）：prompt 返回即可能开跑，事件一帧
         // 都不能漏——语义见 daemon dispatch.rs 的 G7-B set_active_run 注释。
-        let rx = pump::spawn(daemon.subscribe_worker_run(&run_id).map_err(client_error)?)?;
+        let rx = pump::spawn(
+            daemon
+                .subscribe_worker_run_in_session(&run_id, &sid)
+                .map_err(client_error)?,
+        )?;
         // T15：批次起点 = 出站派发（任务书 §3 裁决 1）。
         batch.note_dispatch(Instant::now());
         daemon
