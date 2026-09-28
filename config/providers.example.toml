@@ -13,7 +13,7 @@
 #   手动：把本文件拷成 ./.kymido/providers.toml，填 base_url + 密钥
 #   （api_key_env 写环境变量名，免明文入库），设 active 路由。
 #
-# 【路由解析】（active 是 "provider/model" 或裸 "provider"）
+# 【路由解析】（active 是 combo 短名、"provider/model" 或裸 "provider"）
 #   - provider 段不存在 = 加载硬错误（typos 保护，不静默换 provider）；
 #     model 段在已声明的 models 表里不存在同样拒载。
 #   - models 表未声明时任意 model id 放行（手写适配器接私有端点，
@@ -66,48 +66,56 @@
 # =====================================================================
 
 # active spec：combo 短名（见下方 [combos]）、"provider/model"，或裸
-# provider 名（走该行 default_model）。
-active = "deepseek/deepseek-chat"
+# provider 名（走该行 default_model）。本示例用 combo 短名。
+active = "fast"
 
-# 命名模型 combos：自定义短名 → 底层路由（目标强制是配置过的
-# provider/model；单跳，不嵌套）。
-# [combos]
-# fast = "deepseek/deepseek-chat"
-# vision = "deepseek/deepseek-vision"
+# 命名模型 combos：自定义短名 → 底层路由。目标强制是文件内配置过的
+# provider/model（裸 provider、combo→combo、未声明 model 全部拒载）；
+# 单跳，不嵌套。active 与 fallbacks 都可引用短名。
+[combos]
+fast = "deepseek/deepseek-chat"
+vision = "openai/gpt-4o-mini"
 
 [providers.deepseek]
 # 端点根（调用方自行拼 /v1）。
 base_url = "https://api.deepseek.com"
-# 密钥二选一：api_key_env 写环境变量的「字面名」，变量缺失时该行解析
-# 不出凭据（daemon 状态行报 MissingKey，不猜）；api_key 内联（别入库）。
-# 两字段都缺 + KYMIDO_LLM_API_KEY 也缺 = 无凭据。
+# 密钥二选一：api_key_env 写环境变量的「字面名」（共享配置进 git 用它；
+# 变量缺失时该行解析不出凭据，daemon 状态行报 MissingKey，不猜）；
+# api_key 内联（仅本地，别入库）。两字段都缺 + KYMIDO_LLM_API_KEY 也缺 = 无凭据。
 api_key_env = "DEEPSEEK_API_KEY"
 # active 省略 model 段时的兜底；裸路由必填，否则解析不出模型。
 default_model = "deepseek-chat"
 # 每请求 max_tokens 缺省（model 行同名字段优先）。
 max_tokens = 8192
-# 瀑布目标（按序）：主 provider 无可用内容前失败即切。
-# fallbacks = ["openai/gpt-4o-mini"]
+# 瀑布目标（按序）：主 provider 无可用内容前失败即切。可以写 combo 短名——
+# 凭据继承目标 provider 行，能力跟目标 model 条目；已泄内容不切 provider。
+fallbacks = ["vision"]
 
-# 每模型能力条目：context_window 驱动压缩预算（×4 字符换算），
-# input 门控附件入口。
+# 每模型能力条目：context_window 驱动压缩预算（×4 字符换算，未声明 = 引擎
+# 缺省零变化）；input 门控附件入口（缺省 ["text"]）；max_tokens 每请求上限
+# （本行优先于 provider 行）。
 [[providers.deepseek.models]]
 id = "deepseek-chat"
 context_window = 65536
 input = ["text"]
+max_tokens = 8192
 
 [[providers.deepseek.models]]
 id = "deepseek-vision"
-context_window = 65536
+context_window = 128000
 input = ["text", "image"]
+max_tokens = 4096
 
-# 第二个 provider（瀑布目标示例；整段注释掉 = 不用）。
-# [providers.openai]
-# base_url = "https://api.openai.com"
-# api_key_env = "OPENAI_API_KEY"
-# default_model = "gpt-4o-mini"
-# max_tokens = 4096
-#
-# [[providers.openai.models]]
-# id = "gpt-4o-mini"
-# input = ["text", "image"]
+# 第二个 provider（瀑布目标；本示例的 [combos] vision 指向它）。
+[providers.openai]
+base_url = "https://api.openai.com"
+# 内联密钥（占位值，使用前换成自己的；共享配置请改 api_key_env）。
+api_key = "sk-example-do-not-use"
+default_model = "gpt-4o-mini"
+max_tokens = 4096
+
+[[providers.openai.models]]
+id = "gpt-4o-mini"
+context_window = 128000
+input = ["text", "image"]
+max_tokens = 4096
