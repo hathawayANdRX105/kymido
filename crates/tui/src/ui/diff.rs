@@ -139,10 +139,17 @@ fn build_rows(detail: &str) -> Vec<Row> {
                     row
                 }
             };
+            // diffy 的行内容带尾部 \n（仅 "\ No newline" 特例被剥掉）；
+            // 不剥的话 push_wrapped 把每行折成两物理行（200 逻辑行渲染
+            // 401 物理行）。顺手过 sanitize：零 ESC 契约不依赖调用方。
+            let mut content = super::transcript::sanitize(text);
+            if content.ends_with('\n') {
+                content.pop();
+            }
             let gutter = format!("  {:>w$} {:>w$} {} ", old_disp, new_disp, sign, w = width);
             out.push(Row {
                 gutter,
-                text: text.to_string(),
+                text: content,
                 style: match line {
                     DiffLine::Insert(_) => theme::diff_add(),
                     DiffLine::Delete(_) => theme::diff_del(),

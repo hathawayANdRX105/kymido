@@ -141,12 +141,15 @@ fn diff_falls_back_on_parse_error() {
 /// 不许几千行上下文刷屏；间隔小（≤3）则不插。
 #[test]
 fn diff_gap_marker_inserted() {
-    // 上下文 10 行（> 3）→ 插标记。头计数必须与实际行数精确一致：
-    // 旧侧 = 1 删 + 2 上下文 + …… 由 10 段上下文拼出 12 行；否则 diffy
-    // 拒收、走纯文本回落（那是另一条测试的事）。
+    // 上下文 11 行（> 3）→ 插标记。头计数必须与实际行数精确一致，
+    // 否则 diffy 拒收、走纯文本回落（那是另一条测试的事）：
+    // 旧侧 = 1 删 + 11 上下文 = 12 行，新侧 = 1 增 + 11 上下文 = 12 行。
     let far = format!(
-        "@@ -1,3 +1,3 @@\n-a\n+b\n ctx1\n{}\n@@ -20,1 +20,1 @@\n-c\n+d",
-        (2..12).map(|i| format!(" ctx{i}\n")).collect::<String>()
+        "@@ -1,12 +1,12 @@\n-a\n+b\n{}\n@@ -20,1 +20,1 @@\n-c\n+d",
+        (1..=11)
+            .map(|i| format!(" ctx{i}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     let lines = diff::lines(&far, 80);
     let joined: String = lines
@@ -159,14 +162,21 @@ fn diff_gap_marker_inserted() {
         diff::looks_like_diff(&far),
         lines.len()
     );
+    // 空隙 = 20 -（hunk1 起点 1 + 旧侧行数 12 - 1）= 8。
     assert!(
-        joined.contains("17 lines skipped"),
-        "空隙行数必须精确（20 - 上一 hunk 结束 3）:\n{joined}"
+        joined.contains("8 lines skipped"),
+        "空隙行数必须精确（20 - 上一 hunk 结束 12）:\n{joined}"
     );
 
-    // 上下文 2 行（≤ 3）→ 不插。
-    let near = "@@ -1,2 +1,2 @@\n-a\n+b\n ctx1\n ctx2\n@@ -5,2 +5,2 @@\n-c\n+d";
+    // 上下文 2 行（≤ 3）→ 不插。头计数对齐（hunk1 旧侧 1 删 + 2 上下文
+    // = 3 行；hunk2 单删单增 = 1 行），间隔 = 5 -（1 + 3 - 1）= 2。
+    let near = "@@ -1,3 +1,3 @@\n-a\n+b\n ctx1\n ctx2\n@@ -5,1 +5,1 @@\n-c\n+d";
     let lines = diff::lines(near, 80);
+    assert_eq!(
+        lines.len(),
+        6,
+        "必须走 diff 路径：4 + 2 行渲染，头不当内容、行不折双\n{lines:?}"
+    );
     let joined: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.to_string()))
@@ -192,9 +202,8 @@ fn diff_row_cap() {
         .flat_map(|l| l.spans.iter().map(|s| s.content.to_string()))
         .collect();
     assert!(
-        rows < 400,
-        "渲染 {rows} 行远超上限——截断没生效\nlooks_like_diff={}\n{joined}",
-        diff::looks_like_diff(&text)
+        rows < 250,
+        "渲染 {rows} 行——200 逻辑行上限 + 显式提示，物理行不该翻倍:\n{joined}"
     );
     let joined: String = lines
         .iter()
