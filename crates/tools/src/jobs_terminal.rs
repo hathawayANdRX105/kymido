@@ -43,7 +43,7 @@
 
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::{Tool, ToolError};
@@ -70,6 +70,32 @@ const DEFAULT_WAIT_MS: u64 = 30_000;
 /// flood the model's context in a single call. The registry keeps a larger
 /// buffer; this is a per-call view onto it.
 const READ_CHUNK_BYTES: usize = 16 * 1024;
+
+/// Cap on the bytes one `terminal_screen` frame may return, for the same
+/// reason [`READ_CHUNK_BYTES`] caps a read: one call must not be able to
+/// flood the model's context. A frame is a display, not a byte stream — its
+/// size follows the terminal's geometry, and the geometry is a `u16` the
+/// caller chose — so the cap is the bound that keeps a 600-column session
+/// from costing more than a command's output does. Ordinary geometries
+/// (anything up to a few hundred columns of mostly-ASCII) fit whole; past
+/// that the frame is cut and the cut says so, with `terminal_screenshot` as
+/// the uncapped way through.
+const SCREEN_CHUNK_BYTES: usize = 16 * 1024;
+
+/// Where `terminal_screenshot` writes a frame's `.txt` / `.svg` / `.json`
+/// trio, one subdirectory per session.
+///
+/// `/tmp` because that is where this crate already hands the model files it
+/// writes ([`SPILL_DIR`](crate::SPILL_DIR)). The pid in the subdirectory name
+/// is the same reason [`truncate_output`](crate::truncate_output) puts one in
+/// its spill filenames: a restarted daemon restarts its `term-N` sequence and
+/// would otherwise write over the previous run's frames.
+const SCREENSHOT_DIR: &str = "/tmp/kymido-screenshots";
+
+/// Per-process counter behind the `NNN-` prefix of a screenshot's files, so
+/// two shots in one session never collide and their call order is readable
+/// off the name.
+static SCREENSHOT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // -----------------------------------------------------------------------------
 // Argument helpers
@@ -357,7 +383,9 @@ pub fn session_tools(
         Arc::new(TerminalRead::new(Arc::clone(&terminals))),
         Arc::new(TerminalResize::new(Arc::clone(&terminals))),
         Arc::new(TerminalKill::new(Arc::clone(&terminals))),
-        Arc::new(TerminalList::new(terminals)),
+        Arc::new(TerminalList::new(Arc::clone(&terminals))),
+        Arc::new(TerminalScreen::new(Arc::clone(&terminals))),
+        Arc::new(TerminalScreenshot::new(terminals)),
     ]
 }
 
@@ -377,4 +405,6 @@ pub const SESSION_TOOL_NAMES: &[&str] = &[
     "terminal_resize",
     "terminal_kill",
     "terminal_list",
+    "terminal_screen",
+    "terminal_screenshot",
 ];

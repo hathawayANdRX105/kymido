@@ -8,11 +8,26 @@ publish = false
 
 [dependencies]
 portable-pty = "0.9"
+# VT emulation for the screen layer (`src/screen.rs`): the only new
+# dependency of this batch (brief §3 T0a, ruling ⑩/§8). Same 0.26 line the
+# reference implementation pins, so the reverse-query surface we forward
+# (DSR / DA / colour queries) is the one it was verified against.
+alacritty_terminal = "0.26.0"
 # `portable-pty` returns `anyhow::Error` from its fallible API and does not
 # re-export the type, so converting one into `TerminalError` needs the crate
 # in scope. Already in the dependency graph via portable-pty; naming it here
 # adds no new resolution.
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+# JSON frame artifact (`render_json`): `serde_json` is workspace-pinned and
+# already in the lock graph, so naming it adds no new resolution (brief
+# §3 T0b names it for the JSON artifact; the "one new dependency" is
+# `alacritty_terminal`, not this wiring).
+serde_json = { workspace = true }
+# `src/script.rs` (T0c) derives Serialize/Deserialize on its scenario and
+# report types; `serde` is workspace-pinned with the `derive` feature and is
+# already in the lock graph via `serde_json`, so naming it adds no new
+# resolution.
+serde = { workspace = true }
 
 [dev-dependencies]
