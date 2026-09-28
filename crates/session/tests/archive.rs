@@ -269,15 +269,9 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
     seed(&f.db, "keep-1", 2);
     seed(&f.db, "keep-2", 2);
     seed(&f.db, "old-1", 2);
-    // Deterministic recency: the three seeds can land inside one clock
-    // millisecond, so raise the two keepers' updated_at strictly above
-    // old-1's with appends written after its last insert.
-    f.db.append_message("keep-1", SessionRole::User, "bump", &[], &[])
-        .expect("bump keep-1");
-    f.db.append_message("keep-2", SessionRole::User, "bump", &[], &[])
-        .expect("bump keep-2");
 
-    // Everything is touched now, so nothing is idle yet.
+    // Fresh seeds are never idle under a one-day window: `now >= now - 1day`
+    // always holds, so all three stay live.
     assert!(
         f.db.compress_idle_sessions(86_400_000, 0, 100)
             .expect("sweep")
@@ -285,8 +279,19 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
         "a freshly-touched session is never idle"
     );
 
+    // Make recency deterministic: the three seeds can land inside one clock
+    // millisecond, so backdate every row to a fixed ancient value, then raise
+    // the two keepers strictly above it with appends. The zero-window sweep
+    // below then has no same-millisecond ambiguity — old-1 is ancient, the
+    // keepers are "now".
+    freeze_timestamps(&f.path, 1_000, 1_000);
+    f.db.append_message("keep-1", SessionRole::User, "bump", &[], &[])
+        .expect("bump keep-1");
+    f.db.append_message("keep-2", SessionRole::User, "bump", &[], &[])
+        .expect("bump keep-2");
+
     // A zero-length idle window plus a keep floor of 2 leaves the two most
-    // recent live and archives the third.
+    // recent live and archives the ancient third.
     let archived =
         f.db.compress_idle_sessions(0, 2, 100)
             .expect("sweep with keep floor");
