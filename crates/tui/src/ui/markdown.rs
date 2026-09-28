@@ -189,8 +189,14 @@ fn segments(text: &str) -> Vec<Seg> {
                 seg.text.push('`');
             }
             Event::SoftBreak => {
+                // 保留为硬换行，而不是折叠成空格：assistant 正文逐 delta
+                // 累加、每帧重算，单个 `\n` 在 markdown 语义里是「段落内
+                // 软换行」、要等空行出现段落才算闭合——塌成一行会让行数
+                // 在流式期间一直漂移（正是任务书禁止的「等它写完」）。
+                // 按硬换行处理，行数从第一个 delta 就稳定，纯文本的视觉
+                // 行结构与接 markdown 之前一致。
                 if let Some(seg) = para.as_mut() {
-                    seg.text.push(' ');
+                    seg.text.push('\n');
                 }
             }
             Event::HardBreak => {
