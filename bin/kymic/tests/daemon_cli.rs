@@ -46,7 +46,7 @@ fn run_oi(
     args: &[&str],
     extra: &[(&str, &str)],
 ) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let mut cmd = Command::new(exe);
     cmd.args(args)
         .env("KYMIDO_DATA_DIR", data_dir)

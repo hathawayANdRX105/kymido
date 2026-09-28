@@ -58,7 +58,7 @@ fn wait_for_socket(path: &Path) {
 /// `(stdout, stderr, success)`. `data_dir` is set so the CLI's Config::load
 /// picks up the same socket via the same env vars as the daemon.
 fn run_oi(data_dir: &Path, socket: &Path, db: &Path, args: &[&str]) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let output = Command::new(exe)
         .args(args)
         .env("KYMIDO_DATA_DIR", data_dir)

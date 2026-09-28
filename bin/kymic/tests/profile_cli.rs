@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use tempfile::TempDir;
 
 fn run_oi(cwd: &std::path::Path, args: &[&str]) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let output = Command::new(exe)
         .args(args)
         .current_dir(cwd)

@@ -22,7 +22,7 @@ use tempfile::TempDir;
 /// Run the `kymido` test binary (built into target/debug) inside an isolated
 /// data directory. Returns (stdout, stderr, exit_success).
 fn kymido(data_dir: &Path, args: &[&str]) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let mut cmd = Command::new(exe);
     cmd.args(args)
         .env("KYMIDO_DATA_DIR", data_dir)
