@@ -8,7 +8,7 @@
 //! 就钉住了「消息写进别的会话」那类事故的路由面。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use omenic_tui::app::{App, PromptDelivery};
+use kymido_tui::app::{App, PromptDelivery};
 use web_state::types::{ChatMessage, MessagePart};
 use web_state::ui_state::AgentEvent;
 
@@ -27,7 +27,7 @@ fn submit(app: &mut App, text: &str) {
     type_str(app, text);
     assert_eq!(
         app.handle_key(key(KeyCode::Enter)),
-        omenic_tui::app::KeyAction::None
+        kymido_tui::app::KeyAction::None
     );
 }
 

@@ -7,7 +7,7 @@ use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use config::{Config, LlmProfileConfig, ProfileStatus};
 
-/// `Config::load` 读进程 cwd 下的 `.oi/config.toml`，所以这些测试不能并行。
+/// `Config::load` 读进程 cwd 下的 `.kymido/config.toml`，所以这些测试不能并行。
 fn cwd_lock() -> MutexGuard<'static, ()> {
     static LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
@@ -112,9 +112,9 @@ api_key = "k"
 
 fn parse(toml: &str) -> Config {
     let dir = tempfile::tempdir().expect("tempdir");
-    let oi = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi).expect("create .oi");
-    std::fs::write(oi.join("config.toml"), toml).expect("write config");
+    let kymido = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido).expect("create .kymido");
+    std::fs::write(kymido.join("config.toml"), toml).expect("write config");
     let _guard = cwd_lock();
     let original = std::env::current_dir().expect("current_dir");
     std::env::set_current_dir(dir.path()).expect("switch cwd");

@@ -1,7 +1,7 @@
 //! Char-budget context compaction policy (C4).
 //!
 //! Port of orbit's host maintenance policy (`select_compaction_cut` /
-//! `compact_context`, omenic `crates/agent/orbit/src/lib.rs:285/:315`) out of
+//! `compact_context`, kymido `crates/agent/orbit/src/lib.rs:285/:315`) out of
 //! the agent domain into a harness service, hardened with the dsh compaction
 //! invariants:
 //! - [`pairing`] — a cut never splits a tool_use/tool_result pair

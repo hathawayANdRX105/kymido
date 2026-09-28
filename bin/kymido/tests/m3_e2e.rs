@@ -1,6 +1,6 @@
 //! End-to-end smoke: MVP acceptance lines 1–5 from todo/spike/mvp-design.md §7.
 //!
-//! Runs a real `omenic` process in an isolated `OMENIC_DATA_DIR`, exercises the
+//! Runs a real `kymido` process in an isolated `KYMIDO_DATA_DIR`, exercises the
 //! full CLI lifecycle — `task add` → `plan` → deps-gating → `run` executes
 //! a real `omp --mode rpc` session — and verifies the store + evidence land.
 //!
@@ -10,7 +10,7 @@
 //!     cargo test --test m3_e2e -- --ignored
 //!
 //!     Or to specify omp binary explicitly:
-//!     OMENIC_OMP_PATH=/usr/bin/omp cargo test --test m3_e2e -- --ignored
+//!     KYMIDO_OMP_PATH=/usr/bin/omp cargo test --test m3_e2e -- --ignored
 
 use std::env;
 use std::fs;
@@ -19,18 +19,18 @@ use std::process::{Command, Stdio};
 
 use tempfile::TempDir;
 
-/// Run the `omenic` test binary (built into target/debug) inside an isolated
+/// Run the `kymido` test binary (built into target/debug) inside an isolated
 /// data directory. Returns (stdout, stderr, exit_success).
-fn omenic(data_dir: &Path, args: &[&str]) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+fn kymido(data_dir: &Path, args: &[&str]) -> (String, String, bool) {
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let mut cmd = Command::new(exe);
     cmd.args(args)
-        .env("OMENIC_DATA_DIR", data_dir)
-        .env("OMENIC_OMP_PATH", omp_binary())
+        .env("KYMIDO_DATA_DIR", data_dir)
+        .env("KYMIDO_OMP_PATH", omp_binary())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    let output = cmd.output().expect("spawn omenic");
+    let output = cmd.output().expect("spawn kymido");
     (
         String::from_utf8_lossy(&output.stdout).to_string(),
         String::from_utf8_lossy(&output.stderr).to_string(),
@@ -38,9 +38,9 @@ fn omenic(data_dir: &Path, args: &[&str]) -> (String, String, bool) {
     )
 }
 
-/// Resolve the omp binary path for tests (OMENIC_OMP_PATH or "omp" on PATH).
+/// Resolve the omp binary path for tests (KYMIDO_OMP_PATH or "omp" on PATH).
 fn omp_binary() -> String {
-    env::var("OMENIC_OMP_PATH").unwrap_or_else(|_| "omp".to_string())
+    env::var("KYMIDO_OMP_PATH").unwrap_or_else(|_| "omp".to_string())
 }
 
 /// Read the store directly to resolve a task id by title.
@@ -74,10 +74,10 @@ fn test_m3_e2e_end_to_end_run() {
     let data_dir = tmp.path();
 
     let (_stdout_unused, stderr, ok) =
-        omenic(data_dir, &["task", "add", "Write a haiku about testing"]);
+        kymido(data_dir, &["task", "add", "Write a haiku about testing"]);
     assert!(ok, "task add failed: {stderr}");
 
-    let (_stdout, stderr, ok) = omenic(data_dir, &["plan"]);
+    let (_stdout, stderr, ok) = kymido(data_dir, &["plan"]);
     assert!(ok, "plan failed: {stderr}");
 
     let leaf_id = task_id_for(data_dir, "Write a haiku about testing");
@@ -103,7 +103,7 @@ fn test_m3_e2e_end_to_end_run() {
         fs::write(data_dir.join("tasks.jsonl"), lines.join("\n") + "\n").unwrap();
     }
 
-    let (stdout, stderr, ok) = omenic(data_dir, &["run", &leaf_id]);
+    let (stdout, stderr, ok) = kymido(data_dir, &["run", &leaf_id]);
     assert!(
         ok || stderr.contains("blocked") || stdout.contains("blocked"),
         "expected blocked, got stdout={stdout} stderr={stderr}"
@@ -115,11 +115,11 @@ fn test_m3_e2e_end_to_end_run() {
     let tmp2 = TempDir::new().unwrap();
     let data_dir2 = tmp2.path();
 
-    let (_stdout, stderr, ok) = omenic(data_dir2, &["task", "add", "Summarize pace layers"]);
+    let (_stdout, stderr, ok) = kymido(data_dir2, &["task", "add", "Summarize pace layers"]);
     assert!(ok, "task add failed: {stderr}");
     let feat_id = task_id_for(data_dir2, "Summarize pace layers");
 
-    let (run_out, run_err, run_ok) = omenic(data_dir2, &["run", &feat_id]);
+    let (run_out, run_err, run_ok) = kymido(data_dir2, &["run", &feat_id]);
     assert!(
         run_ok || run_err.is_empty(),
         "run unexpectedly failed: {run_err}"
@@ -171,7 +171,7 @@ fn test_m3_e2e_end_to_end_run() {
     );
 
     // Acceptance line 3: status flipped when Done.
-    let (st_out, _, _) = omenic(data_dir2, &["task", "status", &feat_id]);
+    let (st_out, _, _) = kymido(data_dir2, &["task", "status", &feat_id]);
     assert!(st_out.contains("done") || st_out.contains("status: done"));
 
     println!("m3 e2e smoke passed — run_out={run_out} err={run_err}");

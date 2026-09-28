@@ -2,12 +2,12 @@
 //!
 //! Two capabilities that a single `run_bash` call cannot express:
 //!
-//! * **Background jobs** — [`omenic_harness_jobs`]. `run_bash` is bounded by a
+//! * **Background jobs** — [`kymido_harness_jobs`]. `run_bash` is bounded by a
 //!   30s timeout (`crates/agent/tools/src/bash.rs`), so a build or a test suite
 //!   that runs longer is killed mid-flight with no way to observe it. A job is
 //!   started via `jobs_start`, returns an id immediately, and is polled with
 //!   `jobs_wait` / `jobs_list`.
-//! * **Persistent terminals** — [`omenic_harness_terminal`]. Each `run_bash`
+//! * **Persistent terminals** — [`kymido_harness_terminal`]. Each `run_bash`
 //!   call gets a fresh shell, so `cd`, exported variables and an interactive
 //!   program cannot survive between calls. A terminal session holds a real pty
 //!   open across calls.
@@ -284,7 +284,7 @@ fn run_command(
     let drain = |h: std::thread::JoinHandle<Vec<u8>>, which: &str| -> String {
         match h.join() {
             Ok(buf) => String::from_utf8_lossy(&buf).into_owned(),
-            Err(_) => format!("[omenic] the {which} reader thread panicked; output lost"),
+            Err(_) => format!("[kymido] the {which} reader thread panicked; output lost"),
         }
     };
     let stdout = drain(out_reader, "stdout");
@@ -322,7 +322,7 @@ fn kill_tree(pid: u32) -> bool {
     // here. Anything else means the group outlived the kill.
     let gone = err.raw_os_error() == Some(3);
     if !gone {
-        eprintln!("omenic: kill(-{pid}, SIGKILL) failed: {err}");
+        eprintln!("kymido: kill(-{pid}, SIGKILL) failed: {err}");
     }
     gone
 }

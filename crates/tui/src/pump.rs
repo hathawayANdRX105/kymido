@@ -28,7 +28,7 @@ pub(crate) const KEEPALIVE: Duration = Duration::from_secs(5);
 pub(crate) fn spawn(sub: RunFilteredSubscription) -> std::io::Result<Receiver<AgentEvent>> {
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
-        .name("oi-tui-pump".into())
+        .name("kymido-tui-pump".into())
         .spawn(move || pump_loop(sub, tx))?;
     Ok(rx)
 }

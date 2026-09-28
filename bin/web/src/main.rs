@@ -1,4 +1,4 @@
-//! oi-web — Dioxus LiveView 壳入口（bin/web 即入口 crate，组件/页面/状态在 crates/web/）。
+//! kymido-web — Dioxus LiveView 壳入口（bin/web 即入口 crate，组件/页面/状态在 crates/web/）。
 
 mod app;
 

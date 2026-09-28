@@ -183,7 +183,7 @@ pub fn initialize(transport: &dyn McpTransport, signal: &AtomicBool) -> Result<V
     let params = json!({
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {},
-        "clientInfo": {"name": "omenic", "version": env!("CARGO_PKG_VERSION")},
+        "clientInfo": {"name": "kymido", "version": env!("CARGO_PKG_VERSION")},
     });
     let result = request(transport, "initialize", &params, signal)?;
     transport.notify(&notification_line("notifications/initialized", &json!({})))?;

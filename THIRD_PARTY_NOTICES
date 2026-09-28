@@ -1,18 +1,18 @@
 MIT License
 
-omenic is licensed under the MIT License below. The contents of
+kymido is licensed under the MIT License below. The contents of
 `crates/prompts/prompts/` are verbatim copies from **oh-my-pi**
 (also called "omp"), a third-party agent harness also licensed
 under the MIT License; see the Third-Party Notices section at the
 bottom of this file for attribution and re-sync procedure.
 
 ===============================================================================
-omenic main license
+kymido main license
 ===============================================================================
 
 MIT License
 
-Copyright (c) 2026 omenic authors
+Copyright (c) 2026 kymido authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -108,7 +108,7 @@ the **MIT License**:
 
 Full upstream license: <https://github.com/can1357/oh-my-pi/blob/main/LICENSE>
 
-The MIT terms above are compatible with omenic's own MIT
+The MIT terms above are compatible with kymido's own MIT
 declaration. This notice exists to attribute the copied text
 to its original authors and to make the re-sync procedure
 unambiguous; the redistribution rights are unaffected.

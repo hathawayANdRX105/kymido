@@ -68,12 +68,12 @@ fn read_until(
 /// `pwd; echo …` and stopped, never seeing `/tmp`.
 ///
 /// Counting bytes is not the fix; removing the ambiguity is. Bash builds the
-/// sentinel from two pieces (`printf '\n__OMENIC_%s__\n' DONE`), so the literal
-/// `__OMENIC_DONE__` never appears in the written line — therefore **any**
+/// sentinel from two pieces (`printf '\n__KYMIDO_%s__\n' DONE`), so the literal
+/// `__KYMIDO_DONE__` never appears in the written line — therefore **any**
 /// occurrence on the read side is genuine output, and one occurrence suffices.
 fn run_and_wait(reg: &TerminalRegistry, id: &TerminalId, cmd: &str, ms: u64) -> String {
-    const SENTINEL: &str = "__OMENIC_DONE__";
-    let line = format!("{cmd}; printf '\\n__OMENIC_%s__\\n' DONE\n");
+    const SENTINEL: &str = "__KYMIDO_DONE__";
+    let line = format!("{cmd}; printf '\\n__KYMIDO_%s__\\n' DONE\n");
     reg.write(id, &line).expect("write");
     read_until(reg, id, ms, |s| s.contains(SENTINEL))
 }

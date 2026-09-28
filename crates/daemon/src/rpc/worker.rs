@@ -126,7 +126,7 @@ pub struct Worker {
     /// `None` once the pump thread owns the client.
     client: Option<super::client::Client>,
     pump: Option<Pump>,
-    /// omenic 自家引擎模式（OMENIC_WORKER_MODE=orbit）：进程内跑 orbit
+    /// kymido 自家引擎模式（KYMIDO_WORKER_MODE=orbit）：进程内跑 orbit
     /// agent 循环（C1），事件词汇与 omp 转发层完全一致。None = omp 模式。
     orbit: Option<OrbitEngine>,
     /// Last `abort` was a user request (ESC), not a kill/teardown. The
@@ -200,7 +200,7 @@ pub struct OrbitConfig {
     /// configured, or every server skipped) leaves engine behavior
     /// identical to the pre-MCP engine.
     pub mcp_tools: std::sync::Arc<Vec<std::sync::Arc<dyn tools::Tool>>>,
-    /// Job and terminal tools (`omenic-harness-tools::jobs_terminal`), shared
+    /// Job and terminal tools (`kymido-harness-tools::jobs_terminal`), shared
     /// like `mcp_tools` and for the same reason: the registries they act on
     /// must outlive any single engine. A job started in one turn has to still
     /// be listable in the next, and a terminal session has to survive the tool
@@ -232,7 +232,7 @@ pub struct OrbitSetup {
     pub config: OrbitConfig,
 }
 
-/// harness `Tool` -> omenic `tools::Tool`. orbit's loop dispatches
+/// harness `Tool` -> kymido `tools::Tool`. orbit's loop dispatches
 /// `&[Box<dyn tools::Tool>]`; the container's catalog speaks the harness
 /// trait. The two are deliberately not unified (C6) — this shim is the whole
 /// bridge, built once per engine.
@@ -374,10 +374,10 @@ pub fn combined_tools(
     tools
 }
 
-/// omenic 自家引擎（OMENIC_WORKER_MODE=orbit）：进程内跑 orbit agent
+/// kymido 自家引擎（KYMIDO_WORKER_MODE=orbit）：进程内跑 orbit agent
 /// 循环（C1 `run_agent_streaming`），把 protocol::events::AgentEvent 1:1 映射成
 /// [`WorkerEvent`]（词汇与 omp 转发层一致，下游零改动）。模型配置由
-/// DaemonConfig 从 `.oi/config.toml` 的 llm 三件套解析后传入；cwd /
+/// DaemonConfig 从 `.kymido/config.toml` 的 llm 三件套解析后传入；cwd /
 /// max_turns / 压缩策略 / 工具集由宿主从装配容器解析后经
 /// [`OrbitSetup`] 传入。
 struct OrbitEngine {
@@ -477,7 +477,7 @@ impl OrbitEngine {
         let run_steering = std::sync::Arc::clone(&engine.steering_queue);
         let run_aside = std::sync::Arc::clone(&engine.aside_queue);
         std::thread::Builder::new()
-            .name("omenic-orbit-worker".into())
+            .name("kymido-orbit-worker".into())
             .spawn(move || {
                 while let Ok(message) = run_rx.recv() {
                     run_abort.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -684,7 +684,7 @@ impl Worker {
         }
     }
 
-    /// omp 兼容构造（`orbit` 为 None）或 omenic 自家引擎（Some：模型 +
+    /// omp 兼容构造（`orbit` 为 None）或 kymido 自家引擎（Some：模型 +
     /// 后端 + 容器解析出的 [`OrbitConfig`]）。
     pub fn new(omp_path: &str, orbit: Option<OrbitSetup>) -> Result<Self, super::client::RpcError> {
         if let Some(setup) = orbit {
@@ -760,7 +760,7 @@ impl Worker {
         let pid = client.child_pid();
         let subs_for_pump = std::sync::Arc::clone(&subs);
         let handle = std::thread::Builder::new()
-            .name("omenic-rpc-pump".into())
+            .name("kymido-rpc-pump".into())
             .spawn(move || run_pump(client, job_rx, &subs_for_pump))
             .expect("spawn event pump");
         self.pump = Some(Pump {

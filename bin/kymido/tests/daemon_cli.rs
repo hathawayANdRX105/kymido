@@ -1,7 +1,7 @@
 //! End-to-end CLI tests for daemon lifecycle and session attach/resume.
 //!
 //! Same pattern as `session_cli.rs`: an in-process daemon on a tempdir socket,
-//! the real `oi` binary as a subprocess, no cloud API keys involved. The
+//! the real `kymido` binary as a subprocess, no cloud API keys involved. The
 //! worker-spawn failure path (missing omp binary) is exercised deliberately:
 //! `session resume` must surface a structured error AND leave a `spawn_failed`
 //! record in the run ledger — that is the main-flow coverage #310 asks for.
@@ -46,13 +46,13 @@ fn run_oi(
     args: &[&str],
     extra: &[(&str, &str)],
 ) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let mut cmd = Command::new(exe);
     cmd.args(args)
-        .env("OMENIC_DATA_DIR", data_dir)
-        .env("OMENIC_DAEMON_SOCKET", socket)
-        .env("OMENIC_SESSION_DB", db)
-        .env("OMENIC_OMP_PATH", "omp-not-installed-for-cli-tests");
+        .env("KYMIDO_DATA_DIR", data_dir)
+        .env("KYMIDO_DAEMON_SOCKET", socket)
+        .env("KYMIDO_SESSION_DB", db)
+        .env("KYMIDO_OMP_PATH", "omp-not-installed-for-cli-tests");
     for (k, v) in extra {
         cmd.env(k, v);
     }
@@ -60,7 +60,7 @@ fn run_oi(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("spawn oi");
+        .expect("spawn kymido");
     (
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -81,7 +81,7 @@ fn daemon_start_reports_already_running() {
         &sock,
         &db,
         &["daemon", "start"],
-        &[("OMENIC_DAEMON_PATH", "/nonexistent-must-not-be-used")],
+        &[("KYMIDO_DAEMON_PATH", "/nonexistent-must-not-be-used")],
     );
     assert!(ok, "stderr: {stderr}");
     assert!(stdout.contains("already running"), "stdout: {stdout}");
@@ -99,7 +99,7 @@ fn daemon_start_errors_when_binary_missing() {
         &sock,
         &db,
         &["daemon", "start"],
-        &[("OMENIC_DAEMON_PATH", "/nonexistent/daemon")],
+        &[("KYMIDO_DAEMON_PATH", "/nonexistent/daemon")],
     );
     assert!(!ok);
     assert!(

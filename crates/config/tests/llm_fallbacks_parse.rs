@@ -6,9 +6,9 @@
 use std::path::PathBuf;
 
 fn write_config(dir: &std::path::Path) -> PathBuf {
-    let oi_dir = dir.join(".oi");
-    std::fs::create_dir_all(&oi_dir).expect("create .oi dir");
-    let path = oi_dir.join("config.toml");
+    let kymido_dir = dir.join(".kymido");
+    std::fs::create_dir_all(&kymido_dir).expect("create .kymido dir");
+    let path = kymido_dir.join("config.toml");
     std::fs::write(
         &path,
         r#"

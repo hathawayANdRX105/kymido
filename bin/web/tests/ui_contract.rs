@@ -7,7 +7,7 @@
 //!    且含 name / target / anchors（非空）；每个锚点带 find / expect /
 //!    source 字段。
 //! b) 源码锚点抽查 —— 每个锚点的 find 关键字（稳定的 class 片段或静态
-//!    字面量）必须出现在其 omenic 实现文件中（spec 顶层 target，或锚点级
+//!    字面量）必须出现在其 kymido 实现文件中（spec 顶层 target，或锚点级
 //!    file 覆盖）。刻意避开数据接线代码（并行 5.2a 分支正在改逻辑段），
 //!    只锚样式与静态结构。
 //!
@@ -108,10 +108,10 @@ fn ui_specs_dir_has_no_unregistered_files() {
     assert_eq!(actual, expected, ".githooks/spec 与 SPEC_FILES 登记不一致");
 }
 
-/// b) 源码锚点抽查：find 关键字必须出现在对应 omenic 实现文件中。
+/// b) 源码锚点抽查：find 关键字必须出现在对应 kymido 实现文件中。
 ///    文件解析顺序：锚点级 file 覆盖 → spec 顶层 target（相对仓库根）。
 #[test]
-fn anchors_exist_in_omenic_sources() {
+fn anchors_exist_in_kymido_sources() {
     for name in SPEC_FILES {
         let spec = parse_spec(name);
         let default_target = str_field(&spec, "target", name).to_string();

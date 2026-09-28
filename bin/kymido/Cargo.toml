@@ -6,7 +6,7 @@ description = "Task-driven agent orchestrator CLI"
 license = "MIT"
 
 [[bin]]
-name = "oi"
+name = "kymido"
 path = "src/main.rs"
 
 [dependencies]
@@ -20,7 +20,7 @@ subagent = { path = "../../crates/subagent" }
 mcp = { path = "../../crates/mcp" }
 daemon = { path = "../../crates/daemon" }
 session = { path = "../../crates/session" }
-tui = { path = "../../crates/tui", package = "omenic-tui" }
+tui = { path = "../../crates/tui", package = "kymido-tui" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }

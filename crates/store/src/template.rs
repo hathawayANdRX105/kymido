@@ -159,7 +159,7 @@ pub fn load_template(dir: &Path, name: &str) -> Result<TemplateDef, String> {
         }
     }
     Err(format!(
-        "template `{name}` not found in {} (run `oi init` or add the file)",
+        "template `{name}` not found in {} (run `kymido init` or add the file)",
         dir.join("templates").display()
     ))
 }

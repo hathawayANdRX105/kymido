@@ -57,7 +57,7 @@ Related #
 - [ ] diff 只服务于关联的主 Issue。
 - [ ] 已执行上面列出的测试或手动验证；如果不适用，已说明原因。
 - [ ] Rust 改动已执行 `cargo fmt --check` / `clippy -- -D warnings` 及相关测试。
-- [ ] CLI 变化已覆盖 `omenic` 典型命令（task add / plan / run / steer 等）。
+- [ ] CLI 变化已覆盖 `kymido` 典型命令（task add / plan / run / steer 等）。
 
 <!--
 ===========================================================================

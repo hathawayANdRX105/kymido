@@ -79,7 +79,7 @@ fn broken_mcp_server_is_skipped_by_default_and_config_round_trips() {
 }
 
 /// `DaemonConfig::from_config` carries `Config.mcp_servers` through — the
-/// `[[mcp.servers]]` list from `.oi/config.toml` is what bring-up consumes.
+/// `[[mcp.servers]]` list from `.kymido/config.toml` is what bring-up consumes.
 #[test]
 fn from_config_carries_mcp_servers() {
     let dir = tempdir().expect("temp dir");

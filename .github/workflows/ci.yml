@@ -169,7 +169,7 @@ jobs:
 
   # Batch smoke: the P1 plan-mode feature end-to-end through a real daemon
   # socket (test LLM calls exit_plan_mode, user.answer approves) plus the
-  # `oi profile` CLI against the real binary. Kept as its own job so a
+  # `kymido profile` CLI against the real binary. Kept as its own job so a
   # feature-level regression names itself instead of hiding in the suite.
   smoke:
     runs-on: ubuntu-latest
@@ -202,17 +202,17 @@ jobs:
       # T1 linear pipe smoke (route-tui §6): real daemon + one full turn over
       # a pipe — zero ESC bytes on stdout, exit 0; unknown --session = one-line
       # error, exit 2; then `session attach` proves the turn landed in the DB.
-      # LLM traffic goes to a throwaway SSE test server via OMENIC_LLM_BASE_URL (same
+      # LLM traffic goes to a throwaway SSE test server via KYMIDO_LLM_BASE_URL (same
       # idea as plan_mode_e2e's MockOpenAi), so no API key is needed.
       - name: TUI linear pipe smoke
         run: |
           set -euo pipefail
-          cargo build --locked --bin oi --bin daemon
+          cargo build --locked --bin kymido --bin daemon
 
           TMP="$RUNNER_TEMP/tui-smoke"
           mkdir -p "$TMP"
-          export OMENIC_DAEMON_SOCKET="$TMP/daemon.sock"
-          export OMENIC_DATA_DIR="$TMP"
+          export KYMIDO_DAEMON_SOCKET="$TMP/daemon.sock"
+          export KYMIDO_DATA_DIR="$TMP"
 
           cat > "$TMP/test_openai.py" <<'PY'
           import http.server, json, sys
@@ -251,19 +251,19 @@ jobs:
           }
 
           cleanup() {
-            ./target/debug/oi daemon stop >/dev/null 2>&1 || true
+            ./target/debug/kymido daemon stop >/dev/null 2>&1 || true
             kill "$STUB_PID" 2>/dev/null || true
           }
           trap cleanup EXIT
 
-          export OMENIC_LLM_BASE_URL="http://127.0.0.1:18099"
-          export OMENIC_LLM_API_KEY="test-key"
-          export OMENIC_LLM_MODEL="test-model"
-          ./target/debug/oi daemon start
+          export KYMIDO_LLM_BASE_URL="http://127.0.0.1:18099"
+          export KYMIDO_LLM_API_KEY="test-key"
+          export KYMIDO_LLM_MODEL="test-model"
+          ./target/debug/kymido daemon start
 
           # 1) pipe full turn: linear echo, zero ESC bytes, exit 0
           rc=0
-          printf '数到三\n' | ./target/debug/oi tui --tui linear >"$TMP/linear.out" || rc=$?
+          printf '数到三\n' | ./target/debug/kymido tui --tui linear >"$TMP/linear.out" || rc=$?
           echo "--- linear stdout (cat -v) ---"
           cat -v "$TMP/linear.out"
           echo "--- linear exit=$rc ---"
@@ -273,7 +273,7 @@ jobs:
 
           # 2) unknown --session: one-line error, exit 2, no ESC
           rc=0
-          ./target/debug/oi tui --tui linear --session nosuch \
+          ./target/debug/kymido tui --tui linear --session nosuch \
             >"$TMP/nosuch.out" 2>"$TMP/nosuch.err" || rc=$?
           cat "$TMP/nosuch.out" "$TMP/nosuch.err" >"$TMP/nosuch.all"
           echo "--- nosuch combined (cat -v) ---"
@@ -284,15 +284,15 @@ jobs:
           test "$(grep -c . "$TMP/nosuch.all")" -eq 1
 
           # 3) the turn really landed in the session DB (two-sided proof)
-          sid=$(./target/debug/oi --json session list "%" --limit 1 | python3 -c \
+          sid=$(./target/debug/kymido --json session list "%" --limit 1 | python3 -c \
             'import json,sys; d=json.load(sys.stdin); rows = d if isinstance(d, list) else (d.get("sessions") or d.get("rows") or []); print(rows[0]["id"])')
-          ./target/debug/oi session attach "$sid" | tee "$TMP/attach.out"
+          ./target/debug/kymido session attach "$sid" | tee "$TMP/attach.out"
           grep -q "数到三" "$TMP/attach.out"
           grep -q "hello from the test backend" "$TMP/attach.out"
 
       # T18 PTY smoke (route-tui §3 T18): the TUI's real-terminal evidence,
       # which the pipe smoke above structurally cannot produce — pipe stdin
-      # never satisfies the mode probe (TTY + colour + >=44x12), so `oi tui`
+      # never satisfies the mode probe (TTY + colour + >=44x12), so `kymido tui`
       # would fall back to linear and the enhanced shell would go untested.
       # A real pty at 100x30 with colour support, keystrokes in as bytes, and
       # sentinels matched after a settle-wait (no bare sleeps guessing at
@@ -300,17 +300,17 @@ jobs:
       #
       # A step here, not its own job: the workspace cold build does not fit
       # in a fresh job's budget (run 36297952884 timed out at 15 min still
-      # downloading deps), while this job already builds `oi` and `daemon`
+      # downloading deps), while this job already builds `kymido` and `daemon`
       # for the pipe smoke above. The step name is what names the regression.
       - name: TUI enhanced pty smoke
         run: |
           set -euo pipefail
-          cargo build --locked --bin oi --bin daemon
+          cargo build --locked --bin kymido --bin daemon
 
           TMP="$RUNNER_TEMP/tui-pty-smoke"
           mkdir -p "$TMP"
-          export OMENIC_DAEMON_SOCKET="$TMP/daemon.sock"
-          export OMENIC_DATA_DIR="$TMP"
+          export KYMIDO_DAEMON_SOCKET="$TMP/daemon.sock"
+          export KYMIDO_DATA_DIR="$TMP"
 
           # Same throwaway SSE backend as the pipe smoke above: no API key, no
           # outbound traffic, one full turn available to the daemon.
@@ -351,15 +351,15 @@ jobs:
           }
 
           cleanup() {
-            ./target/debug/oi daemon stop >/dev/null 2>&1 || true
+            ./target/debug/kymido daemon stop >/dev/null 2>&1 || true
             kill "$STUB_PID" 2>/dev/null || true
           }
           trap cleanup EXIT
 
-          export OMENIC_LLM_BASE_URL="http://127.0.0.1:18100"
-          export OMENIC_LLM_API_KEY="test-key"
-          export OMENIC_LLM_MODEL="test-model"
-          ./target/debug/oi daemon start
+          export KYMIDO_LLM_BASE_URL="http://127.0.0.1:18100"
+          export KYMIDO_LLM_API_KEY="test-key"
+          export KYMIDO_LLM_MODEL="test-model"
+          ./target/debug/kymido daemon start
 
           # The pty driver: stdlib only (no repo dependency, no extra package).
           # `settle` = read until the stream goes quiet for QUIET_MS, so a
@@ -506,7 +506,7 @@ jobs:
 
           rc=0
           python3 "$TMP/pty_drive.py" \
-            "./target/debug/oi tui" >"$TMP/pty.log" 2>&1 || rc=$?
+            "./target/debug/kymido tui" >"$TMP/pty.log" 2>&1 || rc=$?
           cat "$TMP/pty.log"
           echo "--- pty driver exit=$rc ---"
           exit "$rc"

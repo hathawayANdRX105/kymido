@@ -230,7 +230,7 @@ fn truncate_to_bytes(s: &str, cap: usize, id: u32) -> String {
     // unique, but the caller already prefixes with a stable id; pid alone
     // is enough to avoid clobbering sibling spills in the same CLI run.
     let spill_path =
-        std::path::Path::new(tools::SPILL_DIR).join(format!("oi-subagent-{pid}-{id}.txt"));
+        std::path::Path::new(tools::SPILL_DIR).join(format!("kymido-subagent-{pid}-{id}.txt"));
     let _ = std::fs::write(&spill_path, s);
     format!(
         "[output truncated: showing first {end} of {} bytes. full output: {}]\n{}",

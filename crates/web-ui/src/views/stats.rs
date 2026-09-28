@@ -1,6 +1,6 @@
 //! 数据统计页（dsh 设计语言重刷）：KPI 卡、指标带、三列主体。
 //!
-//! G5/5.7：数据源从 `omenic-web-mock` 换成 daemon 的 `stats.summary`
+//! G5/5.7：数据源从 `kymido-web-mock` 换成 daemon 的 `stats.summary`
 //! （run ledger 聚合，见 `daemon::state::aggregate_stats`）。
 //!
 //! 两条硬约束写在这里，避免后续误改：
@@ -119,7 +119,7 @@ pub struct Feed {
 pub fn StatsView() -> Element {
     let mut selected_range = use_signal(|| "24h".to_string());
 
-    // daemon 探测只做一次：socket 由 `OMENIC_DAEMON_SOCKET` / 平台配置目录
+    // daemon 探测只做一次：socket 由 `KYMIDO_DAEMON_SOCKET` / 平台配置目录
     // 决定（见 `WebDaemon::from_env_or_default`），不必读配置文件。
     // ping 不通 → None → 全页空态。
     let daemon = use_signal(|| {

@@ -3,7 +3,7 @@
 //! hook → `agent_loop::orbit::compact_context` → harness `compact_with`) with no live
 //! LLM and no network.
 //!
-//! G3 acceptance ② — "`oi` starts one >120k-char long session and the
+//! G3 acceptance ② — "`kymido` starts one >120k-char long session and the
 //! compaction path survives end to end (checkpoint snapshot + keep-original
 //! on failure)". Every size below is measured with the policy's own
 //! `message_chars`, so the trigger is the genuine context size rather than

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "bin/kymic", "bin/web",
+  "bin/kymido", "bin/web",
   "crates/daemon", "crates/protocol", "crates/llm", "crates/mcp",
   "crates/agent-loop", "crates/tools", "crates/subagent",
   "crates/skill", "crates/plan-mode", "crates/guard",

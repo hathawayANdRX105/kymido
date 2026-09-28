@@ -347,7 +347,7 @@ impl TerminalRegistry {
         // running, and the caller deserves to know the signal did not land.
         let gone = err.raw_os_error() == Some(3);
         if !gone {
-            eprintln!("omenic: kill(-{sid}, {signal}) failed: {err}");
+            eprintln!("kymido: kill(-{sid}, {signal}) failed: {err}");
         }
         gone
     }
@@ -418,7 +418,7 @@ impl TerminalRegistry {
         let reader = pair.master.try_clone_reader()?;
         let reader_inner = Arc::clone(&inner);
         std::thread::Builder::new()
-            .name("omenic-pty-reader".into())
+            .name("kymido-pty-reader".into())
             .spawn(move || {
                 let mut reader = reader;
                 let mut chunk = [0u8; 8192];

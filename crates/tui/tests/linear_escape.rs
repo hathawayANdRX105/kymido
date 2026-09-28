@@ -7,7 +7,7 @@
 //! 注入的转义序列必须被 sanitize 滤掉，渲染器自己也不写任何转义序列。
 //! enhanced 恒走另一条渲染路径，改不掉这条（route §8 的 TUI/C-Sem 恒保留）。
 
-use omenic_tui::render_linear_line;
+use kymido_tui::render_linear_line;
 use web_state::ui_state::{AgentEvent, UiState};
 
 /// ESC——所有 C0 转义的引导字节；出现即违反 route §8。

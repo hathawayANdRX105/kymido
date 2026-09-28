@@ -11,7 +11,7 @@ use tools::{Tool, ToolError};
 
 fn temp_dir(test_name: &str) -> PathBuf {
     let dir =
-        std::env::temp_dir().join(format!("omenic_test_{}_{}", test_name, std::process::id()));
+        std::env::temp_dir().join(format!("kymido_test_{}_{}", test_name, std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

@@ -2,7 +2,7 @@
 //!
 //! 输入是 `session` crate 的 serde 形状（daemon 协议原样透传），输出是
 //! [`crate::types`] 里页面/组件消费的 DTO。不碰网络、不碰信号，方便
-//! 单测与在 `omenic-web-client` 的 daemon 封装里复用。
+//! 单测与在 `kymido-web-client` 的 daemon 封装里复用。
 
 use std::collections::HashMap;
 

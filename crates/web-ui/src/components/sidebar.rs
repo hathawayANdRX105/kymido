@@ -10,12 +10,12 @@ use ui_kit::icons::{
     IconChartBar, IconFolder, IconGear, IconPanelLeft, IconPlus, IconSearch, IconTrash,
 };
 
-/// 品牌字标（Logo 行）：omenic + 品牌蓝圆点。品牌字标属业务身份，不进 ui-kit。
+/// 品牌字标（Logo 行）：kymido + 品牌蓝圆点。品牌字标属业务身份，不进 ui-kit。
 #[component]
 fn Wordmark() -> Element {
     rsx! {
         span { class: "flex items-baseline gap-1.5 select-none",
-            span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "omenic" }
+            span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "kymido" }
             span { class: "w-1.5 h-1.5 rounded-full bg-brand translate-y-[-2px]" }
         }
     }

@@ -404,7 +404,7 @@ tasks:
     title: "issue: generate spec + create GitHub issue"
     kind: task
     description: |
-      生成 issue spec 正文（oi spec new issue）；通过 gh-gate 创建 GitHub issue；
+      生成 issue spec 正文（kymido spec new issue）；通过 gh-gate 创建 GitHub issue；
       校验 issue 层级与正文符合 spec 规则。
     acceptance: |
       GitHub issue 已创建；spec check 通过。
@@ -446,7 +446,7 @@ tasks:
     title: "pr: generate spec + create PR"
     kind: task
     description: |
-      生成 PR spec 正文（oi pr render + oi spec new pr）；通过 gh-gate 创建 PR；
+      生成 PR spec 正文（kymido pr render + kymido spec new pr）；通过 gh-gate 创建 PR；
       校验 PR 关联与规范。
     acceptance: |
       PR 已创建；spec check 通过。

@@ -2,8 +2,8 @@
 //!
 //! Each test:
 //! 1. Picks a unique socket + DB path in a tempdir
-//! 2. Spawns a daemon with `OMENIC_DAEMON_SOCKET` / `OMENIC_SESSION_DB` set
-//! 3. Runs `oi session <cmd>` against the daemon
+//! 2. Spawns a daemon with `KYMIDO_DAEMON_SOCKET` / `KYMIDO_SESSION_DB` set
+//! 3. Runs `kymido session <cmd>` against the daemon
 //! 4. Asserts on the parsed JSON output
 
 use std::os::unix::net::UnixStream;
@@ -15,7 +15,7 @@ use std::time::Duration;
 use daemon::{Daemon, DaemonConfig};
 use tempfile::TempDir;
 
-/// Spawn the test binary's daemon against a tempdir. `OMENIC_OMP_PATH` is
+/// Spawn the test binary's daemon against a tempdir. `KYMIDO_OMP_PATH` is
 /// pointed at a non-existent binary so the daemon never tries to launch a
 /// worker — only `daemon.*` / `session.*` commands are exercised.
 fn start_daemon(dir: &Path, tag: &str) -> Daemon {
@@ -54,21 +54,21 @@ fn wait_for_socket(path: &Path) {
     panic!("daemon socket never came up: {path:?}");
 }
 
-/// Run the test binary (`oi`) against the daemon's socket and return
+/// Run the test binary (`kymido`) against the daemon's socket and return
 /// `(stdout, stderr, success)`. `data_dir` is set so the CLI's Config::load
 /// picks up the same socket via the same env vars as the daemon.
 fn run_oi(data_dir: &Path, socket: &Path, db: &Path, args: &[&str]) -> (String, String, bool) {
-    let exe = env!("CARGO_BIN_EXE_oi");
+    let exe = env!("CARGO_BIN_EXE_kymido");
     let output = Command::new(exe)
         .args(args)
-        .env("OMENIC_DATA_DIR", data_dir)
-        .env("OMENIC_DAEMON_SOCKET", socket)
-        .env("OMENIC_SESSION_DB", db)
-        .env("OMENIC_OMP_PATH", "omp-not-installed-for-cli-tests")
+        .env("KYMIDO_DATA_DIR", data_dir)
+        .env("KYMIDO_DAEMON_SOCKET", socket)
+        .env("KYMIDO_SESSION_DB", db)
+        .env("KYMIDO_OMP_PATH", "omp-not-installed-for-cli-tests")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("spawn oi");
+        .expect("spawn kymido");
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     (stdout, stderr, output.status.success())

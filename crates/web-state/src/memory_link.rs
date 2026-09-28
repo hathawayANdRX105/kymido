@@ -50,13 +50,13 @@ pub fn drain_injection(sid: &str, context: &mut llm::Context, now: u64) -> bool 
     }
 }
 
-/// Embedder from the environment: `OMENIC_EMBED_URL` + `OMENIC_EMBED_KEY` +
-/// `OMENIC_EMBED_MODEL`. Absent → `None`, and extraction results fall back
+/// Embedder from the environment: `KYMIDO_EMBED_URL` + `KYMIDO_EMBED_KEY` +
+/// `KYMIDO_EMBED_MODEL`. Absent → `None`, and extraction results fall back
 /// to plain appends (no cosine dedup).
 pub fn embedder_from_env() -> Option<impl memory::Embedder> {
-    let url = std::env::var("OMENIC_EMBED_URL").ok()?;
-    let key = std::env::var("OMENIC_EMBED_KEY").ok()?;
-    let model = std::env::var("OMENIC_EMBED_MODEL").ok()?;
+    let url = std::env::var("KYMIDO_EMBED_URL").ok()?;
+    let key = std::env::var("KYMIDO_EMBED_KEY").ok()?;
+    let model = std::env::var("KYMIDO_EMBED_MODEL").ok()?;
     Some(memory::OpenAIEmbeddings::new(url, key, model))
 }
 

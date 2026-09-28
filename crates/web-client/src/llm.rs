@@ -1,4 +1,4 @@
-//! Real LLM integration and configuration persistence for omenic web.
+//! Real LLM integration and configuration persistence for kymido web.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -77,18 +77,22 @@ impl Default for LlmRuntimeConfig {
 }
 
 impl LlmRuntimeConfig {
-    /// Load settings from `.oi/config.toml`, environment variables, or fallback to local new-api.
+    /// Load settings from `.kymido/config.toml`, environment variables, or fallback to local new-api.
     pub fn load_from_system() -> Self {
         let mut base_url = "http://127.0.0.1:3182".to_string();
         let mut api_key = "sk-config-not-set".to_string();
         let mut model = "agnes-2.5-flash".to_string();
         let mut max_tokens = 4096;
-        let mut data_dir = "./.oi".to_string();
+        let mut data_dir = "./.kymido".to_string();
         let mut mcp_servers = Vec::new();
         let mut llm_fallbacks = Vec::new();
 
         // 1. Try reading config.toml
-        for path in ["./.oi/config.toml", "../.oi/config.toml", "omenic.toml"] {
+        for path in [
+            "./.kymido/config.toml",
+            "../.kymido/config.toml",
+            "kymido.toml",
+        ] {
             if let Ok(content) = std::fs::read_to_string(path) {
                 if let Ok(value) = content.parse::<toml::Value>() {
                     if let Some(d) = value.get("data_dir").and_then(|v: &toml::Value| v.as_str()) {
@@ -151,14 +155,14 @@ impl LlmRuntimeConfig {
         // 2. Env overrides
         if let Ok(v) = std::env::var("NEWAPI_RELAY_TOKEN") {
             api_key = v;
-        } else if let Ok(v) = std::env::var("OMENIC_LLM_API_KEY") {
+        } else if let Ok(v) = std::env::var("KYMIDO_LLM_API_KEY") {
             api_key = v;
         }
 
-        if let Ok(v) = std::env::var("OMENIC_LLM_BASE_URL") {
+        if let Ok(v) = std::env::var("KYMIDO_LLM_BASE_URL") {
             base_url = v;
         }
-        if let Ok(v) = std::env::var("OMENIC_LLM_MODEL") {
+        if let Ok(v) = std::env::var("KYMIDO_LLM_MODEL") {
             model = v;
         }
 
@@ -173,7 +177,7 @@ impl LlmRuntimeConfig {
         }
     }
 
-    /// Persist to `.oi/config.toml`.
+    /// Persist to `.kymido/config.toml`.
     ///
     /// **增量写回**：若文件已存在，用 [`toml_edit::DocumentMut`] 只更新本结构体
     /// 管理的键——根表的 `omp_path` / `data_dir` / `model`、`[llm]` 段下的
@@ -240,7 +244,7 @@ impl LlmRuntimeConfig {
     /// 到全量写时整张 `[[mcp.servers]]` 会被静默丢掉。
     fn write_full_config(&self, target_path: &Path, omp_path: Option<&str>) -> Result<(), String> {
         let mut toml_content = format!(
-            "# omenic configuration\n\
+            "# kymido configuration\n\
              omp_path = \"{}\"\n\
              data_dir = \"{}\"\n\
              model = \"{}\"\n\n\

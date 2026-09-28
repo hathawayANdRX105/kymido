@@ -5,7 +5,7 @@
 //! 这里的 fake search 代替 daemon 侧 `search_sessions`。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use omenic_tui::ui::session_picker::{PickerAction, PickerItem, PickerState, RunBadge, render};
+use kymido_tui::ui::session_picker::{PickerAction, PickerItem, PickerState, RunBadge, render};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;

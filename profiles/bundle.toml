@@ -1,8 +1,8 @@
 # bundle profile —— 全家桶：orbit worker + 瀑布回退 + MCP 工具 + 子代理 + 持久记忆。
-# 用法：oi profile apply bundle（.oi/config.toml 已存在时拒绝覆盖）。
+# 用法：oi profile apply bundle（.kymido/config.toml 已存在时拒绝覆盖）。
 # 每一节都可整段删掉：删了即回 boot 形态，注释掉的段是同一形状的模板。
 omp_path = "omp"
-data_dir = "./.oi"
+data_dir = "./.kymido"
 model = "default"
 
 [llm]

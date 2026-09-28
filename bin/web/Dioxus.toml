@@ -1,9 +1,9 @@
 [application]
-name = "oi-web"
+name = "kymido-web"
 default_platform = "web"
 
 [web.app]
-title = "omenic"
+title = "kymido"
 
 [web.watcher]
 reload_html = true

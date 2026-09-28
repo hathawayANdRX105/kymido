@@ -1,12 +1,12 @@
 //! Wire-shaped chat message DTO.
 //!
-//! Mirrors the omenic agent-domain `llm::Message` shape exactly — same
+//! Mirrors the kymido agent-domain `llm::Message` shape exactly — same
 //! serde field names, same declaration order (JSON `char` accounting in
-//! `omenic-harness-compaction` depends on byte-identical encodings) — so a
+//! `kymido-harness-compaction` depends on byte-identical encodings) — so a
 //! JSON round-trip between the two is lossless. Harness crates speak this
 //! instead of importing the agent domain (harness → agent is forbidden).
 //!
-//! Reference: `omenic crates/agent/adaptor/src/lib.rs` (`Message`/`Block`/
+//! Reference: `kymido crates/agent/adaptor/src/lib.rs` (`Message`/`Block`/
 //! `Content`/`Role`); kept in sync as a DTO mirror, not a redesign.
 
 use serde::{Deserialize, Serialize};

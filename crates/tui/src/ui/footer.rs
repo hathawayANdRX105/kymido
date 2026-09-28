@@ -24,8 +24,8 @@ use crate::theme;
 /// 字段分隔符。
 const SEP: &str = " · ";
 
-/// footer 的 `model` 段数据源：web 设置页同源的运行时配置（`.oi/config.toml`
-/// 根 `model` / `[llm].model` / `OMENIC_LLM_MODEL`）。这是配置里的真实
+/// footer 的 `model` 段数据源：web 设置页同源的运行时配置（`.kymido/config.toml`
+/// 根 `model` / `[llm].model` / `KYMIDO_LLM_MODEL`）。这是配置里的真实
 /// 值，与 web 状态行取的是同一份配置文件，不是 footer 自己编的名字。
 pub fn configured_model() -> String {
     web_client::llm::LlmRuntimeConfig::load_from_system().model

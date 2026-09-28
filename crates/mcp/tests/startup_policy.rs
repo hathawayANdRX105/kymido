@@ -38,7 +38,7 @@ fn unwrap_err<T>(res: Result<T, McpError>, msg: &str) -> McpError {
     }
 }
 
-const GHOST: &str = "definitely-not-a-real-binary-omenic";
+const GHOST: &str = "definitely-not-a-real-binary-kymido";
 
 #[test]
 fn absent_flag_skips_failing_server() {
@@ -70,7 +70,7 @@ fn fail_flag_aborts_before_later_servers() {
     let signal = AtomicBool::new(false);
     let mut bad = server("ghost", GHOST);
     bad.fail_on_startup_error = Some(true);
-    let later = server("later-ghost", "also-not-a-real-binary-omenic");
+    let later = server("later-ghost", "also-not-a-real-binary-kymido");
     let err = unwrap_err(
         external_tools_from_mcp(&[bad, later], &signal),
         "first failure aborts",
@@ -108,12 +108,12 @@ fn bad_cwd_fails_spawn_with_path_named() {
     // distinguishable from a missing program.
     let signal = AtomicBool::new(false);
     let mut cfg = server("pwd", "pwd");
-    cfg.cwd = Some("/definitely/not/a/dir-omenic".into());
+    cfg.cwd = Some("/definitely/not/a/dir-kymido".into());
     let err = unwrap_err(Mcp::spawn(&cfg, &signal), "bad cwd must fail spawn");
     match err {
         McpError::Spawn(m) => {
             assert!(
-                m.contains("/definitely/not/a/dir-omenic"),
+                m.contains("/definitely/not/a/dir-kymido"),
                 "message must name the cwd: {m}"
             );
         }

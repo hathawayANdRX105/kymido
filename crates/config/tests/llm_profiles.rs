@@ -7,7 +7,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use config::Config;
 
-/// `Config::load` reads `.oi/config.toml` relative to the *process* cwd, so
+/// `Config::load` reads `.kymido/config.toml` relative to the *process* cwd, so
 /// these tests must not run concurrently — one test's temp dir would be
 /// another test's config. Serialized here rather than by `--test-threads=1`
 /// so the rest of the suite keeps its parallelism.
@@ -92,7 +92,7 @@ api_key_env = "OI_TEST_PROFILE_KEY"
 
 /// env 变量没设时退回 inline key，而不是变成"没凭据"或用别的档案。
 ///
-/// （档案激活时 `OMENIC_LLM_*` 覆盖不参与：档案是一整套凭据，混用比忽略更糟。）
+/// （档案激活时 `KYMIDO_LLM_*` 覆盖不参与：档案是一整套凭据，混用比忽略更糟。）
 #[test]
 fn missing_env_falls_back_to_inline_key() {
     let toml = r#"
@@ -160,10 +160,10 @@ api_key = "key-a"
 #[test]
 fn unknown_active_profile_is_unreachable_after_validation() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let oi = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi).expect("create .oi");
+    let kymido = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido).expect("create .kymido");
     std::fs::write(
-        oi.join("config.toml"),
+        kymido.join("config.toml"),
         r#"
 [llm]
 active_profile = "typo"
@@ -191,12 +191,12 @@ api_key = "key-a"
 
 fn parse(toml: &str) -> Config {
     // Same shape as the sibling `llm_fallbacks_parse` test: `Config::load`
-    // reads `.oi/config.toml` relative to the process cwd, so the test
+    // reads `.kymido/config.toml` relative to the process cwd, so the test
     // switches cwd into its own temp dir for the duration of the load.
     let dir = tempfile::tempdir().expect("tempdir");
-    let oi = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi).expect("create .oi");
-    std::fs::write(oi.join("config.toml"), toml).expect("write config");
+    let kymido = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido).expect("create .kymido");
+    std::fs::write(kymido.join("config.toml"), toml).expect("write config");
 
     let _guard = cwd_lock();
     let original = std::env::current_dir().expect("current_dir");
@@ -211,9 +211,9 @@ fn parse(toml: &str) -> Config {
 
 fn parse_err(toml: &str) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
-    let oi = dir.path().join(".oi");
-    std::fs::create_dir_all(&oi).expect("create .oi");
-    std::fs::write(oi.join("config.toml"), toml).expect("write config");
+    let kymido = dir.path().join(".kymido");
+    std::fs::create_dir_all(&kymido).expect("create .kymido");
+    std::fs::write(kymido.join("config.toml"), toml).expect("write config");
     let _guard = cwd_lock();
     let original = std::env::current_dir().expect("current_dir");
     std::env::set_current_dir(dir.path()).expect("switch cwd");

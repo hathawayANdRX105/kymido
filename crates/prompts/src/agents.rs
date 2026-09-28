@@ -3,13 +3,13 @@
 //!
 //! Each constant is the entire contents of a `.md` file under
 //! `crates/infra/prompts/prompts/agents/`. The whole file is the prompt;
-//! omenic sends it verbatim to the LLM with no concatenation. File
+//! kymido sends it verbatim to the LLM with no concatenation. File
 //! names match omp exactly; see the per-role description in each
 //! `.md`'s frontmatter (or body, for `task.md` which has none).
 //!
-//! omenic currently uses only [`TASK`] (via `crates/agent/orbit`) and
+//! kymido currently uses only [`TASK`] (via `crates/agent/orbit`) and
 //! [`SCOUT`] (planned for `crates/agent/subagent/src/config.rs`). The
-//! other 6 roles are kept for future wiring — omenic will adopt them
+//! other 6 roles are kept for future wiring — kymido will adopt them
 //! when it gains the corresponding tooling.
 
 /// Agent profile `designer.md` (verbatim from omp).
@@ -33,6 +33,6 @@ pub const SCOUT: &str = include_str!("../prompts/agents/scout.md");
 /// Agent profile `security-reviewer.md` (verbatim from omp).
 pub const SECURITY_REVIEWER: &str = include_str!("../prompts/agents/security-reviewer.md");
 
-/// Agent profile `task.md` (omp `task.md` + the omenic completion-mark
+/// Agent profile `task.md` (omp `task.md` + the kymido completion-mark
 /// directive: the run ends only on an active `mark_done`, not on silence).
 pub const TASK: &str = include_str!("../prompts/agents/task.md");

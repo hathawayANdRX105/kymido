@@ -110,7 +110,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// 数据后端：唯一真实来源是本机 omenic daemon。初始化连接失败
+/// 数据后端：唯一真实来源是本机 kymido daemon。初始化连接失败
 /// （无 daemon / ping 不通）→ [`DataBackend::Disconnected`]，全部数据源
 /// 返回空集合（空态），不回退假数据、不 panic。
 #[derive(Debug, Clone)]
@@ -126,7 +126,7 @@ fn daemon_space(data_dir: &str) -> WorkspaceSpace {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "omenic".into());
+        .unwrap_or_else(|| "kymido".into());
     WorkspaceSpace {
         id: data_dir.to_string(),
         name,
@@ -722,7 +722,7 @@ pub fn Workspace(
     // WP-C：任务看板数据源 = 当前会话的真实 run 记录 + 三份持久存储：
     // CLI 任务（tasks.jsonl）、模型工具写入的 todo（todos.jsonl）与 goal
     // （goals.jsonl）。run 记录是当前会话的瞬时执行，三份存储是跨会话的
-    // 持久记录，都是看板的诚实内容；`oi task add/done/...` 与 slice1 的
+    // 持久记录，都是看板的诚实内容；`kymido task add/done/...` 与 slice1 的
     // 模型工具写入的数据此前 web 完全看不到，这里通过 `task.list` /
     // `todo.list` / `goal.list` 补上。「任务系统」视图本身属于 C8（酒馆
     // 触发，已暂缓），不新造任务子系统，只把四份真实记录投影成任务卡
@@ -870,7 +870,7 @@ pub fn Workspace(
         .cloned()
         .unwrap_or_else(|| WorkspaceSpace {
             id: String::new(),
-            name: "omenic".into(),
+            name: "kymido".into(),
             path: String::new(),
             branch: String::new(),
             is_active: true,

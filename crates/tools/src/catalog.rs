@@ -1,11 +1,11 @@
-//! Tool execution layer for the omenic agent harness.
+//! Tool execution layer for the kymido agent harness.
 //!
 //! Reference: `dsh core/tools/src/index.ts:222` (`ToolDefinition`) and
-//! `omenic agent/tools/src/lib.rs:105` (`Tool` trait).
+//! `kymido agent/tools/src/lib.rs:105` (`Tool` trait).
 //!
 //! This crate defines the `ToolExecutor` trait and `ToolCatalog` for
 //! registering and dispatching tool calls. Tool specs live in
-//! `omenic-harness-core`.
+//! `kymido-harness-core`.
 
 use protocol::{AbortSignal, ToolError, ToolResult, ToolSpec};
 use serde_json::Value;
@@ -76,7 +76,7 @@ impl Default for ToolCatalog {
 /// Executes tool calls against a catalog.
 ///
 /// Reference: `dsh ToolDefinition.execute:235` and
-/// `omenic agent/tools/src/lib.rs:111` (`Tool::execute`).
+/// `kymido agent/tools/src/lib.rs:111` (`Tool::execute`).
 /// Constraint: synchronous; `abort` is polled by long-running tools to
 /// support cooperative cancellation.
 /// Non-goal: no parallel tool dispatch; no schema validation here.
@@ -110,7 +110,7 @@ impl ToolExecutor for ToolCatalog {
     }
 }
 
-/// Adapter: omenic `crate::Tool` -> harness `Tool`.
+/// Adapter: kymido `crate::Tool` -> harness `Tool`.
 struct Builtin(Box<dyn crate::Tool>);
 
 impl Tool for Builtin {
@@ -134,10 +134,10 @@ impl Tool for Builtin {
     }
 }
 
-/// Default catalog: one entry per omenic built-in tool.
+/// Default catalog: one entry per kymido built-in tool.
 ///
-/// Reference: `omenic agent/tools/src/lib.rs:319` (`builtin_tools`).
-/// Non-goal: no MCP tools; no `Guarded`/`Policy` wrapping (omenic-specific).
+/// Reference: `kymido agent/tools/src/lib.rs:319` (`builtin_tools`).
+/// Non-goal: no MCP tools; no `Guarded`/`Policy` wrapping (kymido-specific).
 pub fn default_catalog() -> ToolCatalog {
     let catalog = ToolCatalog::new();
     for tool in crate::builtin_tools() {
