@@ -13,8 +13,8 @@
 
 use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
-use omenic_tui::app::App;
-use omenic_tui::ui;
+use kymido_tui::app::App;
+use kymido_tui::ui;
 use web_state::types::{ChatMessage, MessagePart};
 
 // ——— helpers (same shape as tests/scroll_follow.rs) ———

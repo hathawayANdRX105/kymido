@@ -94,6 +94,12 @@ pub enum SessionError {
     /// it cannot fully read is refused, never silently rewritten.
     #[error("malformed turn log line {line}: {reason}")]
     MalformedTurnLog { line: usize, reason: String },
+
+    /// A cold archive could not be written, read, or verified. The string is
+    /// the reason; a corrupt or truncated archive is reported rather than
+    /// partially restored.
+    #[error("archive error: {0}")]
+    Archive(String),
 }
 
 impl SessionError {
@@ -229,6 +235,8 @@ pub struct SessionMessage {
 // Turn log (crash repair)
 // -----------------------------------------------------------------------------
 
+mod archive;
+pub use archive::*;
 mod turn_log;
 pub use turn_log::*;
 // -----------------------------------------------------------------------------
@@ -327,7 +335,10 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             parent_id TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            turn_log TEXT NOT NULL DEFAULT ''
+            turn_log TEXT NOT NULL DEFAULT '',
+            -- 0 = never touched since the column existed; readers fall back
+            -- to `updated_at`, so a pre-migration file is not all-stale.
+            last_access_ms INTEGER NOT NULL DEFAULT 0
          );
          CREATE TABLE IF NOT EXISTS messages (
             session_id TEXT NOT NULL,
@@ -455,6 +466,36 @@ async fn apply_messages_attachments_column(conn: &Connection) -> Result<(), Sess
     .await
 }
 
+/// Add `last_access_ms` to `sessions` when the file predates cold archiving.
+///
+/// Same idempotent shape as [`apply_parent_id_column`]. The column defaults to
+/// `0`, and readers treat `0` as "never touched since this column existed",
+/// falling back to `updated_at` so a pre-migration database is not suddenly
+/// full of infinitely-stale sessions. The sweep backfills nothing: the
+/// fallback is the migration.
+async fn apply_last_access_column(conn: &Connection) -> Result<(), SessionError> {
+    let mut rows = conn.query("PRAGMA table_info(sessions)", ()).await?;
+    let mut has_last_access = false;
+    while let Some(row) = rows.next().await? {
+        // Column 1 of `table_info` is the name (0 = cid).
+        if row.get_str(1).is_ok_and(|name| name == "last_access_ms") {
+            has_last_access = true;
+        }
+    }
+    drop(rows);
+    if has_last_access {
+        return Ok(());
+    }
+    run_with_lock_retry(|| async {
+        conn.execute_batch(
+            "ALTER TABLE sessions ADD COLUMN last_access_ms INTEGER NOT NULL DEFAULT 0;",
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+}
+
 /// Same idempotent shape as [`apply_messages_attachments_column`], for the
 /// `tool_calls` UI-card passthrough column on both `messages` and its rewind
 /// backup `message_snapshots`（两表列集必须同步，rewind 的 INSERT..SELECT 才不炸）。
@@ -525,6 +566,7 @@ async fn init_database(conn: &Connection) -> Result<(), SessionError> {
     apply_turn_log_column(conn).await?;
     apply_parent_id_column(conn).await?;
     apply_messages_attachments_column(conn).await?;
+    apply_last_access_column(conn).await?;
     apply_tool_calls_column(conn).await?;
     Ok(())
 }
@@ -692,8 +734,8 @@ impl SessionDb {
     /// other mutator here): letting it reach the UPDATE would report a
     /// missing *database file* for what is really an invalid id.
     ///
-    /// An empty `title` is accepted: the deterministic placeholder the web
-    /// UI sends is a legitimate title. This is deliberately looser than
+    /// An empty `title` is accepted: the deterministic stand-in title the
+    /// web UI sends is legitimate. This is deliberately looser than
     /// [`Self::ensure_session`], which rejects a blank title on insert.
     /// `created_at`, `parent_id`, and the turn log are never touched.
     ///
@@ -786,8 +828,32 @@ impl SessionDb {
         })
     }
 
-    /// Look up a single session by id (returns `None` when missing).
+    /// Look up a single session by id, restoring it from the cold archive
+    /// when it is no longer in the live database. Returns `None` only when
+    /// the session exists nowhere.
+    ///
+    /// This is the transparency seam: a session compressed by
+    /// [`Self::compress_idle_sessions`] reopens as if it had never been
+    /// moved. A successful lookup counts as use and refreshes the idle
+    /// clock.
     pub fn session(&self, id: &str) -> Result<Option<SessionSummary>, SessionError> {
+        SessionError::invalid_id_if_blank(id)?;
+
+        if let Some(found) = self.session_live(id)? {
+            self.touch_session_access(id)?;
+            return Ok(Some(found));
+        }
+        if !archive::has_archive(self.path(), id) {
+            return Ok(None);
+        }
+        let restored = self.restore_session(id)?;
+        Ok(Some(restored))
+    }
+
+    /// The read-only half of [`Self::session`]: no archive lookup, no access
+    /// touch. `list_sessions` and the sweep use this so browsing the picker
+    /// does not resurrect every cold session it walks past.
+    pub fn session_live(&self, id: &str) -> Result<Option<SessionSummary>, SessionError> {
         SessionError::invalid_id_if_blank(id)?;
         let id_owned = id.to_string();
 
@@ -808,6 +874,365 @@ impl SessionDb {
             Ok(rows.next().await?.is_none())
         })
     }
+
+    // ---------------------------------------------------------------------
+    // Cold archive
+    // ---------------------------------------------------------------------
+
+    /// Record that `session_id` was just used. Drives the idle cutoff in
+    /// [`Self::compress_idle_sessions`].
+    ///
+    /// This is an explicit call rather than a hook buried inside the read
+    /// path: a read that silently issues a write would turn every page of the
+    /// TUI into a write transaction, and it would also mean a read on a
+    /// read-only database fails. The open paths call this; `list_sessions`
+    /// deliberately does not, since browsing the picker is not using a
+    /// session.
+    pub fn touch_session_access(&self, session_id: &str) -> Result<(), SessionError> {
+        SessionError::invalid_id_if_blank(session_id)?;
+        let id_owned = session_id.to_string();
+        let guard = self.inner.conn.lock();
+        self.inner.runtime.block_on(async move {
+            let conn = &*guard;
+            conn.execute(
+                "UPDATE sessions SET last_access_ms = ?1 WHERE id = ?2",
+                libsql::params![now_ms(), id_owned.as_str()],
+            )
+            .await?;
+            Ok(())
+        })
+    }
+
+    /// Move `session_id` out of the live database into a compressed archive
+    /// file, returning what it cost and what it freed.
+    ///
+    /// The rows are deleted from the database, but **the database file does
+    /// not shrink** — SQLite recycles freed pages internally and stays at its
+    /// high-water mark. The bytes only actually leave the disk when the file
+    /// is compacted by the caller (see [`Self::checkpoint_wal`]) or a
+    /// `VACUUM`; the archive itself is what makes them reclaimable.
+    ///
+    /// Refuses when an archive already exists: re-archiving would silently
+    /// replace a backup with a newer copy of a session whose rows have since
+    /// diverged.
+    pub fn archive_session(&self, session_id: &str) -> Result<ArchiveReceipt, SessionError> {
+        SessionError::invalid_id_if_blank(session_id)?;
+        let id_owned = session_id.to_string();
+
+        // Read the whole session out first, outside the write lock. The id
+        // is cloned into the block because `async move` takes ownership of
+        // everything it mentions, and the archive write below still needs it.
+        let read_id = id_owned.clone();
+        let (archived_session, messages): (ArchivedSession, Vec<ArchivedMessage>) = {
+            let guard = self.inner.conn.lock();
+            self.inner.runtime.block_on(async move {
+                let conn = &*guard;
+                let id = read_id.as_str();
+                let session = load_archived_session(conn, id)
+                    .await?
+                    .ok_or_else(|| SessionError::DatabaseMissing(std::path::PathBuf::from(id)))?;
+                let messages = load_archived_messages(conn, id).await?;
+                Ok::<(ArchivedSession, Vec<ArchivedMessage>), SessionError>((session, messages))
+            })
+        }?;
+
+        let path = archive_path(self.path(), &id_owned);
+        if path.exists() {
+            // An existing archive may be replaced only when the live rows
+            // subsume it: restore-then-append leaves the live session a
+            // superset, so the new archive loses nothing. If the live
+            // session holds FEWER messages than the archive — a rewind
+            // after restore, or a recycled session id — overwriting would
+            // silently drop archive-only history, so refuse. A corrupt
+            // archive cannot prove it holds anything the live rows lack,
+            // so it may be replaced.
+            let raw = std::fs::read(&path).map_err(SessionError::Io)?;
+            if let Ok(old) = archive::decode_archive(&raw) {
+                if old.messages.len() > messages.len() {
+                    return Err(SessionError::Archive(format!(
+                        "an archive at {} holds {} messages but the live session has {}; \
+                         refusing to shrink it — rewind less, or delete the archive by hand",
+                        path.display(),
+                        old.messages.len(),
+                        messages.len()
+                    )));
+                }
+            }
+        }
+
+        let (payload, raw_len) = archive::encode_archive(&archived_session, &messages);
+        let written = archive::write_archive_file(&path, &payload)?;
+
+        // Only now drop the rows. If the delete fails the archive is still on
+        // disk and `restore_session` refuses to double-restore, so the safe
+        // failure mode is "both exist" rather than "gone from both".
+        let delete_id = id_owned.clone();
+        let guard = self.inner.conn.lock();
+        let removed = self.inner.runtime.block_on(async move {
+            let conn = &*guard;
+            let id = delete_id.as_str();
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .await?;
+            let n = tx
+                .execute(
+                    "DELETE FROM messages WHERE session_id = ?1",
+                    libsql::params![id],
+                )
+                .await?;
+            tx.execute("DELETE FROM sessions WHERE id = ?1", libsql::params![id])
+                .await?;
+            tx.commit().await?;
+            Ok::<u64, SessionError>(n)
+        })?;
+
+        Ok(ArchiveReceipt {
+            session_id: id_owned,
+            messages: removed as usize,
+            raw_bytes: raw_len as u64,
+            archived_bytes: written,
+        })
+    }
+
+    /// Put an archived session back into the live database. The session row
+    /// and every message are inserted in one transaction, so a failure
+    /// leaves the database untouched rather than half-restored. Original
+    /// `seq` values are preserved.
+    ///
+    /// Refuses when the id already exists in the database — restoring over a
+    /// live session would have to pick a winner, and silently discarding one
+    /// of them is the worse failure.
+    pub fn restore_session(&self, session_id: &str) -> Result<SessionSummary, SessionError> {
+        SessionError::invalid_id_if_blank(session_id)?;
+        let id_owned = session_id.to_string();
+        let path = archive_path(self.path(), &id_owned);
+        let raw = std::fs::read(&path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                SessionError::DatabaseMissing(path.clone())
+            } else {
+                SessionError::Io(e)
+            }
+        })?;
+        let decoded = archive::decode_archive(&raw)?;
+        if decoded.session.id != id_owned {
+            return Err(SessionError::Archive(format!(
+                "archive at {} holds session `{}`, not `{id_owned}`",
+                path.display(),
+                decoded.session.id
+            )));
+        }
+
+        let guard = self.inner.conn.lock();
+        self.inner.runtime.block_on(async move {
+            let conn = &*guard;
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .await?;
+
+            let mut existing = tx
+                .query(
+                    "SELECT 1 FROM sessions WHERE id = ?1",
+                    libsql::params![id_owned.as_str()],
+                )
+                .await?;
+            if existing.next().await?.is_some() {
+                return Err(SessionError::Archive(format!(
+                    "session `{id_owned}` is already live; refusing to restore over it"
+                )));
+            }
+
+            let s = &decoded.session;
+            tx.execute(
+                "INSERT INTO sessions \
+                 (id, title, parent_id, created_at, updated_at, turn_log, last_access_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                libsql::params![
+                    s.id.as_str(),
+                    s.title.as_str(),
+                    s.parent_id.as_deref(),
+                    s.created_at,
+                    s.updated_at,
+                    s.turn_log.as_str(),
+                    now_ms(),
+                ],
+            )
+            .await?;
+            for m in &decoded.messages {
+                // Validate before the insert rather than trusting the string:
+                // an archive written by a build that knew a role this one
+                // does not must fail the restore, not be written through.
+                let role = archive::role_from_str(&m.role)?;
+                tx.execute(
+                    "INSERT INTO messages \
+                     (session_id, seq, role, text, created_at, attachments) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    libsql::params![
+                        s.id.as_str(),
+                        m.seq,
+                        role.as_str(),
+                        m.text.as_str(),
+                        m.created_at,
+                        m.attachments.as_deref(),
+                    ],
+                )
+                .await?;
+            }
+            tx.commit().await?;
+            Ok(archive::summary_of(s, decoded.messages.len()))
+        })
+    }
+
+    /// Restore `session_id` if it is missing from the database but present in
+    /// the archive. Returns the summary when a restore happened, `None` when
+    /// the session is live or has no archive.
+    ///
+    /// Called on the read paths so reopening a cold session is transparent.
+    /// The archive is left in place after a restore: it is the only backup of
+    /// a session that is no longer in the live file, and deleting it here
+    /// would make a second restore impossible if the session were archived
+    /// again by mistake.
+    pub fn restore_if_archived(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionSummary>, SessionError> {
+        if self.session(session_id)?.is_some() {
+            return Ok(None);
+        }
+        if !archive::has_archive(self.path(), session_id) {
+            return Ok(None);
+        }
+        self.restore_session(session_id).map(Some)
+    }
+
+    /// Archive every session idle for longer than `idle_ms`, skipping the
+    /// `keep_recent` most-recently-used ones. Returns one receipt per session
+    /// actually moved.
+    ///
+    /// "Idle" means `last_access_ms` when it is non-zero, else `updated_at`
+    /// (the fallback for rows written before the column existed). `keep_recent`
+    /// is a floor on top of the idle cutoff: even a very old session stays
+    /// live if it is one of the N most recent, so a machine that is only ever
+    /// idle for a long time never archives everything. `max_sessions` bounds
+    /// one call's write-lock footprint: the sweep returns after archiving at
+    /// most that many sessions even if more qualify.
+    pub fn compress_idle_sessions(
+        &self,
+        idle_ms: i64,
+        keep_recent: u32,
+        // Batch cap: the daemon-startup sweep must not sit on the write lock
+        // for a whole backlog at once — archive at most this many sessions
+        // per call; the next run (or the next daemon start) takes the rest.
+        max_sessions: u32,
+    ) -> Result<Vec<ArchiveReceipt>, SessionError> {
+        let cutoff = now_ms().saturating_sub(idle_ms.max(0));
+        // Candidates, most-recent first, so the keep_recent floor is a slice.
+        let candidates: Vec<(String, i64)> = {
+            let guard = self.inner.conn.lock();
+            self.inner.runtime.block_on(async move {
+                let conn = &*guard;
+                let mut rows = conn
+                    .query(
+                        "SELECT id, MAX(updated_at, last_access_ms) AS touched \
+                         FROM sessions ORDER BY touched DESC, id ASC",
+                        (),
+                    )
+                    .await?;
+                let mut out = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    out.push((row.get(0)?, row.get::<i64>(1).unwrap_or(0)));
+                }
+                Ok::<Vec<(String, i64)>, SessionError>(out)
+            })
+        }?;
+
+        let mut receipts = Vec::new();
+        for (rank, (id, touched)) in candidates.into_iter().enumerate() {
+            if (rank as u32) < keep_recent {
+                continue;
+            }
+            if touched >= cutoff {
+                continue;
+            }
+            if receipts.len() >= max_sessions.max(1) as usize {
+                break;
+            }
+            match self.archive_session(&id) {
+                Ok(r) => receipts.push(r),
+                // A concurrent sweep or a daemon touch can archive it first.
+                // Skipping is correct: the other writer did the work.
+                Err(SessionError::DatabaseMissing(_)) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(receipts)
+    }
+
+    /// Truncate the write-ahead log so it stops growing alongside the
+    /// database file. Cheap and bounded; it does **not** compact the
+    /// database file itself (see [`Self::archive_session`] for why).
+    pub fn checkpoint_wal(&self) -> Result<(), SessionError> {
+        let guard = self.inner.conn.lock();
+        self.inner.runtime.block_on(async move {
+            let conn = &*guard;
+            // PRAGMA returns a row; drain it or the statement stays open and
+            // the next write is rejected as "from within a transaction".
+            let mut rows = conn.query("PRAGMA wal_checkpoint(TRUNCATE)", ()).await?;
+            while rows.next().await?.is_some() {}
+            Ok(())
+        })
+    }
+}
+
+/// Read the full `sessions` row in the shape the archive needs, including the
+/// columns [`load_session_row`] does not surface.
+async fn load_archived_session(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<ArchivedSession>, SessionError> {
+    let mut rows = conn
+        .query(
+            "SELECT id, title, parent_id, created_at, updated_at, turn_log, last_access_ms \
+             FROM sessions WHERE id = ?1",
+            libsql::params![id],
+        )
+        .await?;
+    let Some(row) = rows.next().await? else {
+        return Ok(None);
+    };
+    Ok(Some(ArchivedSession {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        parent_id: row.get::<Option<String>>(2)?,
+        created_at: row.get(3)?,
+        updated_at: row.get(4)?,
+        turn_log: row.get::<Option<String>>(5)?.unwrap_or_default(),
+        last_access_ms: row.get::<Option<i64>>(6)?.unwrap_or(0),
+    }))
+}
+
+/// Every message of `id` in ascending `seq` order, in archive shape.
+async fn load_archived_messages(
+    conn: &Connection,
+    id: &str,
+) -> Result<Vec<ArchivedMessage>, SessionError> {
+    let mut rows = conn
+        .query(
+            "SELECT seq, role, text, created_at, attachments \
+             FROM messages WHERE session_id = ?1 ORDER BY seq ASC",
+            libsql::params![id],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(ArchivedMessage {
+            seq: row.get(0)?,
+            role: row.get(1)?,
+            text: row.get(2)?,
+            created_at: row.get(3)?,
+            attachments: row.get::<Option<String>>(4)?,
+        });
+    }
+    Ok(out)
 }
 
 async fn load_session_row(conn: &Connection, id: &str) -> Option<SessionSummary> {
@@ -860,7 +1285,7 @@ impl SessionDb {
     /// row's `created_at_ms`.
     ///
     /// Creates the session row if it does not yet exist (caller may have
-    /// forgotten to `ensure_session` first; the id is used as a placeholder
+    /// forgotten to `ensure_session` first; the id doubles as the fallback
     /// title).
     ///
     /// `attachments` are stored in the nullable `messages.attachments`
@@ -1087,6 +1512,11 @@ impl SessionDb {
     ) -> Result<Vec<SessionMessage>, SessionError> {
         SessionError::invalid_id_if_blank(session_id)?;
         let limit = validate_limit(limit)?;
+        // A cold session is restored before the tail window is taken, so the
+        // window is computed against the whole transcript rather than
+        // whatever happens to be left in the live file.
+        self.restore_if_archived(session_id)?;
+        self.touch_session_access(session_id)?;
         let id_owned = session_id.to_string();
 
         let guard = self.inner.conn.lock();

@@ -3,7 +3,7 @@
 //! `drop_tail_from` bounds its truncation. These pin the contracts the
 //! turn-based dynamic window must preserve.
 
-use omenic_tui::app::App;
+use kymido_tui::app::App;
 use web_state::types::{ChatMessage, MessagePart};
 
 fn msg(text: &str) -> ChatMessage {

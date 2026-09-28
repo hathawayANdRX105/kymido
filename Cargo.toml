@@ -33,6 +33,7 @@ ctrlc = "3"
 diffy = "0.5"
 ratatui = "0.30"
 crossterm = "0.29"
+zstd = "0.13"
 
 [profile.release]
 opt-level = "z"

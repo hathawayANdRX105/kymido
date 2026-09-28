@@ -35,6 +35,7 @@ pub mod runner;
 mod server;
 pub mod session_query;
 mod socket;
+pub mod startup_sweep;
 pub mod state;
 pub use client::{AppendOutcome, ClientError, DaemonClient, DaemonInfo, Subscription};
 pub use lock::InstanceLock;
