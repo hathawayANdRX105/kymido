@@ -34,7 +34,11 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
         .collect();
 
     rsx! {
+        // 面板内部点击统一 stop_propagation：不冒泡到 chat 根节点的
+        // 「点外关闭」（ainnotation 波3 #5），面板内交互（filter chip /
+        // 任务卡展开 / 关闭钮）不误关自身。
         div { class: "w-full rounded-2xl border border-binv bg-layer-2 shadow-lv2 overflow-hidden pointer-events-auto",
+            onclick: move |e: MouseEvent| e.stop_propagation(),
             // 头部
             div { class: "flex items-center justify-between pl-4 pr-2 py-1.5 border-b border-b1",
                 div { class: "flex items-center gap-2.5",
