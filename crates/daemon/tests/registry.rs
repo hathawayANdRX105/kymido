@@ -31,6 +31,8 @@ fn stub_setup() -> OrbitSetup {
             model: "stub".into(),
             base_url: None,
             max_tokens: None,
+            context_window: None,
+            input: Vec::new(),
         },
         backend: Arc::new(NoBackend),
         config: OrbitConfig {

@@ -399,3 +399,37 @@ fn env_overrides_respect_local_key_declarations() {
     );
     assert_eq!(llm.base_url, "http://env-override");
 }
+
+/// CI smoke fixture form: an empty provider row (no base_url/api_key/
+/// default_model) with the whole credential injected by `KYMIDO_LLM_*`.
+/// Post-cutover, env vars alone can no longer mint a credential — this is
+/// the shape the CI TUI smoke steps rely on to get LLM traffic up.
+#[test]
+fn env_vars_fill_empty_provider_row() {
+    let _guard = cwd_lock();
+    // SAFETY: cwd_lock serializes env reads/writes.
+    unsafe {
+        std::env::set_var("KYMIDO_LLM_API_KEY", "test-key");
+        std::env::set_var("KYMIDO_LLM_BASE_URL", "http://127.0.0.1:18099");
+        std::env::set_var("KYMIDO_LLM_MODEL", "test-model");
+    }
+    let c = load_providers(
+        Some(
+            r#"
+active = "smoke"
+
+[providers.smoke]
+"#,
+        ),
+        None,
+    );
+    let llm = c.active_llm().expect("empty row + env vars must resolve");
+    unsafe {
+        std::env::remove_var("KYMIDO_LLM_API_KEY");
+        std::env::remove_var("KYMIDO_LLM_BASE_URL");
+        std::env::remove_var("KYMIDO_LLM_MODEL");
+    }
+    assert_eq!(llm.model, "test-model");
+    assert_eq!(llm.base_url, "http://127.0.0.1:18099");
+    assert_eq!(llm.api_key, "test-key");
+}
