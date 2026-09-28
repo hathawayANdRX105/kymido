@@ -85,6 +85,9 @@ pub fn load_panels(client: &WebDaemon) -> PanelSnapshot {
 /// （实占行）与 footer（恒 1 行）——本面板贴这两层顶沿，不盖状态条/
 /// 答题卡（route §3 T3、T4 契约同屏共存）。
 ///
+/// T24：右缘对齐 transcript 内容列（滚动条预留列生效时从
+/// `scrollbar::split_columns` 同源抠列，面板不跨进缩略块列）。
+///
 /// 预算夹紧：面板最多吃可见 transcript 高度的一半，且恒给 transcript 留
 /// ≥1 行——44×20 下三节全满也不许把聊天区整个挤没。
 pub fn render(frame: &mut Frame, app: &App, snapshot: &PanelSnapshot) {
@@ -92,6 +95,10 @@ pub fn render(frame: &mut Frame, app: &App, snapshot: &PanelSnapshot) {
         return;
     }
     let (transcript, dock) = layout::split(frame.area(), app.queued().is_some());
+    // T24：滚动条预留列与 `ui::draw` 同源抠出——可见性锁存由本帧
+    // `sync_viewport` 先提交（见 `ui/scrollbar.rs`）；预留时任务面板右缘
+    // 对齐内容列，不跨进缩略块列。
+    let (transcript, _) = super::scrollbar::split_columns(transcript, app.scrollbar_visible());
     // T3 三明治让行（与 `ui::draw` 同一套算术）：footer 恒 1 行（dock 压底
     // 时才有）+ 问题面板实占行 + T9 斜杠面板行——可见 transcript 底 = 原始
     // 底减去这三层（斜杠面板开着时任务卡要再往上让，不许盖住候选行）。

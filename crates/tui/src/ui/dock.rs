@@ -28,7 +28,13 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 fn activity(app: &App) -> Line<'static> {
     if app.status_text().is_empty() {
         if app.is_running() {
-            return Line::from(Span::styled("● running", theme::brand_bold()));
+            // P1：braille 转盘（[`crate::app::SPINNER_FRAMES`] 按
+            // [`App::spinner_frame`] 取帧；计时归事件循环，渲染只读）。
+            let frame = crate::app::SPINNER_FRAMES[app.spinner_frame()];
+            return Line::from(Span::styled(
+                format!("{frame} running"),
+                theme::brand_bold(),
+            ));
         }
         return Line::from(Span::styled("○ idle", theme::dim()));
     }

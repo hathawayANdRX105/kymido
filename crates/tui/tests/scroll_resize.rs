@@ -196,3 +196,155 @@ fn transcript_total_recounts_after_width_change() {
     assert_eq!(narrow, 11, "窄列：同一内容多断 1 行");
     assert!(narrow > wide, "总行数必须随列宽重算");
 }
+
+// --- T24 滚动条迟滞：决策跟随上一帧档位，单帧不翻转 ---
+
+/// 单行 assistant 消息（无前缀；行数按内容宽断行）。
+fn assistant_msg(text: &str) -> ChatMessage {
+    ChatMessage {
+        id: format!("a-{text}"),
+        role: "assistant".to_string(),
+        content: text.to_string(),
+        reasoning: String::new(),
+        tool_calls: vec![],
+        parts: vec![],
+        timestamp: String::new(),
+        ts_epoch_ms: 0,
+        attachments: vec![],
+    }
+}
+
+/// 边界内容：18 条单行 + 80 字符单词 + 3 条单行——80 列下恰 22 行（= 80×26
+/// 的视口高度，放得下），79 列下单词断成 23 行（放不下）。迟滞就活在这
+/// 「宽放得下 / 窄放不下」的档位：结果跟随**上一帧**的档位，不按当前帧
+/// 数字重算。
+fn boundary_app() -> App {
+    let mut history: Vec<ChatMessage> = Vec::new();
+    for i in 0..18 {
+        history.push(user_msg(&format!("top-{i:02}")));
+    }
+    history.push(assistant_msg(&"w".repeat(80)));
+    for i in 0..3 {
+        history.push(user_msg(&format!("bot-{i}")));
+    }
+    let mut app = App::new();
+    app.start_session("s-boundary", history);
+    app
+}
+
+/// 边界「隐藏侧」（bug：可见性拿当前帧数字自定——按窄宽试溢出即预留 →
+/// 屏幕重排成 23 行；或计数宽度与画面宽度两套 → `view_top` 跳）：宽放得下、
+/// 窄放不下，且上一帧未预留 → 决议留在宽宽，不预留；同几何连两帧画面
+/// 逐字节相同（单帧不翻转）。
+#[test]
+fn scrollbar_hidden_holds_at_fit_boundary() {
+    let mut app = boundary_app();
+    sync(&mut app, 80, 26);
+    assert!(
+        !app.scrollbar_visible(),
+        "宽（80 列）恰放得下 22 行，上一帧未预留 → 不预留"
+    );
+    assert_eq!(app.viewport().total(), 22, "按提交的宽宽 80 计数");
+
+    let first = screen(&app, 80, 26);
+    assert!(!first.contains('█'), "未预留时不渲染滚动条缩略块:\n{first}");
+    assert_eq!(
+        row_of(&first, &"w".repeat(80)),
+        Some(18),
+        "80 字符单词在宽宽下一行放平（未被重排）:\n{first}"
+    );
+
+    // 同几何第二帧：决议跟随上一帧档位（未预留），仍不预留，画面逐字节
+    // 相同——单帧不翻转。
+    sync(&mut app, 80, 26);
+    assert!(!app.scrollbar_visible(), "决议跟随上一帧，单帧不翻转");
+    assert_eq!(app.viewport().total(), 22, "仍按宽宽计数（未切窄宽）");
+    let second = screen(&app, 80, 26);
+    assert_eq!(second, first, "同几何连两帧画面必须逐字节相同（不闪烁）");
+}
+
+/// 边界「显示侧」（bug：朴素的「按当前帧宽宽重算」实现——宽放得下就退
+/// 滚动条 → 屏幕重排 → 闪烁）：同一边界几何，上一帧已预留（窄档位）→
+/// 决议按窄宽试溢出 → 仍溢出 → 保持预留；同几何连两帧逐字节相同。
+#[test]
+fn scrollbar_visible_holds_at_fit_boundary() {
+    let mut app = boundary_app();
+    // 先建立「上一帧已预留」档位：窄屏 79×26 → 23 行 > 22 行 → 预留
+    //（提交宽度 78）。
+    sync(&mut app, 79, 26);
+    assert!(app.scrollbar_visible(), "窄屏溢出 → 预留");
+    assert_eq!(app.viewport().total(), 23, "按提交的窄宽 78 计数");
+
+    // 回到边界几何 80×26：锁存 = 已预留 → 按窄宽 79 试溢出 → 仍溢出 →
+    // 保持预留（不是「按宽宽重算 → 放得下 → 退」）。
+    sync(&mut app, 80, 26);
+    assert!(
+        app.scrollbar_visible(),
+        "上一帧已预留且窄宽仍溢出 → 保持预留"
+    );
+    assert_eq!(app.viewport().total(), 23, "按窄宽 79 计数");
+    let first = screen(&app, 80, 26);
+    assert!(first.contains('█'), "预留列渲染滚动条缩略块:\n{first}");
+
+    // 同几何第二帧：逐字节相同，不翻转。
+    sync(&mut app, 80, 26);
+    assert!(app.scrollbar_visible(), "决议跟随上一帧，单帧不翻转");
+    let second = screen(&app, 80, 26);
+    assert_eq!(second, first, "同几何连两帧画面必须逐字节相同（不闪烁）");
+}
+
+/// 稳态无抖动（bug：滚动条在稳态帧上同帧自定可见性 → 预留/退留来回
+/// 翻转 + 屏幕两次重排 = 闪烁）：内容明确溢出，锁存稳态 true，同几何
+/// 连两帧逐字节相同，且 total 按预留宽计数。
+#[test]
+fn scrollbar_steady_state_does_not_jitter() {
+    let mut app = scrollable_app(60);
+    sync(&mut app, 80, 24);
+    assert!(app.scrollbar_visible(), "明确溢出首帧 → 预留");
+    assert_eq!(
+        app.viewport().total(),
+        60,
+        "单行内容行数与宽度无关，按预留宽 79 计数"
+    );
+    let first = screen(&app, 80, 24);
+    assert!(first.contains('█'), "预留列渲染滚动条缩略块:\n{first}");
+
+    // 同几何第二帧：锁存 true → 按窄宽试溢出 → 仍溢出 → 保持预留。
+    sync(&mut app, 80, 24);
+    assert!(app.scrollbar_visible(), "稳态保持预留");
+    assert_eq!(app.viewport().total(), 60);
+    let second = screen(&app, 80, 24);
+    assert_eq!(second, first, "稳态帧逐字节相同（不抖动）");
+}
+
+/// 退化几何（bug：预留列算术在 0 宽 / 0 高屏上下溢，或缩略块公式对
+/// 空内容除零）：0 行视口不预留；基宽 2 时预留后内容宽落到 0，计数仍
+/// 按提交宽度进行，绘制路径不 panic。
+///
+/// 内容用无前缀 assistant 消息（「aNNN」4 字符）：行数 = ceil(4 / 提交
+/// 宽度)× 60——宽 80 / 宽 2 / 宽 1 三档各不同（60 / 120 / 240），「按
+/// 提交宽度计数」才观测得到。
+#[test]
+fn degenerate_geometry_never_reserves_or_panics() {
+    let history: Vec<ChatMessage> = (0..60)
+        .map(|i| assistant_msg(&format!("a{i:03}")))
+        .collect();
+    let mut app = App::new();
+    app.start_session("s-degenerate", history);
+
+    // 80×3：dock 占满 3 行 → transcript 0 行 → 不预留；计数照宽宽走。
+    sync(&mut app, 80, 3);
+    assert!(!app.scrollbar_visible(), "0 行视口 → 不预留");
+    assert_eq!(app.viewport().total(), 60, "0 行视口仍按宽宽计数");
+    let flat = screen(&app, 80, 3);
+    assert!(!flat.contains('█'), "0 行视口不渲染缩略块:\n{flat}");
+
+    // 2×24：基宽 2——预留后内容宽 0；「aNNN」4 字符：宽 2 下 2 行/条
+    //（共 120 > 20 行视口 → 预留），宽 1 下 4 行/条。
+    sync(&mut app, 2, 24);
+    assert!(app.scrollbar_visible(), "120 行 > 20 行视口 → 预留");
+    assert_eq!(app.viewport().total(), 240, "按提交的窄宽 1 计数");
+    // 内容宽 0 + 预留列 1：绘制路径不 panic。
+    let slim = screen(&app, 2, 24);
+    assert!(slim.contains('█'), "宽 2 屏缩略块仍渲染在预留列:\n{slim}");
+}

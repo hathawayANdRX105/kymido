@@ -7,6 +7,8 @@
 //! 退出码 3 单行错误（route §3 边界）。
 
 // TUI-P0-T20：app.rs 本批由 T20PanelBorders 独占（仅下方行数 +2 算术与本标记行）。
+// TUI-P1-T25：spinner 计时缝（[`SPINNER_FRAMES`] / [`SPINNER_ADVANCE_MS`] +
+// [`App::tick_spinner`] / [`App::spinner_frame`]）——T25Spinner 独占。
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
@@ -92,6 +94,16 @@ pub const WHEEL_TICK_DETECT_MAX_MS: u64 = 12;
 /// ±128——超限的 notch 直接丢弃，不让待出行数无限堆积）。
 pub const WHEEL_QUEUE_MAX: i32 = 128;
 
+/// P1 braille 转盘的固定帧序列（route：活动行「运行中」的状态图标；两个
+/// 独立参考实现同一序列——refs/loader.ts:21 与 refs/zerostack/renderer.rs:1262，
+/// 直接抄不另发明）。渲染侧只读 [`App::spinner_frame`] 索引，不逐帧推进。
+pub const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// P1 braille 转盘帧间隔（毫秒）：每 80ms 推进一步，10 帧 ≈ 0.8s/循环
+///（同 refs/loader.ts `SPINNER_ADVANCE_MS`；与 50ms 轮询节拍解耦——
+/// 推进按墙钟而非逐帧，忙会话不加速、静会话不卡住）。
+pub const SPINNER_ADVANCE_MS: u64 = 80;
+
 /// 一次按键路由的结论（提交走 [`App`] 内部出站队列，不出现在这里）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
@@ -152,6 +164,12 @@ pub struct App {
     in_flight: u64,
     /// T3：本轮开始时刻（footer 耗时段；无 run = `None`）。
     run_started: Option<Instant>,
+    /// P1：braille 转盘当前帧（[`SPINNER_FRAMES`] 下标）——运行中活动行的
+    /// 状态图标；事件循环 [`Self::tick_spinner`] 按墙钟推进（非逐帧），
+    /// 渲染只读。
+    spinner_frame: usize,
+    /// P1：上次推进转盘的墙钟时刻（`None` = 尚未推过；首 tick 按 0 帧起）。
+    spinner_last: Option<Instant>,
     /// 当前会话 id（prompt 路由的 session 字段，route §3 T4 红线）。
     session_id: String,
     /// 当前在飞 run 的 id（`None` = 无；take_prompt 置位、turn 收尾清零）。
@@ -233,6 +251,12 @@ pub struct App {
     /// T6/T11：最近一次 `ui::sync_viewport` 的 transcript 列宽（命中行
     /// 定位按这个宽度断行；0 = 尚未喂过几何，跳转 no-op）。
     view_width: u16,
+    /// T24：滚动条可见性锁存（迟滞）：按**上一帧**的判定结果定本帧可见性，
+    /// 不许拿当前帧数字自定（refs jcode `ui.rs:3119-3165`：同帧自定的可见性
+    /// 会改变断行宽度 → 行数变 → 溢出测试翻转 → 屏幕重排闪烁）。
+    /// `ui::sync_viewport` 每帧更新；`ui::areas` / `ui::panels` 按它抠滚动条
+    /// 预留列（渲染只读；可见性状态归 App，几何归 [`ScrollModel`]）。
+    scrollbar_visible: bool,
 }
 
 impl App {
@@ -549,6 +573,16 @@ impl App {
     pub(crate) fn set_view_width(&mut self, width: u16) {
         self.view_width = width;
     }
+    /// T24：滚动条可见性锁存读取（`ui::areas` 按它决定是否抠预留列）。
+    pub fn scrollbar_visible(&self) -> bool {
+        self.scrollbar_visible
+    }
+
+    /// T24：滚动条可见性锁存写口（`ui::sync_viewport` 迟滞决议后提交；
+    /// 测试走 `ui` 入口，不绕开它自己设位）。
+    pub(crate) fn set_scrollbar_visible(&mut self, visible: bool) {
+        self.scrollbar_visible = visible;
+    }
 
     // --- T12 消息操作 retry / edit / copy（route §3 T12 设计注记五条定案；
     // 操作路由在 [`Self::handle_key`]，本组只出观察缝与状态回填） ---
@@ -687,6 +721,35 @@ impl App {
         }
     }
 
+    /// P1：braille 转盘当前帧下标（[`SPINNER_FRAMES`] 取模，只读缝——
+    /// dock 活动行渲染读它，推进归事件循环 [`Self::tick_spinner`] 按墙钟驱动）。
+    /// 空闲恒返回 0（活动行走 idle 分支，帧值无渲染面；保持状态干净让
+    /// 下一轮 run 起步帧正确）。
+    pub fn spinner_frame(&self) -> usize {
+        self.spinner_frame % SPINNER_FRAMES.len()
+    }
+
+    /// P1：按墙钟推进 braille 转盘（事件循环每次迭代在 draw 前调用，T7
+    /// `drain_wheel(now)` 同款时钟注入范式——测试不真睡，直接给 now）。
+    ///
+    /// 步进数 = 自上次推进以来整除 [`SPINNER_ADVANCE_MS`] 的步数（而非
+    /// 每次推一步）：忙会话循环转得快不加速、静会话 50ms 轮询节拍不卡住；
+    /// 时间回拨（`now < last`）直接忽略防回跳。空闲 = 帧归零、计时点清空。
+    pub fn tick_spinner(&mut self, now: Instant) {
+        if !self.running {
+            self.spinner_frame = 0;
+            self.spinner_last = None;
+            return;
+        }
+        let last = self.spinner_last.unwrap_or(now);
+        let elapsed_ms = now.duration_since(last).as_millis();
+        let steps = (elapsed_ms / SPINNER_ADVANCE_MS as u128) as usize;
+        if steps > 0 {
+            self.spinner_frame = (self.spinner_frame + steps) % SPINNER_FRAMES.len();
+            self.spinner_last = Some(now);
+        }
+    }
+
     /// 工具卡展开态（一个键全部展开/折叠，route §3）。
     pub fn tools_expanded(&self) -> bool {
         self.tools_expanded
@@ -774,6 +837,10 @@ impl App {
         }
         let now = Instant::now();
         self.run_started = Some(now);
+        // P1：新 run 起步帧 = 0、计时点 = 本时刻（tick 的墙钟步进从这里
+        // 起算，保证「开工第一帧正确」）。
+        self.spinner_frame = 0;
+        self.spinner_last = Some(now);
         // T15：出站派发 = 批次计时起点（任务书 §3 裁决 1；批次已在途则
         // 状态机原样保留计时与抑制——连续排队 prompt 同属一个批次）。
         self.notify.note_dispatch(now);
@@ -1954,6 +2021,9 @@ fn event_loop(
                 ptx.clone(),
             )?;
         }
+        // P1：spinner 计时缝——按墙钟推进 braille 转盘帧（不逐帧，忙/静会话
+        // 都不漂移；渲染只读 [`App::spinner_frame`]，推进归这里）。
+        app.tick_spinner(Instant::now());
         terminal.draw(|frame| {
             // T6：先喂本帧几何（跟尾滑动 / clamp 在模型里推进），再渲染——
             // sync 与 draw 共用 `ui` 的同一套区域几何，窗口不漂移。

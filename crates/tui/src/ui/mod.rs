@@ -12,6 +12,7 @@ pub mod footer;
 mod layout;
 pub mod panels;
 pub mod questions;
+mod scrollbar;
 pub mod search_overlay;
 pub mod session_picker;
 mod slash_palette;
@@ -28,8 +29,9 @@ use crate::app::App;
 use crate::theme;
 
 /// 一帧的区域几何（T2 竖向切分 + T3 让位 + T9 斜杠面板让行 + T11 搜索
-/// overlay 让行）。[`draw`] 与 [`sync_viewport`] 共用同一计算——滚动模型
-/// 与渲染看到的 transcript 视口永远是同一套，窗口不会漂移。
+/// overlay 让行 + T24 滚动条预留列）。[`draw`] 与 [`sync_viewport`] 共用
+/// 同一计算——滚动模型与渲染看到的 transcript 视口永远是同一套，窗口不会
+/// 漂移。
 struct Areas {
     transcript: Rect,
     footer: Rect,
@@ -37,11 +39,15 @@ struct Areas {
     palette: Rect,
     search: Rect,
     dock: Rect,
+    /// T24：transcript 右侧滚动条预留列（未预留时零宽，见
+    /// [`scrollbar::split_columns`]）。
+    scrollbar: Rect,
 }
 
 /// 把整屏切成 transcript / 斜杠面板 / 搜索 overlay / footer / 问题面板 /
-/// dock 六块（语义与 T2/T3/T9/T11 逐条一致，抽出来给两条调用方共用）。
-fn areas(app: &App, area: Rect) -> Areas {
+/// dock 六块（语义与 T2/T3/T9/T11 逐条一致，抽出来给两条调用方共用）——
+/// **不**扣横向预留列：横向唯一权威是 T24 滚动条预留列（见 [`areas`]）。
+fn base_areas(app: &App, area: Rect) -> Areas {
     let (transcript, dock) = layout::split(area, app.queued().is_some());
     // footer：dock 之上恒 1 行（dock 压底时才有行可让）。
     let footer_height = u16::from(dock.y > 0);
@@ -80,7 +86,21 @@ fn areas(app: &App, area: Rect) -> Areas {
         palette,
         search,
         dock,
+        // T24：基几何无预留列；[`areas`] 按锁存态再抠。
+        scrollbar: Rect::ZERO,
     }
+}
+
+/// T24：区域几何的唯一入口（[`draw`] / [`sync_viewport`] 共用）：先切基六
+/// 块（[`base_areas`]），再按 [`App::scrollbar_visible`]（迟滞决议的提交
+/// 结果，见 [`scrollbar::resolve`]）抠 transcript 右端预留列——渲染 /
+/// 模型 / 任务面板看到的 transcript 永远是同一套列。
+fn areas(app: &App, area: Rect) -> Areas {
+    let mut a = base_areas(app, area);
+    let (content, bar) = scrollbar::split_columns(a.transcript, app.scrollbar_visible());
+    a.transcript = content;
+    a.scrollbar = bar;
+    a
 }
 
 /// 一块贴底 overlay 的让行矩形：T9 斜杠面板与 T11 搜索 overlay 用**同一套**
@@ -111,7 +131,7 @@ pub fn panel_block(title: &'static str) -> Block<'static> {
         .style(theme::border())
 }
 
-/// 画一帧（自上而下）：transcript → 斜杠面板（T9，0 行不画）→ footer 状态条
+/// 画一帧（自上而下）：transcript（含 T24 滚动条预留列）→ 斜杠面板（T9，0 行不画）→ footer 状态条
 /// → 问题面板（无题 0 行）→ dock（活动 / 排队 / composer / 按键提示，恒压底
 /// ——hints 仍是屏幕最底一行，T2 布局契约不变）→ 搜索 overlay（T11，0 行
 /// 不画）。**最后一笔**是 overlay：光标钉在查询行，压过 composer 的光标
@@ -123,6 +143,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let areas = areas(app, frame.area());
     transcript::render(frame, areas.transcript, app);
     mark_focus(frame, areas.transcript, app);
+    // T24：滚动条缩略块（零宽列 = 未预留，内部不画）。
+    scrollbar::render(frame, areas.scrollbar, app);
     slash_palette::render(frame, areas.palette, app);
     theme_panel::render(frame, areas.palette, app);
     footer::render(frame, areas.footer, app);
@@ -184,10 +206,18 @@ fn mark_focus(frame: &mut Frame, area: Rect, app: &App) {
 ///
 /// T11 顺带记下 transcript 列宽（[`App::set_view_width`]）——命中行定位
 /// 按同一份断行几何算，与 `transcript::total_lines` 同源。
+///
+/// T24：宽度权威先于任何计数决议——先取基几何（[`base_areas`]，未扣预留
+/// 列），滚动条迟滞决议（[`scrollbar::resolve`]）后提交可见性锁存与宽度，
+/// 再数行喂模型；其后 `draw` 按刚提交的锁存抠出的预留列与这里计数的宽度
+/// 是同一套。
 pub fn sync_viewport(app: &mut App, screen: Rect) {
-    let areas = areas(app, screen);
-    let total = transcript::total_lines(app, areas.transcript.width);
-    app.set_view_width(areas.transcript.width);
-    app.viewport_mut()
-        .sync(total, areas.transcript.height as usize);
+    let base = base_areas(app, screen);
+    let height = base.transcript.height as usize;
+    let (visible, width) =
+        scrollbar::resolve(app.scrollbar_visible(), app, base.transcript.width, height);
+    app.set_scrollbar_visible(visible);
+    let total = transcript::total_lines(app, width);
+    app.set_view_width(width);
+    app.viewport_mut().sync(total, height);
 }
