@@ -418,54 +418,6 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
                 message: format!("'{}' does not exist", omp_str),
             });
         }
-        // providers.toml: the active route must name a provider that exists,
-        // and a named model must be one the provider declared. Silently
-        // falling back would hand the run a *different* provider than the
-        // file asked for — the worst possible failure for a credential typo.
-        if let Some(spec) = self.providers.active.as_deref() {
-            let route = self.providers.spec_to_route(spec);
-            let (name, model) = match crate::providers::ProvidersFile::split_route(route) {
-                Some(r) => r,
-                None => {
-                    return Err(ConfigError::Invalid {
-                        field: "providers.active",
-                        message: format!("route `{route}` must be `provider` or `provider/model`"),
-                    });
-                }
-            };
-            let entry = match self.providers.provider(&name) {
-                Some(e) => e,
-                None => {
-                    return Err(ConfigError::Invalid {
-                        field: "providers.active",
-                        message: format!("no such provider `{name}` in providers.toml"),
-                    });
-                }
-            };
-            if let Some(m) = &model {
-                if !entry.models.is_empty() && !entry.models.iter().any(|x| x.id == *m) {
-                    return Err(ConfigError::Invalid {
-                        field: "providers.active",
-                        message: format!(
-                            "provider `{name}` has no model `{m}` (declared: {})",
-                            entry
-                                .models
-                                .iter()
-                                .map(|x| x.id.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                    });
-                }
-            } else if entry.default_model.is_none() {
-                return Err(ConfigError::Invalid {
-                    field: "providers.active",
-                    message: format!(
-                        "provider `{name}` names no model and has no default_model; use the route `{name}/<model>`"
-                    ),
-                });
-            }
-        }
 
         // [combos]: every target must be a literal `provider/model` route
         // naming an existing provider row and (when that provider declares
@@ -519,6 +471,63 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
                             .join(", ")
                     ),
                 });
+            }
+        }
+
+        // providers.toml: the active spec must name a provider that exists,
+        // and a named model must be one the provider declared. Silently
+        // falling back would hand the run a *different* provider than the
+        // file asked for — the worst possible failure for a credential typo.
+        if let Some(spec) = self.providers.active.as_deref() {
+            // A combo active spec was already enforced by the `[combos]`
+            // check (explicit target, provider row, declared model): its
+            // errors name the combo, not the active route. Only literal
+            // and bare-provider specs are validated here.
+            let is_combo = spec != self.providers.spec_to_route(spec);
+            if !is_combo {
+                let (name, model) = match crate::providers::ProvidersFile::split_route(spec) {
+                    Some(r) => r,
+                    None => {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.active",
+                            message: format!(
+                                "route `{spec}` must be `provider` or `provider/model`"
+                            ),
+                        });
+                    }
+                };
+                let entry = match self.providers.provider(&name) {
+                    Some(e) => e,
+                    None => {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.active",
+                            message: format!("no such provider `{name}` in providers.toml"),
+                        });
+                    }
+                };
+                if let Some(m) = &model {
+                    if !entry.models.is_empty() && !entry.models.iter().any(|x| x.id == *m) {
+                        return Err(ConfigError::Invalid {
+                            field: "providers.active",
+                            message: format!(
+                                "provider `{name}` has no model `{m}` (declared: {})",
+                                entry
+                                    .models
+                                    .iter()
+                                    .map(|x| x.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        });
+                    }
+                } else if entry.default_model.is_none() {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.active",
+                        message: format!(
+                            "provider `{name}` names no model and has no default_model; use the route `{name}/<model>`"
+                        ),
+                    });
+                }
             }
         }
 
