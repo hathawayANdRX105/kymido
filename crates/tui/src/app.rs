@@ -6,6 +6,7 @@
 //! 调用方给的 `rx` 是会话级订阅，泵收线 = 订阅断线 = daemon 断线 →
 //! 退出码 3 单行错误（route §3 边界）。
 
+// TUI-P0-T20：app.rs 本批由 T20PanelBorders 独占（仅下方行数 +2 算术与本标记行）。
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
@@ -293,12 +294,12 @@ impl App {
     /// 插在 rewind 之后：两个模态不可能同开（`/theme` 要打 `/`，rewind
     /// 确认态期间 composer 键全被吃掉）。
 
-    /// T17：面板占行总数（主题面板开着 = 方案行数，否则斜杠面板行数）——
-    /// `ui::areas` / `ui::panels` 按这一个数从 transcript 让行，渲染与让行
-    /// 不会漂移（两面板互斥，不叠加）。
+    /// T17：面板占行总数（主题面板开着 = 方案行数，否则斜杠面板行数；T20：
+    /// 两者均含 2 行面板边框）——`ui::areas` / `ui::panels` 按这一个数从
+    /// transcript 让行，渲染与让行不会漂移（两面板互斥，不叠加）。
     pub fn panel_rows(&self) -> u16 {
         if self.theme_panel.is_some() {
-            return theme::Scheme::ALL.len() as u16;
+            return theme::Scheme::ALL.len() as u16 + 2;
         }
         self.slash_rows()
     }
@@ -358,13 +359,13 @@ impl App {
             _ => KeyAction::None,
         }
     }
-    /// T9：面板占行数（0 = 关闭不占行；无命中也占 1 行提示——`ui::areas`
-    /// 按这个数从 transcript 让行）。
+    /// T9：面板占行数（0 = 关闭不占行；无命中也占 1 行提示 + T20 边框 2
+    /// 行——`ui::areas` 按这个数从 transcript 让行）。
     pub fn slash_rows(&self) -> u16 {
         if !self.slash_visible() {
             return 0;
         }
-        self.slash_matches().len().max(1) as u16
+        self.slash_matches().len().max(1) as u16 + 2
     }
 
     /// T9：取走一条命令意图（事件循环消费；无 = `None`）。
@@ -395,12 +396,12 @@ impl App {
         self.search.is_open()
     }
 
-    /// T11：overlay 占行数（0 = 关闭；开 = [`search::OVERLAY_ROWS`]，
-    /// `ui::areas` 按这个数从 transcript 让行——渲染与让行同源，
+    /// T11：overlay 占行数（0 = 关闭；开 = [`search::OVERLAY_ROWS`] 内容 + T20
+    /// 边框 2 行，`ui::areas` 按这个数从 transcript 让行——渲染与让行同源，
     /// 同 [`Self::slash_rows`] 口径）。
     pub fn search_rows(&self) -> u16 {
         if self.search_open() {
-            search::OVERLAY_ROWS
+            search::OVERLAY_ROWS + 2
         } else {
             0
         }

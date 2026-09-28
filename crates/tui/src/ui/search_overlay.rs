@@ -18,6 +18,7 @@ use ratatui::widgets::Paragraph;
 
 use web_state::types::ChatMessage;
 
+use super::panel_block;
 use crate::app::App;
 use crate::search::{self, SearchState};
 use crate::theme;
@@ -28,24 +29,32 @@ const PROMPT_COLS: u16 = 2;
 /// excerpt 以首个命中为锚、命中前留的字符数（两侧开窗，长消息不整条铺开）。
 const EXCERPT_BEFORE: usize = 16;
 
-/// 画三行 overlay（`area` 已由 `ui::areas` 裁到 [`search::OVERLAY_ROWS`]）：
-/// 查询行（提示符 + 词 + 跳转后的 `k/n`）→ 当前命中 excerpt（高亮段）→
-/// 状态与按键提示；光标钉在查询词末尾（画在 dock 之后 = 焦点归 overlay）。
+/// 画三行 overlay（内容行数 [`search::OVERLAY_ROWS`]；`area` 已由 `ui::areas` 裁到
+/// 内容 + T20 边框 2 行）：查询行（提示符 + 词 + 跳转后的 `k/n`）→ 当前命中
+/// excerpt（高亮段）→ 状态与按键提示；光标钉在查询词末尾（画在 dock 之后 =
+/// 焦点归 overlay）。
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
-    if area.height == 0 || area.width == 0 {
+    // T20：area 短于边框（高 ≤ 2）或宽为 0 → 不画任何东西直接返回（小屏上
+    // composer / dock 抢行会真实产出这些 area；边框 + 退化 area 是渲染路径的
+    // panic 类）。
+    if area.width == 0 || area.height <= 2 {
         return;
     }
     let state = app.search_state();
+    let block = panel_block("search");
+    let inner = block.inner(area);
     let mut lines = vec![
         query_line(state),
-        hit_line(state, area.width),
+        hit_line(state, inner.width),
         status_line(state),
     ];
-    lines.truncate(area.height as usize);
-    frame.render_widget(Paragraph::new(lines), area);
+    lines.truncate(inner.height as usize);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(lines), inner);
+    // 查询行在边框内（inner 顶行），光标钉在查询词末尾。
     let used = state.query().chars().count() as u16 + PROMPT_COLS;
-    let col = used.min(area.width.saturating_sub(1));
-    frame.set_cursor_position(Position::new(area.x + col, area.y));
+    let col = used.min(inner.width.saturating_sub(1));
+    frame.set_cursor_position(Position::new(inner.x + col, inner.y));
 }
 
 /// 查询行：`> {query}` + 跳转后的 `{k}/{n}`（未跳转只显总命中数——还没

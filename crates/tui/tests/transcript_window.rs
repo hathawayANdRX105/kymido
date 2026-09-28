@@ -61,6 +61,58 @@ fn sync(app: &mut App, width: u16, height: u16) {
     ui::sync_viewport(app, Rect::new(0, 0, width, height));
 }
 
+/// Assistant message in the historical backfill shape (`parts` empty, body
+/// in `content` — same shape as `web-state::convert::message_to_chat`); the
+/// thinking block is driven by `reasoning`.
+fn assistant_msg(reasoning: &str, text: &str) -> ChatMessage {
+    ChatMessage {
+        id: format!("a-{text}"),
+        role: "assistant".to_string(),
+        content: text.to_string(),
+        reasoning: reasoning.to_string(),
+        tool_calls: vec![],
+        parts: vec![],
+        timestamp: String::new(),
+        ts_epoch_ms: 0,
+        attachments: vec![],
+    }
+}
+
+/// Draw one frame at `width`×`height` and return the full screen text
+/// (same shape as `scroll_follow.rs`'s `screen`).
+fn screen_at(app: &App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
+    terminal
+        .draw(|frame| ui::draw(frame, app))
+        .expect("draw ok");
+    let buf = terminal.backend().buffer().clone();
+    let mut out = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            out.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// First 0-based row containing `needle` (same shape as
+/// `scroll_follow.rs`'s `row_of`).
+fn row_of(text: &str, needle: &str) -> Option<usize> {
+    text.lines().position(|line| line.contains(needle))
+}
+
+/// 12 reasoning lines (> the thinking block's fold threshold 8): fold
+/// render = head 3 + hidden-count row + tail 2. Each line is 46 columns —
+/// one row at 80 cols, two rows at 44 (the two regimes catch a
+/// count-vs-materialize wrap divergence).
+fn long_reasoning() -> String {
+    (0..12)
+        .map(|i| format!("reason {i:02} 0123456789 0123456789 0123456789 end"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A tall 5-line message plus 17 one-liners: total = 22 rows, viewport 20,
 /// following offset = 22 − 20 = 2 → the first visible row is line 3 of the
 /// tall message, which therefore straddles the window top.
@@ -133,5 +185,126 @@ fn empty_transcript_renders_without_panic() {
     assert!(
         !text.is_empty(),
         "frame still draws chrome around the transcript"
+    );
+}
+
+/// T21: empty reasoning takes zero rows (catches fabricated content —
+/// historical session backfill (`web-state::convert`) always leaves
+/// `reasoning` empty; a thinking block that renders a `◇ Thought` header
+/// with nothing under it fabricates content, and the total row count is off
+/// by one, desyncing the windowed transcript's scroll position from the
+/// rendered picture).
+#[test]
+fn empty_reasoning_takes_zero_rows() {
+    for width in [1usize, 20, 80] {
+        assert_eq!(
+            ui::thinking::rows("", width),
+            0,
+            "empty reasoning takes zero rows at width {width}"
+        );
+        assert!(
+            ui::thinking::lines("", width).is_empty(),
+            "empty reasoning materializes nothing at width {width}"
+        );
+        // Whitespace-only is the same class (trim-empty): a header with only
+        // whitespace under it is fabricated too.
+        assert_eq!(
+            ui::thinking::rows("   \n \t", width),
+            0,
+            "whitespace-only reasoning takes zero rows at width {width}"
+        );
+        assert!(ui::thinking::lines("   \n \t", width).is_empty());
+    }
+
+    // Message level: an assistant message with empty reasoning (historical
+    // shape) counts exactly its content rows; non-empty reasoning adds
+    // exactly the block's rows (header 1 + body 3, no fold).
+    let mut flat = history(vec![assistant_msg("", "body")]);
+    sync(&mut flat, 80, 24);
+    assert_eq!(
+        flat.viewport().total(),
+        1,
+        "empty reasoning contributes zero rows"
+    );
+    assert!(
+        !screen(&flat).contains("◇ Thought"),
+        "no fabricated header may appear"
+    );
+
+    let mut with = history(vec![assistant_msg("r1\nr2\nr3", "body")]);
+    sync(&mut with, 80, 24);
+    assert_eq!(
+        with.viewport().total(),
+        5,
+        "thinking block adds exactly 4 rows (header + 3 body)"
+    );
+}
+
+/// T21: reasoning render and count agree (catches the rows/lines divergence
+/// that desyncs scrolling: count side and materialize side drifting on the
+/// thinking block's fold branch or wrap core makes the total line count
+/// diverge from the actually rendered rows). Same shape as
+/// `tests/scroll_follow.rs::window_render_matches_line_count`.
+#[test]
+fn reasoning_render_and_count_agree() {
+    for width in [80u16, 44u16] {
+        let mut app = history(vec![
+            user_msg("FIRST-ROW marker"),
+            assistant_msg(&long_reasoning(), "LAST-ROW text"),
+        ]);
+        sync(&mut app, width, 24);
+        let total = app.viewport().total();
+        if width == 80 {
+            // user 1 + thinking block (header 1 + head 3 + hidden 1 + tail 2)
+            // + body 1 = 9 — pins the fold arithmetic.
+            assert_eq!(total, 9, "80-col total pins the fold math, got {total}");
+        }
+        // Screen height = total + footer 1 + dock 3 → transcript fits all
+        // content; first row at screen top, last row at `total − 1`.
+        let screen_h = total as u16 + 4;
+        sync(&mut app, width, screen_h);
+        assert_eq!(
+            app.viewport().height(),
+            total,
+            "viewport height = full content height (col width {width})"
+        );
+        let text = screen_at(&app, width, screen_h);
+        assert_eq!(
+            row_of(&text, "FIRST-ROW"),
+            Some(0),
+            "width={width}: first row must be at screen top"
+        );
+        assert_eq!(
+            row_of(&text, "LAST-ROW"),
+            Some(total - 1),
+            "width={width}: last row must be at row total−1 — count/materialize \
+             divergence shows red here"
+        );
+    }
+}
+
+/// T21: reasoning renders before the text parts of the same message
+/// (catches the block rendering after the text: the thinking block is the
+/// model's pre-answer process and must precede that message's parts —
+/// reversed order tells the story backwards).
+#[test]
+fn reasoning_precedes_text_parts() {
+    let mut msg = assistant_msg("reason body R", "text part T");
+    // Non-empty parts path (streaming projection shape).
+    msg.parts = vec![MessagePart::Text("text part T".to_string())];
+    let mut app = history(vec![msg]);
+    sync(&mut app, 80, 24);
+
+    let text = screen(&app);
+    let header_row = row_of(&text, "◇ Thought").expect("thinking header visible");
+    let body_row = row_of(&text, "reason body R").expect("thinking body visible");
+    let text_row = row_of(&text, "text part T").expect("text part visible");
+    assert!(
+        header_row < text_row,
+        "thinking header must precede the text part:\n{text}"
+    );
+    assert!(
+        body_row < text_row,
+        "thinking body must precede the text part:\n{text}"
     );
 }

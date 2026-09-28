@@ -16,11 +16,13 @@ pub mod search_overlay;
 pub mod session_picker;
 mod slash_palette;
 mod theme_panel;
+pub mod thinking;
 pub mod tool_card;
 mod transcript;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::widgets::{Block, BorderType, Borders};
 
 use crate::app::App;
 use crate::theme;
@@ -58,12 +60,13 @@ fn areas(app: &App, area: Rect) -> Areas {
         width: area.width,
         height: footer.y - panel_y,
     };
-    // T11 搜索 overlay：问题面板之上恒 `search::OVERLAY_ROWS` 行（0 行 =
-    // 关闭）。与斜杠面板开合互斥（`slash_visible` 在 overlay 打开时恒 false），
-    // 两块不会同帧同时占行。让行几何与斜杠面板**共用** `overlay_rect`。
+    // T11 搜索 overlay：问题面板之上恒 `search_rows()` 行（内容 `search::OVERLAY_ROWS` +
+    // T20 边框 2 行；0 行 = 关闭）。与斜杠面板开合互斥（`slash_visible` 在 overlay 打开时恒
+    // false），两块不会同帧同时占行。
+    // 让行几何与斜杠面板**共用** `overlay_rect`。
     let search = overlay_rect(area, panel_y, app.search_rows(), transcript.y);
-    // T9 斜杠面板：贴在搜索 overlay 之下（0 行 = 关闭；行数 = 面板候选数，
-    // 无命中也留 1 行提示；小屏按 transcript 余量夹紧——同款几何）。
+    // T9 斜杠面板：贴在搜索 overlay 之下（0 行 = 关闭；行数 = 面板候选数 +
+    // T20 边框 2 行，无命中也留 1 行提示；小屏按 transcript 余量夹紧——同款几何）。
     let palette = overlay_rect(area, search.y, app.panel_rows(), transcript.y);
     // transcript：吃掉斜杠面板 + 搜索 overlay + footer + 面板让出的行。
     let transcript = Rect {
@@ -93,6 +96,19 @@ fn overlay_rect(area: Rect, boundary: u16, rows: u16, ceiling: u16) -> Rect {
         width: area.width,
         height: boundary - y,
     }
+}
+
+/// T20：四个浮动面板（问题面板 / 斜杠候选 / 主题方案 / 搜索 overlay）共用的
+/// 轮廓块：圆角边框 + 短标题。边框与标题出自**同一个** `Block`（标题画在顶
+/// 边框行内，两者结构上不可能漂移）；描边走 [`theme::border`]（D11：ui/*
+/// 不持有 raw `Color`）。四面板都调这一个入口——新增浮动面板也用这个块，
+/// 且其让行数必须连边框（上下各 1 行）一起数，与 panel_rows 让行口径同。
+pub fn panel_block(title: &'static str) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(title)
+        .style(theme::border())
 }
 
 /// 画一帧（自上而下）：transcript → 斜杠面板（T9，0 行不画）→ footer 状态条

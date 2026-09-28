@@ -9,6 +9,11 @@
 //! 卡三态：running → done / failed（`ToolResult` 翻同一张卡的状态，不另开
 //! 行）。长结果默认折叠成「头尾预览 + 隐藏行数」；展开状态由
 //! `App::tools_expanded` 持有、一个键（Tab）全部展开/再按折回。
+//!
+//! T22：卡头字形双通道——kind 字形（覆盖代码库现有 11 个 kind，未知
+//! 回落 `⚙`）+ 三态字形（`~` / `✓` / `✗`，未知态 `?`）：形状是主通道、
+//! 颜色是辅助——NO_COLOR 终端 / 分不出红绿的读者不靠颜色也读得出三态。
+//! 字形全部单格（unicode-width 1），不影响行数（钉 `tests/tool_card.rs`）。
 
 use ratatui::text::{Line, Span};
 
@@ -25,7 +30,7 @@ const HEAD_LINES: usize = 3;
 /// 折叠时保留的尾部行数。
 const TAIL_LINES: usize = 2;
 
-/// 一张工具卡的全部行：卡头（kind · 三态）+ 标题 + 结果区。
+/// 一张工具卡的全部行：卡头（态字形 · kind 字形 · kind · 三态文案）+ 标题 + 结果区。
 ///
 /// `expanded` 由 `App::tools_expanded` 传入（一个键全部展开/折叠）；
 /// `width` 是列宽，标题与结果按列宽断行（同 transcript 的处理）。
@@ -47,8 +52,11 @@ pub fn lines(tc: &ToolCall, expanded: bool, width: usize) -> Vec<Line<'static>> 
 /// 分支与 [`lines`] / [`result_lines`] 一一镜像：卡头恒 1 行、running 无
 /// 结果区、折叠态 = 头 + 隐藏行数 + 尾；断行走 `transcript::count_wrapped`
 /// （与 `push_wrapped` 同一 `wrap_with` 核心，分叉由 `tests/scroll_follow.rs`
-/// 的 count/render 一致性测试钉）。
-pub(super) fn rows(tc: &ToolCall, expanded: bool, width: usize) -> usize {
+/// 的 count/render 一致性测试钉；glyph 组合由
+/// `tests/tool_card.rs::glyphs_do_not_change_row_count` 钉）。
+///
+/// T22：`pub` 出给测试直接钉计数/物化对偶（`rows == lines().len()`）。
+pub fn rows(tc: &ToolCall, expanded: bool, width: usize) -> usize {
     let mut rows = 1 + super::transcript::count_wrapped(&tc.title, width, "  ");
     if tc.status == "running" {
         return rows;
@@ -57,8 +65,10 @@ pub(super) fn rows(tc: &ToolCall, expanded: bool, width: usize) -> usize {
     rows
 }
 
-/// 卡头：`▸ <kind> · <三态>`，样式随状态（running=brand、failed=danger、
-/// done=dim）。
+/// 卡头：`▸ <态字形> <kind字形> <kind> · <三态文案>`，样式随状态
+/// （running=brand、failed=danger、done=dim）。T22：三态与 kind 各有一个
+/// 字形做主通道（无颜色可读），颜色只做辅助——见 [`state_glyph`] /
+/// [`kind_glyph`]。
 fn header(tc: &ToolCall) -> Line<'static> {
     let style = match tc.status.as_str() {
         "running" => theme::brand_bold(),
@@ -66,7 +76,13 @@ fn header(tc: &ToolCall) -> Line<'static> {
         _ => theme::dim(),
     };
     Line::from(Span::styled(
-        format!("▸ {} · {}", tc.kind, status_label(&tc.status)),
+        format!(
+            "▸ {} {} {} · {}",
+            state_glyph(&tc.status),
+            kind_glyph(&tc.kind),
+            tc.kind,
+            status_label(&tc.status)
+        ),
         style,
     ))
 }
@@ -78,6 +94,38 @@ fn status_label(status: &str) -> &str {
         "success" => "done",
         "error" => "failed",
         other => other,
+    }
+}
+
+/// T22：三态字形（不靠颜色区分三态的形状通道——NO_COLOR 终端 / 分不出
+/// 红绿的读者不能只靠卡头颜色；形状 + 文案为主通道，颜色为辅助）：
+/// `~` running / `✓` done / `✗` failed；未知状态 `?`——不编造状态。
+fn state_glyph(status: &str) -> char {
+    match status {
+        "running" => '~',
+        "success" => '✓',
+        "error" => '✗',
+        _ => '?',
+    }
+}
+
+/// T22：kind 字形。表覆盖代码库现有 11 个 kind 值（`web-state::ui_state`
+/// `tool_call_from_rpc` 归一化表：bash / edit / read / write / delete /
+/// grep / glob / job / terminal / subagent + "tool" 兜底桶）；任意未知
+/// kind 回落 `⚙`（永不空串、不 panic）。字形全单格（unicode-width 1，
+/// 与已在用的 `▸` / `❯` 同宽类），不参与断行与行数。
+fn kind_glyph(kind: &str) -> char {
+    match kind {
+        "bash" => '$',
+        "job" => '&',
+        "terminal" => '⌗',
+        "read" => '≡',
+        "write" => '⇓',
+        "edit" => '✎',
+        "delete" => '⌫',
+        "grep" | "glob" => '⌕',
+        "subagent" => '↗',
+        _ => '⚙',
     }
 }
 

@@ -121,7 +121,11 @@ fn palette_opens_only_at_line_start() {
     let mut app = App::new();
     type_str(&mut app, "/");
     assert!(app.slash_visible(), "行首 `/` 触发面板");
-    assert_eq!(app.slash_rows(), FIRST_BATCH.len() as u16, "起步全量七行");
+    assert_eq!(
+        app.slash_rows(),
+        FIRST_BATCH.len() as u16 + 2,
+        "起步全量七行 + T20 边框 2 行"
+    );
     app.handle_key(key(KeyCode::Backspace));
     assert!(!app.slash_visible(), "删掉行首 `/` 收起面板");
 
@@ -172,7 +176,7 @@ fn fuzzy_filter_hits_and_misses() {
     type_str(&mut app, "/zzz");
     assert!(app.slash_visible(), "无命中面板不自动关闭");
     assert!(app.slash_matches().is_empty());
-    assert_eq!(app.slash_rows(), 1, "无命中留 1 行提示");
+    assert_eq!(app.slash_rows(), 3, "无命中留 1 行提示 + T20 边框 2 行");
     assert_eq!(app.slash_selected(), None, "无命中没有高亮项");
 }
 
@@ -411,5 +415,24 @@ fn palette_renders_candidates_and_no_match_row() {
     assert!(
         !closed.contains("no matching command"),
         "关面板后整块消失:\n{closed}"
+    );
+}
+
+/// T20：`slash_rows()` 必须把 2 行边框数进去。守的回归：画了边框但行数没
+/// 长，`ui::areas` 就少让 2 行给面板，末位候选（默认顺序的 `/rewind`）被
+/// 截出屏。
+#[test]
+fn bordered_palette_rows_include_border() {
+    let mut app = App::new();
+    type_str(&mut app, "/");
+    assert_eq!(
+        app.slash_rows(),
+        FIRST_BATCH.len() as u16 + 2,
+        "7 个候选 + 2 行边框"
+    );
+    let shown = screen(&app);
+    assert!(
+        shown.contains("/rewind"),
+        "末位候选不许被面板行预算截掉：\n{shown}"
     );
 }

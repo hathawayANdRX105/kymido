@@ -5,9 +5,11 @@
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
 
 use kymido_tui::app::App;
 use kymido_tui::ui;
+use kymido_tui::ui::questions::QuestionPanel;
 use web_client::QuestionItem;
 
 /// TestBackend 缓冲 → 逐行文本（同 dsh `tests/chat_flow.rs` 的取样法）。
@@ -82,5 +84,61 @@ fn question_answer_sends_id_and_choice() {
     assert!(
         overwrite.contains("second summary"),
         "同 id 取最新 pending:\n{overwrite}"
+    );
+}
+
+/// T20：`rows()` 必须把 2 行边框数进去。守的回归：画了边框但 `rows()` 没
+/// 长，`ui::areas` 就少让 2 行给面板，批次进度行（末条内容行）被截出屏——
+/// 屏上文本丢 "question 1/1"。
+#[test]
+fn bordered_panel_rows_include_border() {
+    let mut app = App::new();
+    app.set_pending_questions(vec![QuestionItem::plan_review("Approve this plan?", None)]);
+    let shown = screen(&app);
+    assert!(
+        shown.contains("question 1/1"),
+        "批次进度行不许被面板行预算截掉：\n{shown}"
+    );
+}
+
+/// T20：面板画进退化 area（高 ≤ 2 / 零宽）时不画任何东西直接返回，不许
+/// panic。小屏上 composer / dock 抢行会真实产出这些 area；渲染路径 panic
+/// 会带走整个会话。
+#[test]
+fn border_never_panics_on_short_area() {
+    let mut panel = QuestionPanel::new();
+    panel.set_pending(vec![QuestionItem::plan_review("Approve this plan?", None)]);
+
+    // 高 2 = 恰好边框高度（内容一行都没剩）：不画，缓冲保持全空。
+    let mut terminal = Terminal::new(TestBackend::new(4, 2)).expect("terminal");
+    terminal
+        .draw(|frame| panel.render(frame, Rect::new(0, 0, 4, 2)))
+        .expect("高 2 的 area 不许 panic");
+    let blank = buffer_text(terminal.backend().buffer());
+    assert!(
+        blank.trim().is_empty(),
+        "高 2 的 area 一行内容都放不下，必须不画任何东西：\n{blank}"
+    );
+
+    // 零宽 area：同样不画。
+    let mut terminal = Terminal::new(TestBackend::new(1, 8)).expect("terminal");
+    terminal
+        .draw(|frame| panel.render(frame, Rect::new(0, 0, 0, 8)))
+        .expect("零宽 area 不许 panic");
+    let blank = buffer_text(terminal.backend().buffer());
+    assert!(
+        blank.trim().is_empty(),
+        "零宽 area 必须不画任何东西：\n{blank}"
+    );
+
+    // 高 3 = 边框 + 恰好 1 行内容：画边框 + 首条内容行（题干），其余截掉。
+    let mut terminal = Terminal::new(TestBackend::new(80, 3)).expect("terminal");
+    terminal
+        .draw(|frame| panel.render(frame, Rect::new(0, 0, 80, 3)))
+        .expect("高 3 的 area 不许 panic");
+    let short = buffer_text(terminal.backend().buffer());
+    assert!(
+        short.contains("Approve this plan?"),
+        "高 3 时首条内容行（题干）必须落在边框 inner 里：\n{short}"
     );
 }
