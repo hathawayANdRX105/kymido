@@ -261,9 +261,10 @@ pub fn Chat(
                 }
             }
 
-            // 左侧 minimap：每个用户 prompt 一个横条锚点（客户端 JS 聚光梯度）
+            // 左侧 minimap：每个用户 prompt 一个横条锚点（紧凑顶对齐，整组不悬浮中部；
+            // 客户端 JS 聚光梯度，纯视觉锚点：不跟随滚动、不点击/滚轮跳转，ainnotation 波4）
             if !prompt_items.is_empty() {
-                div { class: "absolute left-2 top-0 bottom-0 flex flex-col justify-center z-20",
+                div { class: "absolute left-2 top-0 bottom-0 flex flex-col z-20",
                     id: "minimap",
                     for (anchor_id, p) in prompt_items.clone() {
                         div { class: "relative flex items-center",
