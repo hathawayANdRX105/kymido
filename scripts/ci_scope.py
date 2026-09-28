@@ -30,13 +30,28 @@ byte-identical in both repositories::
     # kymido: the UI contract anchors live outside any crate dir
     scripts/ci_scope.py --seed '.githooks/spec/**=web'
 
-    # ferrite: sqlx::migrate! globs db/migrations at compile time
+    # ferrite: sqlx::migrate! globs db/migrations at compile time, and the
+    # frontend crates are wasm32 targets rather than native test hosts
     scripts/ci_scope.py --seed 'db/migrations/**=db-bootstrap'
+                        --wasm-dir crates/web --wasm-dir apps/admin-web
+                        --wasm-dir apps/tavern-web
+
+Execution is deliberately *not* part of this script: it only answers the
+question, then a workflow consumes it. `--format github` writes eight keys to
+$GITHUB_OUTPUT — `skip` / `full` / `names` / `seed` / `reason`, plus the three
+execution buckets `test` (integration test targets exist -> `cargo test -p`),
+`wasm` (dir under a `--wasm-dir` -> `cargo check --target wasm32-unknown-unknown`),
+and `check` (neither -> plain `cargo check`). A package can sit in both `test`
+and `wasm`: ferrite tests web packages natively *and* wasm-checks them, which
+is exactly what its old `ci-affected.sh` did. Kymido reads only the first five
+keys — the buckets stay empty of meaning there because it passes no
+`--wasm-dir`.
 
 Usage
 -----
     ci_scope.py [--base REF] [--format github|text|json] [--explain]
-                [--seed 'glob=package'] [--ignore 'glob'] [--no-worktree]
+                [--seed 'glob=package'] [--ignore 'glob'] [--also 'pkg=pkg']
+                [--wasm-dir DIR] [--no-worktree]
 
 Exit codes: 0 resolved, 1 could not resolve a scope (workflow should fail
 loudly rather than silently test nothing).
@@ -322,6 +337,57 @@ class Scope:
         self.merge_base = ""
         self.changed: list[str] = []
         self.ws: Workspace | None = None   # cached: emit both formats from one metadata call
+        # Execution buckets (filled by split_buckets): what to `cargo test`,
+        # what to `cargo check`, what to wasm-check. Empty lists when no
+        # --wasm-dir was given — a consumer then just uses `names`.
+        self.wasm_dirs: list[str] = []
+        self.test_pkgs: list[str] = []
+        self.check_pkgs: list[str] = []
+        self.wasm_pkgs: list[str] = []
+
+
+def split_buckets(scope: Scope, wasm_dirs: list[str]) -> None:
+    """Divide the in-scope packages into the three buckets CI executes.
+
+    Mirrors ferrite's old `ci-affected.sh` exactly:
+      * has integration test targets -> `cargo test -p` (even when web)
+      * dir under a --wasm-dir      -> `cargo check --target wasm32-unknown-unknown`
+        (independent of the test bucket: a web package with tests is both
+        tested natively and wasm-checked)
+      * neither                     -> plain `cargo check`
+
+    Without --wasm-dir the wasm bucket stays empty and every non-test package
+    lands in `check` — kymido ignores these keys and drives everything from
+    `names`, so the split costs it nothing.
+    """
+    scope.wasm_dirs = list(wasm_dirs)
+    ws = scope.ws
+    if ws is None:
+        return
+
+    # A typo'd dir would silently push wasm-only crates into a native
+    # `cargo check` and the mistake would surface as a confusing compile
+    # error (or worse, not surface at all). Fail like --seed/--also do.
+    for wanted in wasm_dirs:
+        if not any(
+            directory == wanted or directory.startswith(wanted.rstrip("/") + "/")
+            for directory in ws.dir_of.values()
+        ):
+            raise ScopeError(f"--wasm-dir '{wanted}' matches no workspace package")
+
+    has_tests = set(ws.test_targets(set(scope.packages)))
+    for name in scope.packages:
+        directory = ws.dir_of[name]
+        under_wasm = any(
+            directory == wanted or directory.startswith(wanted.rstrip("/") + "/")
+            for wanted in wasm_dirs
+        )
+        if under_wasm:
+            scope.wasm_pkgs.append(name)
+        if name in has_tests:
+            scope.test_pkgs.append(name)
+        elif not under_wasm:
+            scope.check_pkgs.append(name)
 
 
 def _match(path: str, pattern: str) -> bool:
@@ -529,6 +595,8 @@ def emit_github(scope: Scope) -> None:
     `names` is always the concrete package list (all members when FULL, empty
     when skipping), so a step can build one `-p` array and an `if:` condition
     can token-match a single crate without a separate `__ALL__` sentinel.
+    `test` / `check` / `wasm` are the execution buckets (see split_buckets);
+    they partition `names` except that wasm ∩ test is allowed to overlap.
     """
     lines = [
         f"skip={'true' if scope.mode == 'skip' else 'false'}",
@@ -536,6 +604,9 @@ def emit_github(scope: Scope) -> None:
         f"names={','.join(scope.packages)}",
         f"seed={','.join(scope.seeds)}",
         f"reason={scope.reason}".replace("\n", " "),
+        f"test={','.join(scope.test_pkgs)}",
+        f"check={','.join(scope.check_pkgs)}",
+        f"wasm={','.join(scope.wasm_pkgs)}",
     ]
     payload = "\n".join(lines) + "\n"
     target = os.environ.get("GITHUB_OUTPUT")
@@ -570,7 +641,22 @@ def emit_text(scope: Scope, explain: bool, out: TextIO | None = None) -> None:
     p(f"Seed   : {len(scope.seeds)} -> {', '.join(scope.seeds) or '(all)'}")
     p(f"Closure: {len(scope.packages)} crates")
     p(f"  {', '.join(scope.packages)}")
-    p(f"cargo  : cargo test {' '.join('-p ' + pkg for pkg in scope.packages)}")
+
+    # With --wasm-dir the consumer executes three different commands, so the
+    # report names them per bucket; without it (kymido) every package is
+    # driven by one `cargo test -p` list from `names`.
+    if scope.wasm_dirs:
+        if scope.test_pkgs:
+            p(f"test   : cargo test {' '.join('-p ' + n for n in scope.test_pkgs)}")
+        if scope.check_pkgs:
+            p(f"check  : cargo check {' '.join('-p ' + n for n in scope.check_pkgs)}")
+        if scope.wasm_pkgs:
+            p(
+                "wasm   : cargo check --target wasm32-unknown-unknown "
+                + " ".join("-p " + n for n in scope.wasm_pkgs)
+            )
+    else:
+        p(f"cargo  : cargo test {' '.join('-p ' + pkg for pkg in scope.packages)}")
 
     if not explain or ws is None:
         return
@@ -617,6 +703,10 @@ def main(argv: list[str]) -> int:
                         help="if the first package is in scope, pull in the second "
                              "(e.g. daemon=subagent: its example binary is exec'd "
                              "by daemon's e2e tests) (repeatable)")
+    parser.add_argument("--wasm-dir", action="append", default=[], metavar="DIR",
+                        help="packages whose manifest dir is DIR (or under it) also get "
+                             "`cargo check --target wasm32-unknown-unknown` instead of "
+                             "being native-only (e.g. crates/web) (repeatable)")
     parser.add_argument("--no-worktree", action="store_true",
                         help="ignore uncommitted/staged changes (always on in GitHub Actions)")
     parser.add_argument("--root", default=None, help="repository root (default: git toplevel)")
@@ -641,6 +731,7 @@ def main(argv: list[str]) -> int:
             for name in (trigger, extra):
                 if name not in known:
                     raise ScopeError(f"--also '{trigger}={extra}': '{name}' is not a workspace member")
+        split_buckets(scope, args.wasm_dir)
     except ScopeError as exc:
         print(f"ci_scope: {exc}", file=sys.stderr)
         return 1
@@ -663,6 +754,11 @@ def main(argv: list[str]) -> int:
             "changed": scope.changed,
             "seed": scope.seeds,
             "packages": scope.packages,
+            "buckets": {
+                "test": scope.test_pkgs,
+                "check": scope.check_pkgs,
+                "wasm": scope.wasm_pkgs,
+            },
             "owners": scope.owners,
             "ignored": scope.ignored,
         }, indent=2))
