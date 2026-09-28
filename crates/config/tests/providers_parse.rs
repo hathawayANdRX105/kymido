@@ -80,6 +80,12 @@ input = ["text", "image"]
 #[test]
 fn active_route_resolves_with_model_level_capabilities() {
     let _guard = cwd_lock();
+    // FILE 的 deepseek 走 api_key_env：设好变量才能解析出凭据，
+    // 能力断言才有的跑；跑完清掉。
+    // SAFETY: cwd_lock 串行化 env 读写。
+    unsafe {
+        std::env::set_var("KYMIDO_TEST_DEEPSEEK_KEY", "sk-locked");
+    }
     let c = load_providers_held(Some(FILE), None);
     let llm = c.active_llm().expect("active route must resolve");
     assert_eq!(llm.model, "deepseek-chat");
@@ -91,6 +97,9 @@ fn active_route_resolves_with_model_level_capabilities() {
         "model-level beats provider-level"
     );
     assert!(!llm.image_input(), "deepseek-chat is text-only");
+    unsafe {
+        std::env::remove_var("KYMIDO_TEST_DEEPSEEK_KEY");
+    }
 }
 
 /// 路由 "prov"（不带 model）走 provider 的 default_model。
@@ -164,18 +173,22 @@ fn set_api_key_env_counts_as_ready() {
         std::env::set_var("KYMIDO_TEST_DEEPSEEK_KEY", "sk-from-env");
     }
     let c = load_providers_held(Some(FILE), None);
-    // 凭据在 env 变量仍在时解析（resolve 读 env 是调用时语义），再清理。
+    // 凭据在 env 变量仍在时解析（resolve 读 env 是调用时语义）。
+    // status 同样是调用时语义：必须在清变量之前查。
     let llm = c.active_llm().expect("env key resolves the route");
+    assert_eq!(
+        c.provider_statuses()
+            .iter()
+            .find(|(n, _)| *n == "deepseek")
+            .unwrap()
+            .1,
+        ProviderStatus::Ready
+    );
     // SAFETY: 同上；离开前清掉，避免污染同进程后续用例。
     unsafe {
         std::env::remove_var("KYMIDO_TEST_DEEPSEEK_KEY");
     }
     assert_eq!(llm.api_key, "sk-from-env");
-    let statuses = c.provider_statuses();
-    assert_eq!(
-        statuses.iter().find(|(n, _)| *n == "deepseek").unwrap().1,
-        ProviderStatus::Ready
-    );
 }
 
 /// active 路由指向不存在的 provider = 拒载（凭据 typo 保护）。
