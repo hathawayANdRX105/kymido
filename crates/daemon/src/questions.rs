@@ -87,6 +87,12 @@ pub struct QuestionItem {
     pub options: Vec<QuestionOption>,
     /// Timestamp when the question was submitted (ms since epoch).
     pub created_at_ms: i64,
+    /// S5: the session that submitted this question ("" = legacy /
+    /// session-less, the pre-S5 shape). Clients filter plan-review cards
+    /// by session exactly like they filter event frames (S2). `default`
+    /// keeps frames and lists from older daemons deserializable.
+    #[serde(default)]
+    pub session_id: String,
 }
 
 impl QuestionItem {
@@ -103,6 +109,7 @@ impl QuestionItem {
                 QuestionOption::new("Dismiss").with_description("Take over manually"),
             ],
             created_at_ms: now_ms(),
+            session_id: String::new(),
         }
     }
 
@@ -134,7 +141,14 @@ impl QuestionItem {
             intent: QuestionIntent::Prompt,
             options,
             created_at_ms: now_ms(),
+            session_id: String::new(),
         })
+    }
+    /// S5: stamp the submitting session (builder-style; the constructors
+    /// default to the legacy empty id).
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = session_id.into();
+        self
     }
 }
 
@@ -342,6 +356,30 @@ impl QuestionBroker {
         items
     }
 
+    /// S5: one pending item by id (`None` once answered — answers remove
+    /// the entry). Lets the `user.answer` path look up which session a
+    /// review belongs to.
+    pub fn item(&self, id: &str) -> Option<QuestionItem> {
+        self.inner.lock().get(id).map(|p| p.item.clone())
+    }
+
+    /// S5: session-scoped [`PlanReviewPort`]: the review question is
+    /// stamped with `session_id` and the owning session's [`ExecState`]
+    /// parks in `AwaitingReview` while the user decides. The registry
+    /// builds one per session against that session's execution state, so
+    /// an approved exit can only flip *that* session's plan runtime.
+    pub fn review_port_for(
+        self: &Arc<Self>,
+        session_id: impl Into<String>,
+        exec: crate::exec_state::ExecState,
+    ) -> Arc<dyn PlanReviewPort> {
+        Arc::new(ScopedReviewPort {
+            broker: Arc::clone(self),
+            session_id: session_id.into(),
+            exec,
+        })
+    }
+
     /// A [`PlanReviewPort`] backed by this broker.
     pub fn review_port(self: &Arc<Self>) -> Arc<dyn PlanReviewPort> {
         Arc::new(BrokerReviewPort {
@@ -378,21 +416,59 @@ impl PlanReviewPort for BrokerReviewPort {
                 }
             })?;
 
-        match answer {
-            QuestionAnswer::Select { index: 0 } => Ok(ReviewOutcome::Approved),
-            QuestionAnswer::Select { index: 1 } => Ok(ReviewOutcome::Rejected {
-                feedback: "Plan rejected. Ask the user what to change, then replan.".to_string(),
-            }),
-            QuestionAnswer::Select { index: 2 } => Ok(ReviewOutcome::Dismissed),
-            QuestionAnswer::Select { .. } => {
-                Err(ReviewError::Transport("invalid option index".to_string()))
-            }
-            QuestionAnswer::Custom { text } => {
-                if text.trim().is_empty() {
-                    Err(ReviewError::Transport("empty feedback".to_string()))
-                } else {
-                    Ok(ReviewOutcome::Rejected { feedback: text })
+        interpret_answer(answer)
+    }
+}
+
+/// S5: [`PlanReviewPort`] that parks the owning session's execution state
+/// for the duration of the review (and stamps the question with that
+/// session).
+struct ScopedReviewPort {
+    broker: Arc<QuestionBroker>,
+    session_id: String,
+    exec: crate::exec_state::ExecState,
+}
+
+impl PlanReviewPort for ScopedReviewPort {
+    fn review(&self, plan: &str) -> Result<ReviewOutcome, ReviewError> {
+        let question = QuestionItem::plan_review(plan, None).with_session_id(&self.session_id);
+        let ticket = self.broker.submit(question.clone());
+        // The run thread is now blocked in this review: keep the session
+        // hot (the reaper treats `AwaitingReview` as in-flight) until the
+        // review resolves one way or the other.
+        self.exec.awaiting_review(&question.id);
+        let answer = ticket
+            .wait_timeout(self.broker.config.plan_review_timeout)
+            .map_err(|e| {
+                self.broker.cancel(&question.id);
+                self.exec.idle();
+                match e {
+                    AnswerError::TimedOut(_) => ReviewError::Cancelled,
+                    other => ReviewError::Transport(other.to_string()),
                 }
+            })?;
+        self.exec.idle();
+        interpret_answer(answer)
+    }
+}
+
+/// Interpret a plan-review answer into a [`ReviewOutcome`] (shared by the
+/// legacy and session-scoped ports).
+fn interpret_answer(answer: QuestionAnswer) -> Result<ReviewOutcome, ReviewError> {
+    match answer {
+        QuestionAnswer::Select { index: 0 } => Ok(ReviewOutcome::Approved),
+        QuestionAnswer::Select { index: 1 } => Ok(ReviewOutcome::Rejected {
+            feedback: "Plan rejected. Ask the user what to change, then replan.".to_string(),
+        }),
+        QuestionAnswer::Select { index: 2 } => Ok(ReviewOutcome::Dismissed),
+        QuestionAnswer::Select { .. } => {
+            Err(ReviewError::Transport("invalid option index".to_string()))
+        }
+        QuestionAnswer::Custom { text } => {
+            if text.trim().is_empty() {
+                Err(ReviewError::Transport("empty feedback".to_string()))
+            } else {
+                Ok(ReviewOutcome::Rejected { feedback: text })
             }
         }
     }
@@ -408,4 +484,52 @@ fn truncate(s: &str, max_bytes: usize) -> String {
         end += 1;
     }
     s[..end].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scoped_review_parks_the_session_and_stamps_the_question() {
+        let broker = Arc::new(QuestionBroker::with_config(QuestionBrokerConfig {
+            plan_review_timeout: Duration::from_secs(5),
+        }));
+        let exec = crate::exec_state::ExecState::new();
+        let port = broker.review_port_for("s1", exec.clone());
+
+        let handle = std::thread::spawn(move || port.review("# the plan"));
+        for _ in 0..200 {
+            if matches!(
+                exec.status(),
+                crate::exec_state::ExecStatus::AwaitingReview { .. }
+            ) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let question_id = match exec.status() {
+            crate::exec_state::ExecStatus::AwaitingReview { question_id } => question_id,
+            other => panic!("session not parked in review: {other:?}"),
+        };
+        let item = broker
+            .item(&question_id)
+            .expect("review question is pending");
+        assert_eq!(item.session_id, "s1");
+
+        assert!(
+            broker
+                .answer(&question_id, QuestionAnswer::Select { index: 0 })
+                .is_ok()
+        );
+        assert_eq!(handle.join().unwrap().unwrap(), ReviewOutcome::Approved);
+        assert_eq!(exec.status(), crate::exec_state::ExecStatus::Idle);
+    }
+
+    #[test]
+    fn legacy_items_deserialize_without_a_session_id() {
+        let json = r#"{"id":"q1","summary":"s","intent":{"type":"prompt"},"options":[{"label":"a"},{"label":"b"}],"created_at_ms":0}"#;
+        let item: QuestionItem = serde_json::from_str(json).unwrap();
+        assert_eq!(item.session_id, "");
+    }
 }

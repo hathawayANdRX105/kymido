@@ -10,7 +10,6 @@
 //! and the worker handle is the only piece that knows about `crate::rpc::worker::Worker`.
 
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 
@@ -81,14 +80,15 @@ pub struct WorkerHandle {
     /// Cleared by the forwarder itself when the worker's event channel
     /// closes (worker died or was reset), so the next subscribe respawns it.
     pump_active: Arc<AtomicBool>,
-    /// The run served by the prompt currently in flight (G7-B run
-    /// attribution).  The event pump reads this to stamp every
-    /// [`EventFrame`] it broadcasts, so subscribers can route events to the
-    /// run that owns them rather than to the session that sent most
-    /// recently.  `None` while no attributed prompt is running.
-    active_run: Arc<std::sync::RwLock<Option<String>>>,
+    /// S5: this session's execution state — the single source of truth for
+    /// "what is going on in this session" (run in flight, review parked)
+    /// plus the session's own plan-mode runtime. The reaper and the event
+    /// pump's run stamping read the shared status cell; the registry builds
+    /// the per-session tool/plan instances against it.
+    exec: crate::exec_state::ExecState,
     /// orbit 模式构造包（模型 + 后端 + 容器解析出的 OrbitConfig）；
-    /// None = omp 兼容模式。daemon 在 start 时从装配容器解析一次。
+    /// None = omp 兼容模式。S5 起由注册表按会话装配（plan 闭包 + 本会话
+    /// 的 `exit_plan_mode` 进 `session_tools`），不再是 daemon 级共享克隆。
     orbit_setup: Option<crate::rpc::worker::OrbitSetup>,
     /// S2: the session key this handle is bound to ("" = legacy /
     /// session-less entry). The event pump stamps it onto every frame it
@@ -101,47 +101,56 @@ impl WorkerHandle {
         omp_path: impl Into<String>,
         orbit_setup: Option<crate::rpc::worker::OrbitSetup>,
         session_id: impl Into<String>,
+        exec: crate::exec_state::ExecState,
     ) -> Self {
         WorkerHandle {
             inner: None,
             omp_path: omp_path.into(),
             pump_active: Arc::new(AtomicBool::new(false)),
-            active_run: Arc::new(std::sync::RwLock::new(None)),
+            exec,
             orbit_setup,
             session_id: session_id.into(),
         }
     }
 
     /// Record the run served by the prompt about to be sent (G7-B).  The
-    /// event pump stamps this onto every frame it pushes while the run is
-    /// active.  The slot is *sticky*: `prompt` returns as soon as the worker
-    /// acks, but the turn's events keep flowing afterwards (the pump owns
-    /// the read loop and fans them out after the response frame is matched
-    /// — in orbit mode the whole turn is async), so the run is only replaced
-    /// by the next attributed prompt, never cleared on prompt return.
-    /// An empty `run_id` (legacy prompt without attribution) clears the
-    /// slot so a finished run cannot own a later, unattributed turn.
+    /// event pump stamps it onto every frame it pushes while the run is
+    /// active.  The slot is *sticky*: `prompt` returns as soon as the
+    /// worker acks, but the turn's events keep flowing afterwards (the pump
+    /// owns the read loop and fans them out after the response frame is
+    /// matched — in orbit mode the whole turn is async), so the run is only
+    /// replaced by the next attributed prompt, never cleared on prompt
+    /// return. An empty `run_id` (legacy prompt without attribution)
+    /// declares no run, so a finished run cannot own a later,
+    /// unattributed turn.
     pub fn set_active_run(&self, run_id: &str) {
-        let mut guard = self.active_run.write().unwrap_or_else(|e| e.into_inner());
-        *guard = (!run_id.is_empty()).then(|| run_id.to_string());
+        self.exec.set_running(run_id);
     }
 
     /// Forget any active run (worker reset: a respawned worker owes the
     /// previous run nothing).
     pub fn clear_active_run(&self) {
-        let mut guard = self.active_run.write().unwrap_or_else(|e| e.into_inner());
-        *guard = None;
+        self.exec.idle();
     }
 
-    /// S3: whether a run is currently in flight on this handle (the sticky
-    /// `active_run` slot is set by `prompt` and cleared by the event pump
-    /// on `AgentEnd`). The reaper refuses to unload a handle with an
-    /// in-flight run.
+    /// S3/S5: whether a run (or a parked review) is in flight on this
+    /// session. The reaper refuses to unload a handle with one.
     pub fn has_active_run(&self) -> bool {
-        self.active_run
-            .read()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false)
+        self.exec.has_active_run()
+    }
+
+    /// S5: this session's plan-mode runtime. The `/plan` dispatch arm, the
+    /// session's plan-policy closure, and its `exit_plan_mode` tool all
+    /// bind to this instance — plan state cannot leak across sessions.
+    pub fn plan(&self) -> &plan_mode::PlanModeRuntime {
+        &self.exec.plan
+    }
+
+    /// This handle's orbit setup (S5: assembled per session by the
+    /// registry — plan closure + session tools bound to this session's
+    #[cfg(test)]
+    pub fn setup(&self) -> &Option<crate::rpc::worker::OrbitSetup> {
+        &self.orbit_setup
     }
 
     /// Whether this handle drives the kymido orbit engine in-process (`Some`
@@ -248,7 +257,10 @@ impl WorkerHandle {
         let w = self.inner.as_mut().expect("ensured");
         let rx = w.subscribe(WORKER_TOPIC);
         let active = Arc::clone(&self.pump_active);
-        let active_run = Arc::clone(&self.active_run);
+        // S5: the session's execution-state cell (shared run slot + plan
+        // runtime) — the pump stamps frames from it and releases the run
+        // slot on `AgentEnd` by compare-and-reset.
+        let exec = self.exec.clone();
         let bus = events.clone();
         let sessions = sessions.clone();
         let runs = runs.clone();
@@ -280,7 +292,7 @@ impl WorkerHandle {
                 // The run is snapshotted once and reused below: the finish
                 // must close exactly the run this frame was attributed to,
                 // not whatever a concurrent prompt left in the slot later.
-                let attributed = active_run.read().unwrap_or_else(|e| e.into_inner()).clone();
+                let attributed = exec.running_run_id();
                 if let Some(run) = attributed.as_deref() {
                     frame = frame.with_run_id(run);
                 }
@@ -300,7 +312,7 @@ impl WorkerHandle {
                 {
                     let user_paused = user_abort.load(std::sync::atomic::Ordering::SeqCst);
                     close_run_on_agent_end(&runs, &sessions, run, stop_reason, user_paused);
-                    try_clear_active_run(&active_run, run);
+                    exec.try_clear_run(run);
                 }
                 let Ok(line) = serde_json::to_string(&frame) else {
                     continue;
@@ -357,28 +369,6 @@ fn close_run_on_agent_end(
     );
 }
 
-/// Clear the sticky active-run slot only while it still holds `expected`
-/// (G8).
-///
-/// The pump reads the slot, finishes that run, then clears — but between the
-/// read and the write a prompt on another connection may have swapped the
-/// slot to a brand-new run `r2`: the server serializes dispatch by the
-/// worker mutex, yet the pump keeps draining the finished run's trailing
-/// events after its own prompt returned, and the next prompt's
-/// [`WorkerHandle::set_active_run`] is a separate lock acquisition that can
-/// land in that gap.  Blinding the slot to `None` would orphan `r2` — its
-/// events would lose their run attribution and *its* `AgentEnd` would find
-/// an empty slot and never close the run, which is precisely the
-/// half-open-run bug this change fixes.  Comparing `expected` under the
-/// write lock turns the clear into a compare-and-swap: the slot is dropped
-/// only if nobody replaced it in between, and `r2` keeps its owner.
-fn try_clear_active_run(slot: &RwLock<Option<String>>, expected: &str) {
-    let mut guard = slot.write().unwrap_or_else(|e| e.into_inner());
-    if guard.as_deref() == Some(expected) {
-        *guard = None;
-    }
-}
-
 /// Per-connection dispatch context.  Carries the shared state + the worker
 /// handle for this request's target session (S1 routing: the server locks
 /// that session's handle from the registry for the single request).
@@ -401,8 +391,6 @@ pub struct DispatchCtx<'a> {
     pub task_data_dir: std::path::PathBuf,
     /// Pending user questions (plan-mode review and friends).
     pub questions: std::sync::Arc<crate::questions::QuestionBroker>,
-    /// Plan-mode state: `/plan` commands flip it between turns.
-    pub plan_mode: plan_mode::PlanModeRuntime,
 }
 
 /// Dispatch a single request.  Always returns a `Response`; the caller just
@@ -812,14 +800,14 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
             // touching active). The next prompt is that boundary — without
             // this the exit never applies and plan mode stays active
             // forever. Best-effort: a poisoned mutex cannot be fixed here.
-            if let Ok(Some(mutation)) = ctx.plan_mode.prepare_boundary() {
+            if let Ok(Some(mutation)) = ctx.worker.plan().prepare_boundary() {
                 let _ = mutation.commit();
             }
             // `/plan` family: flip plan-mode state between turns instead of
             // prompting. A message argument enters plan mode first and then
             // falls through, so the text still reaches the model.
             let mut prompt_text: Option<String> = None;
-            if let Some(parsed) = ctx.plan_mode.parse_command(&msg) {
+            if let Some(parsed) = ctx.worker.plan().parse_command(&msg) {
                 let command = match parsed {
                     Ok(c) => c,
                     Err(e) => {
@@ -839,7 +827,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     } => prompt_text = Some(text),
                     _ => {}
                 }
-                match ctx.plan_mode.prepare_set(target) {
+                match ctx.worker.plan().prepare_set(target) {
                     Ok(Some(mutation)) => {
                         if let Err(e) = mutation.commit() {
                             return Response::err(
@@ -862,7 +850,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     return Response::ok(
                         id,
                         json!({
-                            "plan_mode": ctx.plan_mode.active().unwrap_or(false),
+                            "plan_mode": ctx.worker.plan().active().unwrap_or(false),
                             "prompted": false,
                         }),
                     );
