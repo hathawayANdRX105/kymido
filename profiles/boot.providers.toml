@@ -1,0 +1,22 @@
+# providers template for the boot profile -- 凭据 + 模型能力(与 config.toml 同目录的兄弟文件)。
+# 凭据唯一来源:填 base_url + api_key(或 api_key_env = 环境变量名,免明文共享配置),
+# 设 active 路由即开聊。[llm] 扁平段已移除——加载仍带 [llm] 是硬错误。
+active = "local"
+
+[providers.local]
+# base_url 不带 /v1 后缀(调用方自行拼接口径)。
+base_url = ""
+# api_key 内联,或 api_key_env 读环境变量的字面名(优先于 api_key)。
+api_key = ""
+# active 省略 model 段时的兜底。
+default_model = ""
+# 每请求 max_tokens 缺省;model 行同名字段优先。
+# max_tokens = 8192
+# 瀑布:主 provider 无可用内容前失败 → 按序切目标路由(凭据继承目标 provider 行)。
+# fallbacks = ["other/model-id"]
+
+# 每模型能力条目(context window 驱动压缩预算 ×4;input 模态门控附件入口)。
+# [[providers.local.models]]
+# id = ""
+# context_window = 128000
+# input = ["text", "image"]

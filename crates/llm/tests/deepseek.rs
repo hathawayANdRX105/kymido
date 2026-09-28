@@ -10,6 +10,8 @@ fn model(name: &str, base_url: Option<&str>) -> Model {
         model: name.to_string(),
         base_url: base_url.map(str::to_string),
         max_tokens: None,
+        context_window: None,
+        input: Vec::new(),
     }
 }
 

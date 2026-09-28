@@ -238,6 +238,8 @@ mod tests {
                 model: "test".into(),
                 base_url: None,
                 max_tokens: None,
+                context_window: None,
+                input: Vec::new(),
             },
             backend: Arc::new(NoBackend),
             config: OrbitConfig {

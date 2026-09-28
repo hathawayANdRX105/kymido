@@ -32,7 +32,7 @@ enum Terminal {
 }
 
 /// One OpenAI-compatible LLM provider endpoint. Constructed programmatically
-/// (the daemon maps `config::LlmFallbackConfig` onto this in
+/// (the daemon maps `config::ResolvedLlm` waterfall routes onto this in
 /// `orbit_setup`); there is no serde path into it, so it derives only what
 /// the runtime needs.
 #[derive(Debug, Clone)]
@@ -41,6 +41,11 @@ pub struct LlmProvider {
     pub model: String,
     pub base_url: Option<String>,
     pub max_tokens: Option<u32>,
+    /// Declared context window (tokens); `None` = engine default budget.
+    /// Rides the waterfall hop: a switched model's window follows the hop.
+    pub context_window: Option<u32>,
+    /// Declared input modalities; empty = no capability data.
+    pub input: Vec<String>,
 }
 
 impl LlmProvider {
@@ -50,6 +55,8 @@ impl LlmProvider {
             model: self.model.clone(),
             base_url: self.base_url.clone(),
             max_tokens: self.max_tokens,
+            context_window: self.context_window,
+            input: self.input.clone(),
         }
     }
 }

@@ -133,6 +133,10 @@ pub fn Chat(
     on_toggle_tasks: EventHandler<()>,
     /// 运行中点停止：中止当前 agent run
     on_abort: EventHandler<()>,
+    /// T5 附件门：当前 active 模型是否声明 image 输入。false 时 composer 附件
+    /// 入口置灰（不渲染 file input；附件桥 JS 缺元素自然不生效），待发卡片
+    /// 仍保留移除能力（已选附件不会被静默丢弃）。
+    image_input: bool,
 ) -> Element {
     let mut draft = use_signal(String::new);
     // Images waiting on the send button. The browser bridge writes a JSON
@@ -388,18 +392,28 @@ pub fn Chat(
                             div { class: "flex items-center gap-0.5",
                                 // A <label for> opens the native picker without
                                 // any JS, so the button stays a plain element.
-                                label {
-                                    class: "flex items-center justify-center w-[26px] h-[26px] rounded-[8px] bg-selector hover:bg-iactive cursor-pointer",
-                                    title: "添加图片附件",
-                                    input {
-                                        id: "attachment-input",
-                                        r#type: "file",
-                                        accept: "image/png,image/jpeg,image/gif,image/webp",
-                                        multiple: "true",
-                                        class: "hidden",
-                                        onchange: move |_| {},
+                                // T5：active 模型未声明 image 输入时置灰（不渲染
+                                // file input；附件桥 JS 缺元素自然不生效）。
+                                if image_input {
+                                    label {
+                                        class: "flex items-center justify-center w-[26px] h-[26px] rounded-[8px] bg-selector hover:bg-iactive cursor-pointer",
+                                        title: "添加图片附件",
+                                        input {
+                                            id: "attachment-input",
+                                            r#type: "file",
+                                            accept: "image/png,image/jpeg,image/gif,image/webp",
+                                            multiple: "true",
+                                            class: "hidden",
+                                            onchange: move |_| {},
+                                        }
+                                        IconPaperclip { size: 15 }
                                     }
-                                    IconPaperclip { size: 15 }
+                                } else {
+                                    span {
+                                        class: "flex items-center justify-center w-[26px] h-[26px] rounded-[8px] bg-selector opacity-40 cursor-not-allowed",
+                                        title: "当前模型不支持图片输入",
+                                        IconPaperclip { size: 15 }
+                                    }
                                 }
                                 Button {
                                     variant: ButtonVariant::Ghost,

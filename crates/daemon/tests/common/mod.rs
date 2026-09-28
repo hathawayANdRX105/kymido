@@ -188,6 +188,8 @@ pub fn daemon_cfg(dir: &std::path::Path, mock: &MockOpenAi, max_turns: usize) ->
             model: "g6-e2e".into(),
             base_url: Some(mock.addr().to_string()),
             max_tokens: Some(1024),
+            context_window: None,
+            input: Vec::new(),
         }),
         cwd: dir.to_path_buf(),
         max_turns,

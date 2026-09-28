@@ -431,6 +431,13 @@ pub fn Workspace(
     let mut statusline = use_signal(|| {
         let mut st = StatusLine::empty();
         st.model = config.model.clone();
+        // T4：active 模型声明的 context window（providers.toml）；未声明（0）
+        // 回落引擎默认预算。
+        st.context_max = if config.context_max > 0 {
+            config.context_max as u64
+        } else {
+            web_state::types::DEFAULT_CONTEXT_MAX
+        };
         st.cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
@@ -1353,6 +1360,8 @@ pub fn Workspace(
                         Chat {
                             messages: current_messages,
                             statusline: statusline(),
+                            // T5：当前模型不声明 image 输入时，composer 附件入口置灰。
+                            image_input: config.image_input,
                             is_streaming: active_session_running(space_sessions, active_session_id),
                             on_send: on_send,
                             on_model_change: on_model_change,

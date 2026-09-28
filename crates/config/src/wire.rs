@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use crate::{Config, LlmFallbackConfig, LlmProfileConfig, McpServerConfig, SubagentProviderConfig};
+use crate::{Config, McpServerConfig, SubagentProviderConfig};
 
 /// Internal TOML config struct for deserialization (all fields optional).
 #[derive(Debug, Default, serde::Deserialize)]
@@ -18,8 +18,11 @@ pub(crate) struct TomlConfig {
     omp_path: Option<String>,
     data_dir: Option<String>,
     model: Option<String>,
+    /// The `[llm]` section is retired (providers moved to `providers.toml`).
+    /// Captured as an opaque value so its mere presence is a load error with
+    /// a migration hint (D8'), never a silent alias.
     #[serde(default)]
-    llm: LlmToml,
+    llm: Option<toml::Value>,
     #[serde(default)]
     mcp: McpToml,
     #[serde(default)]
@@ -58,23 +61,6 @@ pub(crate) struct TuiToml {
     theme: Option<String>,
 }
 
-/// `[llm]` TOML section for direct LLM credentials. `fallbacks` is a list
-/// of `[[llm.fallbacks]]` tables (waterfall, in listed order).
-#[derive(Debug, Default, serde::Deserialize)]
-pub(crate) struct LlmToml {
-    api_key: Option<String>,
-    base_url: Option<String>,
-    model: Option<String>,
-    max_tokens: Option<u32>,
-    #[serde(default)]
-    fallbacks: Vec<LlmFallbackConfig>,
-    /// `[[llm.profiles]]` — named credentials.
-    #[serde(default)]
-    profiles: Vec<LlmProfileConfig>,
-    /// Name of the profile that supplies the primary credential.
-    active_profile: Option<String>,
-}
-
 /// `[mcp]` TOML section. `servers` is a list of `[[mcp.servers]]` tables.
 #[derive(Debug, Default, serde::Deserialize)]
 pub(crate) struct McpToml {
@@ -100,28 +86,6 @@ impl TomlConfig {
         }
         if let Some(v) = self.model {
             base.model = v;
-        }
-        if let Some(v) = self.llm.api_key {
-            base.llm_api_key = Some(v);
-        }
-        if let Some(v) = self.llm.base_url {
-            base.llm_base_url = Some(v);
-        }
-        if let Some(v) = self.llm.model {
-            base.llm_model = Some(v);
-        }
-        if let Some(v) = self.llm.max_tokens {
-            base.llm_max_tokens = Some(v);
-        }
-        if !self.llm.profiles.is_empty() {
-            base.llm_profiles = self.llm.profiles;
-        }
-        if let Some(v) = self.llm.active_profile {
-            base.llm_active_profile = Some(v);
-        }
-        // Same empty-does-not-override semantics as `mcp.servers`.
-        if !self.llm.fallbacks.is_empty() {
-            base.llm_fallbacks = self.llm.fallbacks;
         }
         if !self.mcp.servers.is_empty() {
             // Normalize the transport fields here, at the merge boundary.
@@ -179,5 +143,11 @@ impl TomlConfig {
             base.tui_theme = v;
         }
         base
+    }
+
+    /// True when the retired `[llm]` section is present in the file.
+    /// `Config::load` turns this into a hard error with a migration hint.
+    pub(crate) fn has_legacy_llm(&self) -> bool {
+        self.llm.is_some()
     }
 }

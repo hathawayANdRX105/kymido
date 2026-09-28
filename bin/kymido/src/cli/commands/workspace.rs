@@ -49,12 +49,19 @@ pub fn init_cmd_at(dir: &std::path::Path, json: bool) -> Result<u8, String> {
 }
 
 /// Embedded boot/bundle profiles. Files live at the repo root `profiles/`;
-/// embedded (not read from disk) so the binary works from any cwd.
-const PROFILES: &[(&str, &str)] = &[
-    ("boot", include_str!("../../../../../profiles/boot.toml")),
+/// embedded (not read from disk) so the binary works from any cwd. Each
+/// profile is a (name, config template, providers template) triple — apply
+/// writes `<dir>/.kymido/config.toml` + `<dir>/.kymido/providers.toml`.
+const PROFILES: &[(&str, &str, &str)] = &[
+    (
+        "boot",
+        include_str!("../../../../../profiles/boot.toml"),
+        include_str!("../../../../../profiles/boot.providers.toml"),
+    ),
     (
         "bundle",
         include_str!("../../../../../profiles/bundle.toml"),
+        include_str!("../../../../../profiles/bundle.providers.toml"),
     ),
 ];
 
@@ -62,7 +69,7 @@ const PROFILES: &[(&str, &str)] = &[
 pub fn profile_list_cmd(json: bool) -> Result<u8, String> {
     let rows: Vec<(&str, &str)> = PROFILES
         .iter()
-        .map(|(name, body)| (*name, profile_blurb(body)))
+        .map(|(name, config_body, _)| (*name, profile_blurb(config_body)))
         .collect();
     if json {
         let value: Vec<serde_json::Value> = rows
@@ -86,31 +93,47 @@ pub fn profile_blurb(body: &str) -> &str {
         .trim()
 }
 
-/// `profile apply <name>` -- 把 profile 写进 `<dir>/.kymido/config.toml`。
-/// 与 `init` 同一语义：已存在则拒绝覆盖（返回非零），不动用户配置。
+/// `profile apply <name>` -- 把 profile 写进 `<dir>/.kymido/config.toml` +
+/// `<dir>/.kymido/providers.toml`。
+/// 与 `init` 同一语义：任一目标文件已存在则拒绝覆盖（返回非零），不动用户配置。
 pub fn profile_apply_cmd_at(dir: &std::path::Path, name: &str, json: bool) -> Result<u8, String> {
-    let Some((_, body)) = PROFILES.iter().find(|(n, _)| *n == name) else {
+    let Some((_, config_body, providers_body)) = PROFILES.iter().find(|(n, _, _)| *n == name)
+    else {
         return Err(format!(
             "unknown profile '{name}' (available: {})",
             PROFILES
                 .iter()
-                .map(|(n, _)| *n)
+                .map(|(n, _, _)| *n)
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
     };
     let kymido_dir = dir.join(".kymido");
     let config_path = kymido_dir.join("config.toml");
-    if config_path.exists() {
+    let providers_path = kymido_dir.join("providers.toml");
+    // 任一目标已存在即拒绝：两个文件必须成套生成，半套（只有 config 没有
+    // providers，或反之）会让 active 路由解析到旧/缺省凭据，正是本命令要避免的。
+    if config_path.exists() || providers_path.exists() {
+        let existing = if config_path.exists() {
+            config_path.display().to_string()
+        } else {
+            providers_path.display().to_string()
+        };
         return Err(format!(
-            "{} already exists; refusing to overwrite",
-            config_path.display()
+            "{} already exists; refusing to overwrite (a profile writes config.toml + providers.toml as a set)",
+            existing
         ));
     }
     std::fs::create_dir_all(&kymido_dir).map_err(|e| format!("could not create .kymido/: {e}"))?;
-    std::fs::write(&config_path, body)
+    std::fs::write(&config_path, config_body)
         .map_err(|e| format!("could not write .kymido/config.toml: {e}"))?;
-    let msg = format!("applied profile '{name}': {}", config_path.display());
+    std::fs::write(&providers_path, providers_body)
+        .map_err(|e| format!("could not write .kymido/providers.toml: {e}"))?;
+    let msg = format!(
+        "applied profile '{name}': {}, {}",
+        config_path.display(),
+        providers_path.display()
+    );
     if json {
         json_ok(&msg);
     } else {
