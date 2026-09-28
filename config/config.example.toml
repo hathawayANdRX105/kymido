@@ -1,0 +1,111 @@
+# =====================================================================
+# kymido — config.toml 实例 + 字段参考（文档就写在这个文件的注释里）
+#
+# 凭据与模型能力数据不在这个文件里：它们在兄弟文件 providers.toml
+# （实例见 config/providers.example.toml）。`[llm]` 扁平段已移除——
+# config.toml 里出现 `[llm]` 段 = 加载即硬错误（带迁移指引），无别名。
+#
+# 【用法】（都在进程 cwd 下；kymido 的 cwd = 你启动它的目录）
+#   最小起点（成套生成 config.toml + providers.toml 骨架，任一已存在即拒）：
+#     kymido profile apply boot     # orbit worker + 本地 daemon
+#     kymido profile apply bundle   # 全家桶：瀑布 + MCP + 子代理 + 持久记忆
+#   只建 config.toml 骨架（不写 providers）：
+#     kymido init                   # 幂等：已有文件一律不动，补 specs/ 与任务模板
+#   手动：把本文件拷成 ./.kymido/config.toml，再按 providers.example.toml
+#   建兄弟文件，填凭据、设 active 路由。
+#
+# 【加载顺序】（Config::load；整文件影子，不是字段级合并）
+#   1. 默认值（无配置文件也能跑）。
+#   2. 候选里第一个读得到的 TOML 整份生效，后面的不再读：
+#        ./.kymido/config.toml → ./kymido.toml（legacy 根）
+#      缺文件不是错误。文件里出现 `[llm]` 段是硬错误。
+#   3. 兄弟文件 providers.toml 同样整文件影子（./.kymido/ → ./）；
+#      缺文件 = 没有直连凭据，daemon 走 omp 兼容模式，不猜。
+#   4. KYMIDO_* 环境变量覆盖（清单见【环境变量】）。
+#
+# 【谁读写这份文件】
+#   CLI / daemon / TUI：Config::load 只读。
+#   kymido init：只写骨架（omp_path/data_dir/model 三行）+ specs/ + 任务模板，
+#                已有文件从不覆盖；不写 providers。
+#   kymido profile apply：成套写 config.toml + providers.toml，任一已存在即拒绝。
+#   web 设置页（crates/web-client/src/llm.rs）：增量写回 data_dir/config.toml——
+#                只动受管键（data_dir、model、[[mcp.servers]]；omp_path 缺失才补），
+#                [memory]/[daemon]/[tui]、subagent 段、注释与排版逐字节保留；
+#                解析失败先备份 .toml.bak 再全量写，备份失败则中止（不丢原文）。
+#
+# 【环境变量覆盖】（Config::load，覆盖合并结果）
+#   KYMIDO_OMP_PATH   omp worker 可执行（缺省 "omp"，走 PATH）
+#   KYMIDO_DATA_DIR   数据目录（缺省 ./.kymido，相对进程 cwd）
+#   KYMIDO_MODEL      根表 model（缺省 "default"）
+#   KYMIDO_CWD        daemon 会话工作目录（AGENTS.md 发现根；缺省进程 cwd）
+#   KYMIDO_MAX_TURNS  每轮 LLM 往返上限（缺省 orbit 自带）
+#   KYMIDO_LLM_*      不在这份文件：填的是 active provider 行字段，见 providers.example.toml
+#   运行时路径（与配置文件无关）：KYMIDO_DAEMON_SOCKET / KYMIDO_SESSION_DB 缺省落
+#   平台配置目录（$XDG_CONFIG_HOME / %APPDATA% / $HOME）下的 kymido/daemon.sock 与
+#   sessions.db；KYMIDO_DAEMON_PATH 指定 daemon 二进制。
+#
+# 【常见坑】
+#   1. 相对路径都相对「进程 cwd」，不是相对文件所在目录——在仓库根跑
+#      `kymido ...` 读到的是 <仓库根>/.kymido/，cd 进子目录跑读的是子目录的。
+#   2. `[llm]` 段是硬错误，别从旧配置整份拷贝过来；迁移指引见报错信息。
+#   3. web 设置页写 data_dir/config.toml：若 data_dir 与「.kymido/」不同目录，
+#      两份文件各管各的，读侧仍按上面候选顺序影子。
+# =====================================================================
+
+# omp worker 可执行：缺省 "omp"（PATH 解析）。带路径分隔符的写法在加载时
+# 校验：文件必须存在且可执行（裸命令名放行，运行时再解析）。
+omp_path = "omp"
+
+# 数据目录（相对进程 cwd）：工作存储（tasks/todos/goals .jsonl）+ 缺省 memory 目录。
+# `kymido init` / web 设置页都会把它当落盘根。
+data_dir = "./.kymido"
+
+# 根表 model：没有 active 路由（或路由解析不出凭据）时 daemon 报的模型名；
+# 有 active 路由时模型以路由为准，这个值只兜底。必须非空（缺省 "default"）。
+model = "default"
+
+# MCP 外部工具服务器：每个 spawn 一个子进程（stdio）或连 streamable-HTTP，
+# 握手成功后工具并入 orbit 引擎（按 name 命名空间前缀）。
+# transport 字段（name/command/url）在合并边界 trim；解析不了的行保留原文不动。
+#
+# [[mcp.servers]]
+# name = "codegraph"
+# command = "npx"
+# args = ["-y", "codegraph-mcp"]
+# # env = { FOO = "bar" }
+#
+# [[mcp.servers]]
+# name = "remote-tools"
+# url = "http://127.0.0.1:8081/mcp"
+
+# 本地持久记忆：缺省关。开了才往 memory 目录（缺省 data_dir/memory）写盘。
+# [memory]
+# enabled = false
+# dir = "./.kymido/memory"
+
+# daemon 会话旋钮。
+# [daemon]
+# # AGENTS.md 发现根；缺省 = daemon 启动目录（不是默认值兜底，是真实 cwd）。
+# cwd = "."
+# # 每轮 LLM 往返上限；缺省 orbit 自己的默认值。
+# max_turns = 64
+
+# 进程外子代理（ACP 子进程）：daemon 可把 run 委派给它。
+# name 不得与内置 "fork" 撞名；permission 控制客户端如何自动应答子进程的
+# 授权询问（prompt 缺省 = 透传给人）。
+# [[subagent.providers]]
+# name = "acp-remote"
+# command = "acp-agent"
+# args = []
+# env = {}
+# permission = "prompt"
+# # 拆除宽限（缺省 3000ms / 6000ms，毫秒）
+# dispose_grace_ms = 3000
+# dispose_eof_grace_ms = 6000
+
+# TUI 旋钮（缺省全关/默认主题；整段可删）。
+# [tui]
+# # "dark" / "light"；缺省 dark。
+# theme = "dark"
+# # 长回合批次完成时发 OSC9 终端通知（缺省 false）。
+# notify_osc9 = false
