@@ -1942,7 +1942,7 @@ fn event_loop(
             if app.run_scoped() {
                 run_rx = Some((
                     delivery.run_id.clone(),
-                    spawn_run_stream(client, &delivery.run_id)?,
+                    spawn_run_stream(client, &delivery.session_id, &delivery.run_id)?,
                 ));
             }
             spawn_prompt(
@@ -2165,8 +2165,14 @@ fn switch_key(key: KeyEvent) -> bool {
 /// 切台后的 run 作用域事件流：先订阅（`subscribe_worker_run`，源头按
 /// run_id 丢掉旧 run 的帧）后 prompt；泵线程语义与 `crate::pump` 同一套
 ///（keepalive tick 不退出、读错误 = 断线收线）。
-fn spawn_run_stream(client: &WebDaemon, run_id: &str) -> Result<Receiver<AgentEvent>, TuiError> {
-    let sub = client.subscribe_worker_run(run_id).map_err(client_error)?;
+fn spawn_run_stream(
+    client: &WebDaemon,
+    session_id: &str,
+    run_id: &str,
+) -> Result<Receiver<AgentEvent>, TuiError> {
+    let sub = client
+        .subscribe_worker_run_in_session(run_id, session_id)
+        .map_err(client_error)?;
     crate::pump::spawn(sub).map_err(TuiError::Io)
 }
 

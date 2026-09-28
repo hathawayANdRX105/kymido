@@ -273,10 +273,32 @@ impl WebDaemon {
         &self,
         run_id: &str,
     ) -> Result<RunFilteredSubscription, ClientError> {
+        self.subscribe_worker_run_in(run_id, None)
+    }
+
+    /// `event.subscribe("worker")` 的 per-run + per-session 视图（S2）：在
+    /// [`Self::subscribe_worker_run`] 的 run 过滤之上再按 daemon 戳上的
+    /// `session_id` 过滤——多会话并发时，同属一个 run 之外、其他会话引擎
+    /// 推来的帧不会混入当前会话视图。无 session 戳的帧（legacy / 旧
+    /// daemon）按 [`daemon::EventFrame::belongs_to_session`] 语义放行。
+    pub fn subscribe_worker_run_in_session(
+        &self,
+        run_id: &str,
+        session_id: &str,
+    ) -> Result<RunFilteredSubscription, ClientError> {
+        self.subscribe_worker_run_in(run_id, Some(session_id))
+    }
+
+    fn subscribe_worker_run_in(
+        &self,
+        run_id: &str,
+        session_id: Option<&str>,
+    ) -> Result<RunFilteredSubscription, ClientError> {
         let inner = self.client.subscribe("worker")?;
         Ok(RunFilteredSubscription {
             inner,
             run_id: run_id.to_string(),
+            session_id: session_id.map(str::to_string),
         })
     }
 
@@ -381,6 +403,10 @@ impl WebDaemon {
 pub struct RunFilteredSubscription {
     inner: Subscription,
     run_id: String,
+    /// S2: optional session filter. `None` (legacy subscriptions) passes
+    /// every frame through the run filter only; `Some` additionally drops
+    /// frames the daemon attributed to another session.
+    session_id: Option<String>,
 }
 
 impl RunFilteredSubscription {
@@ -407,9 +433,17 @@ impl RunFilteredSubscription {
             }
             match self.inner.next_event(remaining)? {
                 None => return Ok(None),
-                Some(frame) if frame.belongs_to_run(&self.run_id) => return Ok(Some(frame)),
+                Some(frame)
+                    if frame.belongs_to_run(&self.run_id)
+                        && self
+                            .session_id
+                            .as_deref()
+                            .is_none_or(|s| frame.belongs_to_session(s)) =>
+                {
+                    return Ok(Some(frame));
+                }
                 Some(_) => {
-                    // 另一个 run 的事件：丢弃，不混入当前视图。
+                    // 另一个 run / 另一个会话的事件：丢弃，不混入当前视图。
                     continue;
                 }
             }

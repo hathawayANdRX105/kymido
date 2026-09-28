@@ -72,8 +72,8 @@ where
     }
 }
 
-/// Shared worker handle.  The dispatch layer takes `&mut` so concurrent
-/// connections are serialized by the server's mutex.
+/// One worker behind a session key in the [`crate::registry::SessionRegistry`]
+/// (S1). The dispatch layer takes `&mut`; the registry locks it per request.
 pub struct WorkerHandle {
     inner: Option<crate::rpc::worker::Worker>,
     omp_path: String,
@@ -90,12 +90,17 @@ pub struct WorkerHandle {
     /// orbit 模式构造包（模型 + 后端 + 容器解析出的 OrbitConfig）；
     /// None = omp 兼容模式。daemon 在 start 时从装配容器解析一次。
     orbit_setup: Option<crate::rpc::worker::OrbitSetup>,
+    /// S2: the session key this handle is bound to ("" = legacy /
+    /// session-less entry). The event pump stamps it onto every frame it
+    /// pushes so subscribers can filter by session.
+    session_id: String,
 }
 
 impl WorkerHandle {
     pub fn new(
         omp_path: impl Into<String>,
         orbit_setup: Option<crate::rpc::worker::OrbitSetup>,
+        session_id: impl Into<String>,
     ) -> Self {
         WorkerHandle {
             inner: None,
@@ -103,6 +108,7 @@ impl WorkerHandle {
             pump_active: Arc::new(AtomicBool::new(false)),
             active_run: Arc::new(std::sync::RwLock::new(None)),
             orbit_setup,
+            session_id: session_id.into(),
         }
     }
 
@@ -125,6 +131,17 @@ impl WorkerHandle {
     pub fn clear_active_run(&self) {
         let mut guard = self.active_run.write().unwrap_or_else(|e| e.into_inner());
         *guard = None;
+    }
+
+    /// S3: whether a run is currently in flight on this handle (the sticky
+    /// `active_run` slot is set by `prompt` and cleared by the event pump
+    /// on `AgentEnd`). The reaper refuses to unload a handle with an
+    /// in-flight run.
+    pub fn has_active_run(&self) -> bool {
+        self.active_run
+            .read()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 
     /// Whether this handle drives the kymido orbit engine in-process (`Some`
@@ -241,6 +258,9 @@ impl WorkerHandle {
         // blocking prompt returns — the pump must not second-guess that
         // close (it would append a second TurnEnd per turn).
         let is_orbit = self.is_orbit();
+        // S2: stamp frames with this handle's session key; the legacy
+        // entry (empty key) stamps nothing, keeping old subscribers intact.
+        let session_id = self.session_id.clone();
         active.store(true, Ordering::SeqCst);
         std::thread::spawn(move || {
             // Ends when the worker dies (rpc pump clears its subscriber
@@ -263,6 +283,9 @@ impl WorkerHandle {
                 let attributed = active_run.read().unwrap_or_else(|e| e.into_inner()).clone();
                 if let Some(run) = attributed.as_deref() {
                     frame = frame.with_run_id(run);
+                }
+                if !session_id.is_empty() {
+                    frame = frame.with_session_id(&session_id);
                 }
                 // G8: an orbit turn's terminal event is AgentEnd on this
                 // stream, not the prompt's ack. Close the ledger run and the
@@ -357,8 +380,8 @@ fn try_clear_active_run(slot: &RwLock<Option<String>>, expected: &str) {
 }
 
 /// Per-connection dispatch context.  Carries the shared state + the worker
-/// handle.  The server holds the worker handle behind a mutex so concurrent
-/// connections don't trample each other's in-flight RPC frames.
+/// handle for this request's target session (S1 routing: the server locks
+/// that session's handle from the registry for the single request).
 pub struct DispatchCtx<'a> {
     pub sessions: SessionState,
     pub runs: RunLedger,

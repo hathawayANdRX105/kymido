@@ -9,17 +9,19 @@
 //!   shutdown sequence so accidental early-return cleanup is automatic.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use crate::state::EventBus;
 
 use crate::DaemonError;
-use crate::dispatch::{DispatchCtx, WorkerHandle};
+use crate::dispatch::DispatchCtx;
 use crate::lock::InstanceLock;
-use crate::protocol::{Request, Response, ResponseError};
+use crate::protocol::{Command, Request, Response, ResponseError};
+use crate::reaper::{AttachTracker, SessionReaper};
+use crate::registry::SessionRegistry;
 use crate::socket::{Connection, Listener, SocketAddr};
 use crate::state::{RunLedger, SessionState, now_ms};
 
@@ -176,7 +178,12 @@ pub struct Daemon {
     pub(crate) run_ledger: RunLedger,
     /// `.kymido` data dir; `task.list` reads `tasks.jsonl` from here.
     pub(crate) task_data_dir: PathBuf,
-    pub(crate) worker: Arc<Mutex<WorkerHandle>>,
+    pub(crate) workers: Arc<SessionRegistry>,
+    /// S3: connection attach bookkeeping + the 30s tree-gated unloader;
+    /// the connection loop attaches/detaches through its tracker.
+    pub(crate) reaper: Arc<SessionReaper>,
+    /// S3: the unload tick thread; joined on drop after the shutdown flag.
+    pub(crate) reaper_thread: Option<thread::JoinHandle<()>>,
     pub(crate) shutdown: Arc<AtomicBool>,
     pub(crate) started_at_ms: i64,
     pub(crate) accept_thread: Option<thread::JoinHandle<()>>,
@@ -260,10 +267,21 @@ impl Daemon {
             None => None,
         };
 
-        let worker = Arc::new(Mutex::new(WorkerHandle::new(
-            cfg.omp_path.clone(),
-            orbit_setup,
-        )));
+        // S1: one worker handle per session in orbit mode — each engine is
+        // bound to the session it was created for. The legacy entry (empty
+        // session id) serves session-less prompts; in omp-compat mode every
+        // request routes to it, so a single external worker process is
+        // never multiplied.
+        let workers = Arc::new(SessionRegistry::new(cfg.omp_path.clone(), orbit_setup));
+
+        // S3: attach bookkeeping + tree-gated unloading. The tick thread
+        // starts below, next to the accept loop.
+        let reaper = Arc::new(SessionReaper::new(
+            (*workers).clone(),
+            AttachTracker::new(),
+            session_state.clone(),
+            run_ledger.clone(),
+        ));
         let shutdown = Arc::new(AtomicBool::new(false));
         let started_at_ms = now_ms();
         let events = EventBus::new();
@@ -292,7 +310,9 @@ impl Daemon {
             session_state,
             run_ledger,
             task_data_dir: cfg.data_dir.clone(),
-            worker,
+            workers,
+            reaper,
+            reaper_thread: None,
             shutdown,
             started_at_ms,
             accept_thread: None,
@@ -302,7 +322,7 @@ impl Daemon {
         };
         let accept_thread = spawn_accept_loop(AcceptLoopCtx {
             listener,
-            worker: Arc::clone(&daemon.worker),
+            workers: Arc::clone(&daemon.workers),
             sessions: daemon.session_state.clone(),
             runs: daemon.run_ledger.clone(),
             shutdown: Arc::clone(&daemon.shutdown),
@@ -312,8 +332,12 @@ impl Daemon {
             task_data_dir: daemon.task_data_dir.clone(),
             questions: Arc::clone(&questions),
             plan_mode: plan_mode.clone(),
+            attach: daemon.reaper.attach_tracker().clone(),
         })?;
         daemon.accept_thread = Some(accept_thread);
+        let reaper_thread =
+            SessionReaper::spawn_tick_thread(Arc::clone(&daemon.reaper), &daemon.shutdown)?;
+        daemon.reaper_thread = Some(reaper_thread);
 
         Ok(daemon)
     }
@@ -773,17 +797,23 @@ impl Drop for Daemon {
         if let Some(handle) = self.accept_thread.take() {
             let _ = handle.join();
         }
-        // A worker prompt may be blocked forever in an external process.
-        // Never turn daemon shutdown into an unbounded mutex wait.
-        if let Ok(mut worker) = self.worker.try_lock() {
-            worker.reset();
+        // S3: the shutdown flag above breaks the tick thread out of its 1s
+        // sleep slices; join it before resetting the registry so the
+        // reaper cannot race the teardown.
+        if let Some(handle) = self.reaper_thread.take() {
+            let _ = handle.join();
         }
+        // A worker prompt may be blocked forever in an external process.
+        // Never turn daemon shutdown into an unbounded mutex wait: the
+        // registry try-locks every handle and resets the ones it can
+        // (S1); the rest are dropped with the daemon.
+        self.workers.reset_all();
     }
 }
 
 struct AcceptLoopCtx {
     listener: Listener,
-    worker: Arc<Mutex<WorkerHandle>>,
+    workers: Arc<SessionRegistry>,
     sessions: SessionState,
     runs: RunLedger,
     shutdown: Arc<AtomicBool>,
@@ -793,6 +823,7 @@ struct AcceptLoopCtx {
     task_data_dir: PathBuf,
     questions: Arc<crate::questions::QuestionBroker>,
     plan_mode: plan_mode::PlanModeRuntime,
+    attach: AttachTracker,
 }
 
 fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, DaemonError> {
@@ -802,7 +833,7 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
             let poll_interval = Duration::from_millis(50);
             let AcceptLoopCtx {
                 listener,
-                worker,
+                workers,
                 sessions,
                 runs,
                 shutdown,
@@ -812,6 +843,7 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 task_data_dir,
                 questions,
                 plan_mode,
+                attach,
             } = ctx;
             // We poll the shutdown flag between accepts and use a short
             // accept timeout so we don't block forever once shutdown is
@@ -822,7 +854,8 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                     Ok(None) => continue, // timeout — re-check shutdown flag
                     Err(_) => break,      // listener closed or poisoned
                 };
-                let worker = Arc::clone(&worker);
+                let workers = Arc::clone(&workers);
+                let attach = attach.clone();
                 let sessions = sessions.clone();
                 let runs = runs.clone();
                 let shutdown = Arc::clone(&shutdown);
@@ -834,7 +867,8 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 thread::spawn(move || {
                     if let Err(e) = handle_connection(
                         conn,
-                        &worker,
+                        &workers,
+                        &attach,
                         &sessions,
                         &runs,
                         &shutdown,
@@ -857,7 +891,8 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
 #[allow(clippy::too_many_arguments)]
 fn handle_connection(
     conn: Connection,
-    worker: &Arc<Mutex<WorkerHandle>>,
+    workers: &Arc<SessionRegistry>,
+    attach: &AttachTracker,
     sessions: &SessionState,
     runs: &RunLedger,
     shutdown: &Arc<AtomicBool>,
@@ -880,9 +915,13 @@ fn handle_connection(
             }
         }
     });
+    // S3: the sessions this connection keeps hot; detached on teardown.
+    let mut attached_sessions: Vec<String> = Vec::new();
     let outcome = connection_read_loop(
         &mut reader,
-        worker,
+        workers,
+        attach,
+        &mut attached_sessions,
         sessions,
         runs,
         shutdown,
@@ -896,6 +935,11 @@ fn handle_connection(
     );
     // Teardown: stop pushes, wake the writer thread, let queued frames flush.
     events.remove_conn(conn_id);
+    // S3: release this connection's session attachments; the reaper's grace
+    // clock starts only when the last attachment to a session goes away.
+    for sid in &attached_sessions {
+        attach.detach(sid);
+    }
     drop(out);
     let _ = writer_thread.join();
     outcome
@@ -904,7 +948,9 @@ fn handle_connection(
 #[allow(clippy::too_many_arguments)]
 fn connection_read_loop(
     reader: &mut crate::socket::ConnectionReader,
-    worker: &Arc<Mutex<WorkerHandle>>,
+    workers: &Arc<SessionRegistry>,
+    attach: &AttachTracker,
+    attached: &mut Vec<String>,
     sessions: &SessionState,
     runs: &RunLedger,
     shutdown: &Arc<AtomicBool>,
@@ -916,6 +962,9 @@ fn connection_read_loop(
     questions: &Arc<crate::questions::QuestionBroker>,
     plan_mode: &plan_mode::PlanModeRuntime,
 ) -> Result<(), DaemonError> {
+    // S1: this connection's most recent explicitly targeted session — the
+    // default for steer/abort requests that carry no `session_id`.
+    let mut last_session: Option<String> = None;
     loop {
         let line = match reader.read_frame()? {
             Some(l) => l,
@@ -954,31 +1003,84 @@ fn connection_read_loop(
             return Ok(());
         }
 
-        // Lock the worker only for the duration of this single request
-        // This allows other connections to proceed while one connection is being processed
-        let mut worker_guard = worker
-            .lock()
-            .map_err(|e| DaemonError::Protocol(format!("worker mutex poisoned: {e}")))?;
-
-        let mut ctx = DispatchCtx {
-            sessions: sessions.clone(),
-            runs: runs.clone(),
-            worker: &mut worker_guard,
-            started_at_ms,
-            shutdown,
-            events: events.clone(),
-            conn_id,
-            out: out.clone(),
-            task_data_dir: task_data_dir.to_path_buf(),
-            questions: Arc::clone(questions),
-            plan_mode: plan_mode.clone(),
-        };
-        let resp = crate::dispatch::dispatch(&mut ctx, req);
+        // S1: lock only this request's session handle for the duration of
+        // the single request — other connections (other sessions) proceed
+        // in parallel on their own handles. Session-less and omp-compat
+        // traffic lands on the legacy handle; steer/abort without an
+        // explicit session follow this connection's most recent prompt.
+        let requested = requested_session(&req);
+        let target = target_session(requested, last_session.as_deref(), workers);
+        if let Some(sid) = requested {
+            last_session = Some(sid.to_string());
+        }
+        // S3: this connection keeps its target session hot for its whole
+        // lifetime; `event.subscribe`'s optional `session` counts the same
+        // way. The reaper unloads only sessions with zero attachments.
+        if !target.is_empty() {
+            attach.attach(&target);
+            if !attached.iter().any(|s| s == &target) {
+                attached.push(target.clone());
+            }
+        }
+        if matches!(req.command, Command::EventSubscribe) {
+            if let Some(s) = req
+                .params
+                .get("session")
+                .and_then(serde_json::Value::as_str)
+            {
+                let s = s.trim();
+                if !s.is_empty() && !attached.iter().any(|x| x == s) {
+                    attach.attach(s);
+                    attached.push(s.to_string());
+                }
+            }
+        }
+        let resp = workers.with_session(&target, |w| {
+            let mut ctx = DispatchCtx {
+                sessions: sessions.clone(),
+                runs: runs.clone(),
+                worker: w,
+                started_at_ms,
+                shutdown,
+                events: events.clone(),
+                conn_id,
+                out: out.clone(),
+                task_data_dir: task_data_dir.to_path_buf(),
+                questions: Arc::clone(questions),
+                plan_mode: plan_mode.clone(),
+            };
+            crate::dispatch::dispatch(&mut ctx, req)
+        });
         let payload = serde_json::to_string(&resp)?;
-        drop(ctx);
-        // Worker lock released here
+        // Session handle lock released by with_session
         if out.send(payload).is_err() {
             return Ok(()); // writer dead — connection effectively gone
         }
     }
+}
+
+/// S1: the session a request explicitly targets. Only prompt/steer/abort
+/// carry an optional `session_id` param; everything else targets none and
+/// routes to the legacy or connection-default handle.
+fn requested_session(req: &Request) -> Option<&str> {
+    match req.command {
+        Command::WorkerPrompt | Command::WorkerSteer | Command::WorkerAbort => req
+            .params
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+        _ => None,
+    }
+}
+
+/// S1 routing key for a request: the explicitly requested session, else
+/// this connection's default, else the legacy entry. Collapses to the
+/// legacy entry in omp-compat mode (a single shared worker process).
+fn target_session(
+    requested: Option<&str>,
+    default: Option<&str>,
+    registry: &SessionRegistry,
+) -> String {
+    registry.target(requested.or(default).unwrap_or(""))
 }
