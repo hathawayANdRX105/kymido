@@ -13,7 +13,11 @@
 //! call. Each session owns:
 //!
 //! * the pty master (read/write/resize),
-//! * a **reader thread** that drains the pty master into an in-memory buffer.
+//! * a **reader thread** that drains the pty master into an in-memory buffer,
+//! * a **reply writer thread** that sends the VT emulator's answers back to the
+//!   child. It exists so the reader never performs a pty write: a write blocks
+//!   whenever the child is not reading its input, and a reader that blocks on a
+//!   write is a reader that stops draining output.
 //!
 //! The reader thread is what makes `read` non-destructive and non-blocking:
 //! the tool returns whatever has accumulated since the last read and never
@@ -21,13 +25,19 @@
 //! idle shell would block forever, which is exactly the failure mode this
 //! crate exists to avoid.
 //!
-//! # Reading is a drain, not a screen
+//! # Reading is a drain; the screen is a view of it
 //!
 //! [`TerminalRegistry::read`] returns the bytes captured since the previous
-//! read and clears the buffer. It does *not* emulate a terminal: there is no
-//! screen, no cursor, no alternate-buffer handling. Control sequences are
-//! passed through verbatim. That is the honest level of fidelity for this
-//! layer — anything smarter belongs in a terminal emulator in front of it.
+//! read and clears the buffer. It does *not* emulate a terminal: control
+//! sequences pass through verbatim, and that is exactly the promise a
+//! caller of `read` gets — bytes, not a picture.
+//!
+//! [`TerminalRegistry::screen`] is the picture. The same reader thread that
+//! fills the buffer also runs the bytes through a VT emulator
+//! ([`screen::Screen`]), so the two views never compete for the same bytes:
+//! a `read` after a `screen` still returns everything the terminal produced
+//! in between, and a `screen` shows the full picture regardless of what has
+//! been read.
 //!
 //! Two consequences worth knowing before writing a caller:
 //!
@@ -51,7 +61,11 @@
 //!   Any occurrence of `__DONE_OK__` on the read side is then genuine output,
 //!   and one occurrence is enough.
 //! * **A full-screen TUI** (`vim`, `htop`) produces a stream of escape codes
-//!   rather than a picture of the screen.
+//!   rather than a picture of the screen. That is what `read` hands back; for
+//!   the picture itself use [`TerminalRegistry::screen`].
+
+pub mod screen;
+pub mod script;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -59,6 +73,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+
+use screen::{Screen, StyledLine};
 
 /// Lock a shared-state mutex, recovering from poisoning.
 ///
@@ -170,6 +186,49 @@ struct SessionInner {
     eof: AtomicBool,
     /// Set by `kill`/`close`, so the reader thread stops trying to drain.
     closed: AtomicBool,
+    /// The pty's bytes run through a VT emulator: what a user would see on
+    /// this terminal right now. Fed by the reader thread from the same
+    /// chunks that fill [`Self::buffer`], and read by
+    /// [`TerminalRegistry::screen`]. The emulator's replies to terminal
+    /// queries come back out of the feed and are written to the child —
+    /// without that, a program that probes the terminal hangs.
+    screen: Mutex<Screen>,
+    /// Every byte fed to [`Self::screen`] so far, so a frame can tell "the
+    /// session has produced nothing yet" from "the screen is blank".
+    fed_bytes: AtomicU64,
+    /// The writer the registry's `write` types through. Shared rather than
+    /// owned by [`Session`] because the reader thread needs it too (to
+    /// answer the emulator's queries), and `portable_pty` hands out exactly
+    /// one writer handle per pty.
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// Emulator replies waiting to go out to the child, and the signal that
+    /// says one is waiting.
+    ///
+    /// The reader thread only ever *enqueues*; a separate writer thread does
+    /// the blocking write. Writing on the reader thread would stop it draining
+    /// the pty master, and a child that is not reading its stdin fills the
+    /// pipe — at which point the session wedges: the reader waits on a write
+    /// while the child waits for output nobody is draining.
+    replies: Mutex<Vec<u8>>,
+    replies_changed: Condvar,
+    /// Appended bytes, and how many of them the screen has consumed. A frame
+    /// read waits for these to match, so a `screen` call right after a `read`
+    /// cannot miss the chunk that `read` just handed back.
+    seen: Mutex<Seen>,
+    /// Set by the reply writer when the child would not take a reply, so a
+    /// frame can say why a program that probes the terminal looks blank
+    /// instead of looking like it simply has not drawn yet.
+    reply_error: Mutex<Option<String>>,
+}
+
+/// How far the two views of a session's output have got.
+#[derive(Default)]
+struct Seen {
+    /// Bytes handed to the screen so far.
+    fed: u64,
+    /// Bytes the reader thread has appended, including any the buffer dropped
+    /// on overflow — the screen saw those, so the frame must wait for them.
+    appended: u64,
 }
 
 #[derive(Default)]
@@ -181,7 +240,6 @@ struct Buffer {
 
 struct Session {
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// `Child` is only needed for `wait`/`try_wait`; kept separate from the
     /// killer so a blocked `wait` never holds the lock `kill` needs.
@@ -206,27 +264,142 @@ struct SessionMeta {
 }
 
 impl Session {
-    /// Append reader-thread output, dropping the oldest bytes on overflow.
+    /// Append reader-thread output, dropping the oldest bytes on overflow,
+    /// then advance the session's screen with the same bytes.
     fn push_output(inner: &SessionInner, chunk: &[u8]) {
-        let mut buf = lock_recover(&inner.buffer);
-        buf.bytes.extend_from_slice(chunk);
-        if buf.bytes.len() > MAX_BUFFER_BYTES {
-            let overflow = buf.bytes.len() - MAX_BUFFER_BYTES;
-            buf.bytes.drain(..overflow);
-            buf.dropped += overflow as u64;
+        {
+            let mut buf = lock_recover(&inner.buffer);
+            buf.bytes.extend_from_slice(chunk);
+            if buf.bytes.len() > MAX_BUFFER_BYTES {
+                let overflow = buf.bytes.len() - MAX_BUFFER_BYTES;
+                buf.bytes.drain(..overflow);
+                buf.dropped += overflow as u64;
+            }
+            // Counted here, before the overflow trim, because the screen is
+            // fed every byte the reader saw — including the ones the buffer
+            // drops. A frame read waits on this to know how far the screen
+            // has to get, and it must not wait for bytes the screen will
+            // never be asked about twice.
+            lock_recover(&inner.seen).appended += chunk.len() as u64;
+            // Notify while the buffer is still locked. The alternative — dropping
+            // the guard and then signalling — has a lost-wakeup window: `read`
+            // checks `bytes.is_empty()` and releases the mutex on its way into
+            // `wait_timeout`, so a notify delivered in that gap reaches nobody and
+            // the reader sleeps out its full timeout with output already sitting in
+            // the buffer. Holding the lock across the notify removes the window,
+            // because no waiter can be between "check" and "sleep" while we hold
+            // it. Waking a waiter under a lock is safe: it is moved to runnable and
+            // simply blocks again on the mutex until this guard drops.
+            inner.appended.notify_all();
         }
-        // Notify while the buffer is still locked. The alternative — dropping
-        // the guard and then signalling — has a lost-wakeup window: `read`
-        // checks `bytes.is_empty()` and releases the mutex on its way into
-        // `wait_timeout`, so a notify delivered in that gap reaches nobody and
-        // the reader sleeps out its full timeout with output already sitting in
-        // the buffer. Holding the lock across the notify removes the window,
-        // because no waiter can be between "check" and "sleep" while we hold
-        // it. Waking a waiter under a lock is safe: it is moved to runnable and
-        // simply blocks again on the mutex until this guard drops.
+        // Outside the buffer lock: the screen feed can be slow on a large
+        // chunk, and holding the buffer across it would delay the `read`
+        // that is waiting on the condvar above.
+        advance_screen(inner, chunk);
+        // And only now that the screen has the chunk: a `screen` waiting to
+        // catch up below may be released, and a `read` woken by the notify
+        // above is therefore never ahead of the frame the caller reads next.
+        lock_recover(&inner.seen).fed += chunk.len() as u64;
         inner.appended.notify_all();
     }
 }
+
+/// Feed the session's screen and queue whatever the emulator was asked.
+///
+/// The reply is queued rather than written here, and a dedicated writer
+/// thread drains the queue. A real terminal answers `ESC[6n` and its
+/// neighbours the moment it parses them, and a program that waits for the
+/// answer before drawing anything would sit blocked until the model happened
+/// to type again — so the queue is the one thing on the write path that is
+/// never deferred past the next scheduling turn.
+fn advance_screen(inner: &SessionInner, chunk: &[u8]) {
+    let mut screen = lock_recover(&inner.screen);
+    inner
+        .fed_bytes
+        .fetch_add(chunk.len() as u64, Ordering::Relaxed);
+    let replies = screen.feed(chunk);
+    if replies.is_empty() {
+        return;
+    }
+    let mut queue = lock_recover(&inner.replies);
+    queue.extend_from_slice(&replies);
+    inner.replies_changed.notify_all();
+}
+
+/// Drain queued emulator replies to the child until the session is closed.
+///
+/// Owning the only blocking pty write in the crate is the whole point: the
+/// reader thread must stay free to drain output, or a child that stops
+/// reading its input and a reader that stops draining its output deadlock
+/// against each other.
+fn reply_writer_loop(inner: &SessionInner, writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
+    loop {
+        // `eof` as well as `closed`: the reader thread sets it once the child
+        // is gone, and a reply to a dead child is worth nothing. Without it
+        // this thread would hold the session alive forever, because nothing
+        // sets `closed` unless `close`/`kill` is called explicitly.
+        if inner.closed.load(Ordering::Relaxed) || inner.eof.load(Ordering::Relaxed) {
+            break;
+        }
+        let batch = {
+            let mut queue = lock_recover(&inner.replies);
+            while queue.is_empty()
+                && !inner.closed.load(Ordering::Relaxed)
+                && !inner.eof.load(Ordering::Relaxed)
+            {
+                // Same poison reasoning as `read`: a panic in another holder
+                // must not take down a thread on the model's tool path.
+                let (next, _) = match inner
+                    .replies_changed
+                    .wait_timeout(queue, std::time::Duration::from_millis(50))
+                {
+                    Ok(pair) => pair,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                queue = next;
+            }
+            if queue.is_empty() {
+                break;
+            }
+            std::mem::take(&mut *queue)
+        };
+        let mut handle = lock_recover(writer);
+        // Recorded, not just printed: a failed reply means the child is not
+        // getting the answer it is blocked on, and `screen` surfaces this so
+        // the blank frame it produces comes with a reason.
+        if let Err(e) = handle.write_all(&batch).and_then(|()| handle.flush()) {
+            *lock_recover(&inner.reply_error) = Some(e.to_string());
+            eprintln!("kymido: terminal emulator reply write failed: {e}");
+        }
+    }
+}
+
+/// Block until the screen has been fed every appended byte, or the bound
+/// expires.
+///
+/// `push_output` wakes a waiting `read` before it feeds the screen, so without
+/// this a `screen` call issued right after a `read` can race the reader thread
+/// and return a frame missing the bytes that `read` just reported.
+fn catch_up_screen(inner: &SessionInner) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(SCREEN_CATCHUP_MS);
+    let mut seen = lock_recover(&inner.seen);
+    while seen.fed < seen.appended {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let (next, _) = match inner.appended.wait_timeout(seen, remaining) {
+            Ok(pair) => pair,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        seen = next;
+    }
+}
+
+/// How long [`TerminalRegistry::screen`] waits for the reader thread to finish
+/// feeding the bytes a previous `read` already returned. Bounded so a reader
+/// thread that died mid-chunk cannot wedge the model's next tool call.
+const SCREEN_CATCHUP_MS: u64 = 250;
 
 // -----------------------------------------------------------------------------
 // Public snapshot types
@@ -275,6 +448,34 @@ pub struct TerminalSummary {
     pub exited: bool,
     /// Exit code, once known.
     pub exit_code: Option<u32>,
+}
+
+/// One frozen look at a session's screen — what a user would see looking at
+/// it now.
+///
+/// The live screen lives in the session and is kept current by the reader
+/// thread; this is the copy a caller reads and hands to the frame renderers
+/// ([`screen::render_ascii`] and its siblings).
+#[derive(Debug, Clone)]
+pub struct ScreenSnapshot {
+    /// The whole visible screen as plain text, one line per row.
+    pub text: String,
+    /// The same frame as styled runs: per-run colour and display width, the
+    /// input the SVG and JSON renderers want.
+    pub runs: Vec<StyledLine>,
+    /// Cursor position, `(row, col)`, 0-indexed from the top left.
+    pub cursor: (u16, u16),
+    /// The screen's live geometry.
+    pub cols: u16,
+    pub rows: u16,
+    /// The pty's bytes fed to this screen so far. Zero means the session was
+    /// created and has produced nothing yet — an empty frame, not an error.
+    pub fed_bytes: u64,
+    /// Set when the child would not accept an emulator reply. A program that
+    /// probes the terminal and gets no answer simply never draws, so this is
+    /// the only thing that distinguishes "not ready yet" from "not talking to
+    /// us any more".
+    pub reply_error: Option<String>,
 }
 
 // -----------------------------------------------------------------------------
@@ -399,11 +600,22 @@ impl TerminalRegistry {
             pixel_height: 0,
         })?;
 
+        // The writer is taken before the reader thread is spawned, because
+        // the thread needs it too (`advance_screen` answers the child's
+        // terminal queries) and `portable_pty` allows exactly one handle.
+        let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let inner = Arc::new(SessionInner {
             buffer: Mutex::new(Buffer::default()),
             appended: Condvar::new(),
             eof: AtomicBool::new(false),
             closed: AtomicBool::new(false),
+            screen: Mutex::new(Screen::new(cols, rows)),
+            fed_bytes: AtomicU64::new(0),
+            writer: Arc::clone(&writer),
+            replies: Mutex::new(Vec::new()),
+            replies_changed: Condvar::new(),
+            seen: Mutex::new(Seen::default()),
+            reply_error: Mutex::new(None),
         });
 
         // Reader thread: the pty master is drained here for the whole session
@@ -443,6 +655,20 @@ impl TerminalRegistry {
             })
             .map_err(|e| TerminalError::Pty(e.to_string()))?;
 
+        // Reply writer thread: the only thread that ever writes a pty on
+        // behalf of the emulator. The reader thread queues replies and moves
+        // on, because a pty write blocks whenever the child is not draining
+        // its input — and a blocked reader stops draining output, which is
+        // the one thing keeping the child's own writes from blocking. Same
+        // failure-ordering argument as the reader: spawn before the child, so
+        // a thread-spawn failure cannot leave an unrecorded process running.
+        let reply_inner = Arc::clone(&inner);
+        let reply_writer = Arc::clone(&writer);
+        std::thread::Builder::new()
+            .name("kymido-pty-replies".into())
+            .spawn(move || reply_writer_loop(&reply_inner, &reply_writer))
+            .map_err(|e| TerminalError::Pty(e.to_string()))?;
+
         let child = pair.slave.spawn_command(cmd).inspect_err(|_| {
             // No child will ever write, and the cloned master reader keeps the
             // pty from reporting EOF on its own (a dup of the master fd
@@ -454,7 +680,6 @@ impl TerminalRegistry {
         // pty from ever reporting EOF when the shell exits.
         drop(pair.slave);
 
-        let writer = pair.master.take_writer()?;
         let killer = child.clone_killer();
 
         let id;
@@ -475,7 +700,6 @@ impl TerminalRegistry {
                 id.clone(),
                 Arc::new(Session {
                     master: Mutex::new(pair.master),
-                    writer: Mutex::new(writer),
                     killer: Mutex::new(killer),
                     child: Mutex::new(child),
                     meta: SessionMeta {
@@ -507,7 +731,7 @@ impl TerminalRegistry {
         if session.inner.eof.load(Ordering::Relaxed) {
             return Err(TerminalError::Exited(id.clone()));
         }
-        let mut writer = lock_recover(&session.writer);
+        let mut writer = lock_recover(&session.inner.writer);
         writer.write_all(data.as_bytes())?;
         writer.flush()?;
         Ok(())
@@ -561,6 +785,33 @@ impl TerminalRegistry {
         })
     }
 
+    /// The session's screen: what a user would see looking at it now.
+    ///
+    /// Fed by the reader thread from every byte it sees, so this takes
+    /// nothing from the buffer [`read`](Self::read) drains — the two can be
+    /// called in any order, or interleaved, and neither starves the other. A
+    /// session that has not produced output yet is not an error: it comes
+    /// back as an empty frame with [`ScreenSnapshot::fed_bytes`] of `0`.
+    pub fn screen(&self, id: &TerminalId) -> Result<ScreenSnapshot, TerminalError> {
+        let session = self.get(id)?;
+        // Wait for the reader thread to finish feeding whatever a previous
+        // `read` already reported, so the frame is never a step behind the
+        // bytes the model has seen. Bounded — see `catch_up_screen`.
+        catch_up_screen(&session.inner);
+        let reply_error = lock_recover(&session.inner.reply_error).clone();
+        let screen = lock_recover(&session.inner.screen);
+        let (cols, rows) = screen.size();
+        Ok(ScreenSnapshot {
+            text: screen.text(),
+            runs: screen.styled_runs(),
+            cursor: screen.cursor(),
+            cols,
+            rows,
+            fed_bytes: session.inner.fed_bytes.load(Ordering::Relaxed),
+            reply_error,
+        })
+    }
+
     /// Resize the pty. The kernel delivers `SIGWINCH` to the foreground
     /// process group, so a full-screen program re-layouts.
     pub fn resize(&self, id: &TerminalId, cols: u16, rows: u16) -> Result<(), TerminalError> {
@@ -572,6 +823,10 @@ impl TerminalRegistry {
             pixel_width: 0,
             pixel_height: 0,
         })?;
+        // The screen reflows with the pty. The child re-lays out on SIGWINCH,
+        // and a screen left at the old geometry would misreport every row of
+        // the new layout from then on.
+        lock_recover(&session.inner.screen).resize(cols, rows);
         Ok(())
     }
 

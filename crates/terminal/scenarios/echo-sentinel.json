@@ -1,0 +1,24 @@
+{
+  "name": "echo-sentinel",
+  "command": "sh",
+  "terminal": { "rows": 24, "cols": 80 },
+  "steps": [
+    {
+      "action": "type",
+      "text": "printf '\\nE2E_%s_END\\n' READY\n"
+    },
+    {
+      "action": "wait_for_text",
+      "text": "E2E_READY_END",
+      "timeout_ms": 5000
+    },
+    {
+      "action": "assert_text",
+      "contains": "E2E_READY_END"
+    },
+    {
+      "action": "screenshot",
+      "name": "echo-ready"
+    }
+  ]
+}

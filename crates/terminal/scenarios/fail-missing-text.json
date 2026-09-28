@@ -1,0 +1,20 @@
+{
+  "name": "fail-missing-text",
+  "command": "sh",
+  "terminal": { "rows": 24, "cols": 80 },
+  "steps": [
+    {
+      "action": "type",
+      "text": "printf '\\nMISSING_SENTINEL\\n' OK\n"
+    },
+    {
+      "action": "wait_for_text",
+      "text": "NEVER_SENT_ON_THIS_SCREEN",
+      "timeout_ms": 1000
+    },
+    {
+      "action": "screenshot",
+      "name": "after-timeout"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "slash-open",
+  "command": "kymido tui",
+  "terminal": { "rows": 30, "cols": 100 },
+  "steps": [
+    {
+      "action": "wait_for_text",
+      "text": "❯",
+      "timeout_ms": 15000
+    },
+    {
+      "action": "type",
+      "text": "/"
+    },
+    {
+      "action": "wait",
+      "ms": 400
+    },
+    {
+      "action": "screenshot",
+      "name": "slash-panel"
+    },
+    {
+      "action": "send_keys",
+      "keys": "Escape"
+    }
+  ]
+}
