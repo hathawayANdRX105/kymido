@@ -984,8 +984,9 @@ pub fn Workspace(
         let sid_abort = active_session_id;
         move |()| {
             if let DataBackend::Daemon(d) = backend_abort() {
+                let sid = sid_abort();
                 std::thread::spawn(move || {
-                    let _ = d.abort_worker();
+                    let _ = d.abort_worker(&sid);
                 });
             }
             // 内存即时复位：会话回 Idle；事件流里的残余事件由孤儿守卫兜底。
