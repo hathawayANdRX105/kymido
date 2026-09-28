@@ -56,6 +56,11 @@ pub struct ExecState {
     status: Arc<RwLock<ExecStatus>>,
     /// This session's plan/review runtime (created with it, dies with it).
     pub plan: plan_mode::PlanModeRuntime,
+    // Forward slot (comment only — no field, YAGNI per the S5 kickoff
+    // §6): the next stateful tool (tool toggles, review switches, ...)
+    // builds its per-session state here, next to `plan`, and its tool
+    // instance is wired against it in `SessionRegistry`'s per-session
+    // `OrbitSetup` assembly — never a daemon-wide singleton.
 }
 
 impl ExecState {
