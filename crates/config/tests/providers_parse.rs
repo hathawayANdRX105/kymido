@@ -454,3 +454,168 @@ active = "smoke"
     assert_eq!(llm.base_url, "http://127.0.0.1:18099");
     assert_eq!(llm.api_key, "test-key");
 }
+
+/// [combos] 辅助：FILE 的 active 行换成用例 spec，`[combos]` 根表插在
+/// providers 子表之前（TOML 表顺序约束）；可选替换 deepseek 的 fallbacks。
+fn combo_body(active: &str, combos: &str, fallbacks: Option<&str>) -> String {
+    let rest = FILE.replacen("active = \"deepseek/deepseek-chat\"", "", 1);
+    let mut body = format!("active = \"{active}\"\n\n[combos]\n{combos}\n\n");
+    body.push_str(rest.trim_start());
+    if let Some(f) = fallbacks {
+        body = body.replacen(
+            "fallbacks = [\"openai/gpt-4o-mini\", \"ghost/mystery\"]",
+            f,
+            1,
+        );
+    }
+    body
+}
+
+/// active 指向 combo 短名：解析走目标路由，凭据/能力跟目标 provider 行与
+/// model 条目，`active_llm` 返回真实 model id。
+#[test]
+fn combo_active_resolves_with_target_capabilities() {
+    let _guard = cwd_lock();
+    let c = load_providers_held(
+        Some(&combo_body("fast", "fast = \"openai/gpt-4o-mini\"", None)),
+        None,
+    );
+    let llm = c.active_llm().expect("combo active must resolve");
+    assert_eq!(llm.model, "gpt-4o-mini");
+    assert_eq!(llm.base_url, "https://api.openai.com");
+    assert_eq!(llm.api_key, "sk-openai");
+    assert!(llm.image_input(), "目标条目声明 image 模态");
+}
+
+/// combo 目标指向不存在的 provider = 拒载（目标必须配置过）。
+#[test]
+fn combo_missing_provider_is_a_load_error() {
+    let _guard = cwd_lock();
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("providers.toml"),
+        "active = \"x\"\n\n[combos]\nx = \"nosuch/m\"\n\n[providers.openai]\nbase_url = \"https://api.openai.com\"\napi_key = \"k\"\n",
+    )
+    .expect("write");
+    let original = std::env::current_dir().expect("current_dir");
+    std::env::set_current_dir(dir.path()).expect("switch cwd");
+    let err = std::panic::catch_unwind(config::Config::load)
+        .expect("no panic")
+        .err()
+        .expect("must reject a combo whose target provider is missing");
+    std::env::set_current_dir(&original).expect("restore cwd");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("combo `x` targets provider `nosuch`"),
+        "got: {msg}"
+    );
+}
+
+/// combo 目标是裸 provider 名（没钉 model）= 拒载。
+#[test]
+fn combo_bare_provider_target_is_a_load_error() {
+    let _guard = cwd_lock();
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("providers.toml"),
+        "active = \"x\"\n\n[combos]\nx = \"openai\"\n\n[providers.openai]\nbase_url = \"https://api.openai.com\"\napi_key = \"k\"\ndefault_model = \"gpt-4o-mini\"\n",
+    )
+    .expect("write");
+    let original = std::env::current_dir().expect("current_dir");
+    std::env::set_current_dir(dir.path()).expect("switch cwd");
+    let err = std::panic::catch_unwind(config::Config::load)
+        .expect("no panic")
+        .err()
+        .expect("must reject a bare-provider combo target");
+    std::env::set_current_dir(&original).expect("restore cwd");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("combo `x` target must name a model"),
+        "got: {msg}"
+    );
+}
+
+/// combo 值又是 combo 短名 = 拒载（单跳封顶，环无处存在）。
+#[test]
+fn combo_to_combo_is_a_load_error() {
+    let _guard = cwd_lock();
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("providers.toml"),
+        "active = \"a\"\n\n[combos]\na = \"b\"\nb = \"openai/gpt-4o-mini\"\n\n[providers.openai]\nbase_url = \"https://api.openai.com\"\napi_key = \"k\"\n",
+    )
+    .expect("write");
+    let original = std::env::current_dir().expect("current_dir");
+    std::env::set_current_dir(dir.path()).expect("switch cwd");
+    let err = std::panic::catch_unwind(config::Config::load)
+        .expect("no panic")
+        .err()
+        .expect("must reject combo-to-combo indirection");
+    std::env::set_current_dir(&original).expect("restore cwd");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("combo `a` target must name a model"),
+        "got: {msg}"
+    );
+}
+
+/// combo 目标 model 不在目标 provider 声明表里 = 拒载。
+#[test]
+fn combo_target_model_not_in_table_is_a_load_error() {
+    let _guard = cwd_lock();
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("providers.toml"),
+        "active = \"fast\"\n\n[combos]\nfast = \"deepseek/nope\"\n\n[providers.deepseek]\nbase_url = \"https://api.deepseek.com\"\napi_key = \"k\"\ndefault_model = \"deepseek-chat\"\n\n[[providers.deepseek.models]]\nid = \"deepseek-chat\"\n",
+    )
+    .expect("write");
+    let original = std::env::current_dir().expect("current_dir");
+    std::env::set_current_dir(dir.path()).expect("switch cwd");
+    let err = std::panic::catch_unwind(config::Config::load)
+        .expect("no panic")
+        .err()
+        .expect("must reject a combo target missing from the declared table");
+    std::env::set_current_dir(&original).expect("restore cwd");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("combo `fast` target model `nope` is not declared by provider `deepseek`"),
+        "got: {msg}"
+    );
+}
+
+/// 瀑布 hop 走 combo 短名：凭据继承目标 provider 行，能力跟目标条目。
+#[test]
+fn fallback_hop_via_combo() {
+    let _guard = cwd_lock();
+    let c = load_providers_held(
+        Some(&combo_body(
+            "deepseek/deepseek-chat",
+            "fast = \"openai/gpt-4o-mini\"",
+            Some("fallbacks = [\"fast\"]"),
+        )),
+        None,
+    );
+    let hops = c.fallback_llms();
+    assert_eq!(hops.len(), 1, "combo hop must resolve");
+    assert_eq!(hops[0].model, "gpt-4o-mini");
+    assert_eq!(hops[0].api_key, "sk-openai", "凭据继承目标 provider 行");
+}
+
+/// 回归锚：不写 [combos] 时裸 provider 名照旧走 default_model（spec_to_route
+/// 未命中 combos 原样放行），斜杠路由永远不查表。
+#[test]
+fn bare_and_slashed_specs_bypass_missing_combos() {
+    let c = load_providers(
+        Some(
+            "active = \"openai\"\n\n[providers.openai]\nbase_url = \"https://api.openai.com\"\napi_key = \"k\"\ndefault_model = \"gpt-4o-mini\"\n",
+        ),
+        None,
+    );
+    let file = &c.providers;
+    assert_eq!(file.spec_to_route("openai"), "openai");
+    assert_eq!(
+        file.spec_to_route("openai/gpt-4o-mini"),
+        "openai/gpt-4o-mini"
+    );
+    assert_eq!(c.active_llm().expect("bare route").model, "gpt-4o-mini");
+}

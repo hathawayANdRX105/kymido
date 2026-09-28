@@ -26,7 +26,7 @@ main `03fccc5`（**TUI 批次 2 全部收口**，epic #458）。daemon / web / C
 | MCP | stdio + Streamable HTTP 双传输、重连监督（指数退避 + 熔断）、per-server timeout/cwd |
 | session resume | daemon 重启后按 session 回放最近 50 条 user/assistant（dedupe + 切换清 ctx） |
 | LLM 路由 | `WaterfallLlm` fallback 按序切换 + 共享退避重试 + 已泄内容不切 provider；瀑布 = providers.toml provider 级 `fallbacks` 路由（凭据继承目标 provider 行），web Fallback 路由行编辑 |
-| 凭据档案 | `providers.toml`：`active` 路由（"provider/model"）+ `[providers.<name>]` 凭据行（`api_key_env` 免明文共享配置）+ `[[...models]]` 能力条目（context_window / input 模态）；旧 `[llm]` 扁平段随切换移除（加载即报错 + 迁移指引，无别名）；`KYMIDO_LLM_*` 覆盖 active provider 字段；路由指向不存在的 provider/model 即加载失败（不静默换） |
+| 凭据档案 | `providers.toml`：`active` 路由（"provider/model"）+ `[providers.<name>]` 凭据行（`api_key_env` 免明文共享配置）+ `[[...models]]` 能力条目（context_window / input 模态）；旧 `[llm]` 扁平段随切换移除（加载即报错 + 迁移指引，无别名）；`KYMIDO_LLM_*` 覆盖 active provider 字段；路由指向不存在的 provider/model 即加载失败（不静默换）；根表 `[combos]` 模型 combos（短名 → 强制 provider/model 路由，单跳：裸 provider 目标与 combo→combo 均拒载、报错点名该 combo），`active`/`fallbacks` 可引用短名，解析后 LLM 调用走真实 model id |
 | jobs + terminal | 后台作业注册表 + 持久 PTY（drain 语义 read）；10 把模型工具接入 daemon；作业完成经 `on_job_done` 以 **aside** 进模型上下文（不延长 run） |
 | subagent | fork 进程内后端 + ACP 出进程后端（两阶梯 dispose）+ interrupt + `[[subagent.providers]]`；运行中发消息（`subagent_control message`，step 边界投递，不谎报给不读 inbox 的 provider）；worker 拆除 SIGTERM 宽限 |
 | todo + goal 全链路 | 5 把模型工具（todo_add/todo_update/todo_list/goal_add/goal_link）+ jsonl 存储 + `todo.list`/`goal.list` 读 RPC + web 看板投影（CLI 任务/模型 todo-goal/run 记录三类同板） |

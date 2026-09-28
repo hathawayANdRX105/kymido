@@ -822,3 +822,46 @@ fn mcp_servers_missing_from_form_are_left_untouched() {
         "ghost 的未知键应保留"
     );
 }
+
+/// [combos] 段是未受管键：active 短名经 combo 目标解析（provider 归属跟目标行、
+/// 能力跟目标条目），保存往返后该段逐字保留。
+#[test]
+fn combos_section_survives_managed_roundtrip() {
+    let sb = Sandbox::new();
+
+    std::fs::create_dir_all(sb.path().join(".kymido")).expect("建 .kymido 失败");
+    std::fs::write(
+        sb.path().join(".kymido/providers.toml"),
+        "active = \"fast\"\n\n\
+         [combos]\n\
+         fast = \"openai/gpt-4o-mini\"\n\n\
+         [providers.openai]\n\
+         base_url = \"http://127.0.0.1:1\"\n\
+         api_key = \"sk-combo\"\n\
+         default_model = \"gpt-4o-mini\"\n\n\
+         [[providers.openai.models]]\n\
+         id = \"gpt-4o-mini\"\n\
+         input = [\"text\", \"image\"]\n",
+    )
+    .expect("写 providers 失败");
+
+    let loaded = LlmRuntimeConfig::load_from_system();
+    assert_eq!(loaded.active, "fast", "active 原文保留");
+    assert_eq!(
+        loaded.active_provider, "openai",
+        "provider 归属跟 combo 目标行"
+    );
+    assert_eq!(loaded.model, "gpt-4o-mini");
+    assert!(loaded.image_input, "能力跟目标 model 条目");
+
+    let before = std::fs::read_to_string(sb.path().join(".kymido/providers.toml")).unwrap();
+    loaded
+        .save_providers_to_file()
+        .expect("保存 providers 失败");
+    let after = std::fs::read_to_string(sb.path().join(".kymido/providers.toml")).unwrap();
+    assert!(
+        after.contains("[combos]") && after.contains("fast = \"openai/gpt-4o-mini\""),
+        "未受管的 [combos] 段应逐字保留:\n{after}"
+    );
+    assert!(before.contains("fast = \"openai/gpt-4o-mini\""));
+}
