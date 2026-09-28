@@ -12,9 +12,10 @@ fn run_oi(cwd: &std::path::Path, args: &[&str]) -> (String, String, bool) {
     let output = Command::new(exe)
         .args(args)
         .current_dir(cwd)
-        // Keep the ambient environment from steering the run: data dir and
-        // socket live inside the tempdir.
+        // Keep the ambient environment from steering the run: data dir,
+        // config dir and socket live inside the tempdir.
         .env("KYMIDO_DATA_DIR", cwd.join(".kymido"))
+        .env("KYMIDO_CONFIG_DIR", cwd.join(".kymido"))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
