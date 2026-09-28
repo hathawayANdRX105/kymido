@@ -170,7 +170,7 @@ pub fn Sidebar(
                                         span { class: "text-[12px] leading-5 text-label-3 tabular-nums", "{count}" }
                                         // 移除项目钮：hover 行才出现，排在行最右
                                         button {
-                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                                            class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
                                             title: "移除项目",
                                             onclick: move |e: MouseEvent| {
                                                 e.stop_propagation();

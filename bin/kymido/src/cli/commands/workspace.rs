@@ -10,73 +10,38 @@ pub fn init_cmd(json: bool) -> Result<u8, String> {
     init_cmd_at(&dir, json)
 }
 
-/// init internals, testable with an explicit workspace directory.
-///
-/// Splits the two concerns that used to share one directory:
-/// - **user-scoped** (`Config::config_dir`, normally `~/.config/kymido`):
-///   `config.toml` plus the `specs/` and `templates/` seed files. These follow
-///   the user across repositories, so they do not belong to a workspace.
-/// - **workspace-scoped** (`<dir>/.kymido`): the work-item store the CLI and
-///   daemon append to (`tasks.jsonl` / `todos.jsonl` / `goals.jsonl`). A task
-///   list describes one repository's work, so it stays next to it.
+/// init internals, testable with an explicit directory.
 pub fn init_cmd_at(dir: &std::path::Path, json: bool) -> Result<u8, String> {
-    let config_dir = Config::ensure_config_dir().map_err(|e| format!("config dir: {e}"))?;
-    let config_path = Config::config_file().map_err(|e| format!("config file: {e}"))?;
+    let kymido_dir = dir.join(".kymido");
+    let config_path = kymido_dir.join("config.toml");
+    let dir_existed = kymido_dir.exists();
     let config_existed = config_path.exists();
 
-    // A workspace-local config predates the move to XDG. Copy it across rather
-    // than leaving the user to re-enter their API key, then rename the source
-    // aside: `Config::load` lets a workspace file override the user-scoped one,
-    // so leaving it in place would keep the migrated copy permanently shadowed
-    // by the stale original. A rename, not a delete — nothing is lost.
-    let legacy = dir.join(".kymido/config.toml");
-    let mut migrated = None;
-    if !config_existed && legacy.is_file() {
-        std::fs::copy(&legacy, &config_path).map_err(|e| {
-            format!(
-                "migrate {} -> {}: {e}",
-                legacy.display(),
-                config_path.display()
-            )
-        })?;
-        let aside = dir.join(".kymido/config.toml.migrated");
-        std::fs::rename(&legacy, &aside).map_err(|e| {
-            format!(
-                "could not move the old config aside ({} -> {}): {e}; delete it or it will keep shadowing the migrated copy",
-                legacy.display(),
-                aside.display()
-            )
-        })?;
-        migrated = Some(aside);
-    } else if !config_existed {
+    if !dir_existed {
+        std::fs::create_dir_all(&kymido_dir)
+            .map_err(|e| format!("could not create .kymido/: {e}"))?;
+    }
+    if !config_existed {
         let default = "omp_path = \"omp\"\n\
+                       data_dir = \"./.kymido\"\n\
                        model = \"default\"\n";
         std::fs::write(&config_path, default)
-            .map_err(|e| format!("could not create {}: {e}", config_path.display()))?;
+            .map_err(|e| format!("could not create .kymido/config.toml: {e}"))?;
     }
     // Spec templates (never overwrite user edits).
-    store::specs::init::write_default_specs(&config_dir)
+    store::specs::init::write_default_specs(&kymido_dir)
         .map_err(|e| format!("spec templates: {e}"))?;
     // Task templates (never overwrite user edits).
-    store::template::write_default_templates(&config_dir)
+    store::template::write_default_templates(&kymido_dir)
         .map_err(|e| format!("task templates: {e}"))?;
-
-    // The work-item store is created lazily by `Store::new`; only the config
-    // side needs laying down here.
-    let msg = if let Some(aside) = migrated {
-        format!(
-            "migrated {} to {} (original kept as {})",
-            legacy.display(),
-            config_path.display(),
-            aside.display()
-        )
-    } else if config_existed {
-        format!("already initialized: {}", config_path.display())
-    } else {
-        format!("initialized: {}", config_path.display())
+    let msg = match (dir_existed, config_existed) {
+        (true, true) => "workspace already initialized",
+        (false, false) => "initialized: .kymido/, .kymido/config.toml, .kymido/specs/",
+        (false, true) => "created: .kymido/, .kymido/specs/",
+        (true, false) => "created: .kymido/config.toml, .kymido/specs/",
     };
     if json {
-        json_ok(&msg);
+        json_ok(msg);
     } else {
         println!("{msg}");
     }
@@ -121,9 +86,9 @@ pub fn profile_blurb(body: &str) -> &str {
         .trim()
 }
 
-/// `profile apply <name>` -- 把 profile 写进 [`Config::config_file`]。
+/// `profile apply <name>` -- 把 profile 写进 `<dir>/.kymido/config.toml`。
 /// 与 `init` 同一语义：已存在则拒绝覆盖（返回非零），不动用户配置。
-pub fn profile_apply_cmd_at(_dir: &std::path::Path, name: &str, json: bool) -> Result<u8, String> {
+pub fn profile_apply_cmd_at(dir: &std::path::Path, name: &str, json: bool) -> Result<u8, String> {
     let Some((_, body)) = PROFILES.iter().find(|(n, _)| *n == name) else {
         return Err(format!(
             "unknown profile '{name}' (available: {})",
@@ -134,16 +99,17 @@ pub fn profile_apply_cmd_at(_dir: &std::path::Path, name: &str, json: bool) -> R
                 .join(", ")
         ));
     };
-    Config::ensure_config_dir().map_err(|e| format!("config dir: {e}"))?;
-    let config_path = Config::config_file().map_err(|e| format!("config file: {e}"))?;
+    let kymido_dir = dir.join(".kymido");
+    let config_path = kymido_dir.join("config.toml");
     if config_path.exists() {
         return Err(format!(
             "{} already exists; refusing to overwrite",
             config_path.display()
         ));
     }
+    std::fs::create_dir_all(&kymido_dir).map_err(|e| format!("could not create .kymido/: {e}"))?;
     std::fs::write(&config_path, body)
-        .map_err(|e| format!("could not write {}: {e}", config_path.display()))?;
+        .map_err(|e| format!("could not write .kymido/config.toml: {e}"))?;
     let msg = format!("applied profile '{name}': {}", config_path.display());
     if json {
         json_ok(&msg);

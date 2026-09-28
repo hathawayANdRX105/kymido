@@ -121,6 +121,21 @@ jobs:
                       affected.add(parent)
                       stack.append(parent)
 
+          # daemon's subagent e2e execs `mock_acp_server`, an example of its
+          # own dependency `subagent` (crates/subagent/examples). Examples of
+          # a *dependency* are never in the dependents closure, so a
+          # daemon-scoped run used to exec a binary that was never built
+          # (run 36377398489: "spawn failed: No such file or directory").
+          # Pull subagent in explicitly whenever daemon is in scope —
+          # the Build step's --all-targets then builds the example.
+          daemon_id = next(
+              (pid for pid, p in pkgs.items() if p["name"] == "daemon"), None
+          )
+          if daemon_id and daemon_id in affected:
+              for pid, p in pkgs.items():
+                  if p["name"] == "subagent":
+                      affected.add(pid)
+
           names = sorted(pkgs[pid]["name"] for pid in affected)
           print("packages=" + (",".join(names) if names else "__ALL__"))
           PY

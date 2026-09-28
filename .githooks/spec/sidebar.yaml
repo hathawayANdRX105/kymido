@@ -32,7 +32,7 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:104 + bin/web/src/app.rs（keydown 处理）'
   - key: project-row
     find: 'h-[34px] mx-0 px-2 rounded-lg flex items-center gap-2'
-    expect: '项目行 h34、r8，folder 图标 + 名称 + 计数；移除钮 hover 行才出现（opacity-0 → group-hover 满透明）且排在行最右。'
+    expect: '项目行 h34、r8，folder 图标 + 名称 + 常显（默认 opacity-40，行 hover 满透明）新建/移除钮 + 计数。'
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:148'
   - key: session-row
     find: 'group h-8 px-2 rounded-lg flex items-center gap-2'

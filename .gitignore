@@ -10,6 +10,7 @@ __pycache__/
 .review/
 
 # kymido
+/.oi/
 /.kymido/
 node_modules/
 

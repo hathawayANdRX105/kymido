@@ -109,7 +109,7 @@ web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.gith
 
 kymido-web 已接 ainotation MCP 闭环（对标 ferrite admin-web 接线，协议细节见 ferrite `apps/admin-web/AINOTATION.md`）：
 
-- **部件**：SDK bundle 内联在 index（`bin/web/src/app.rs` 的 `debug_assertions` 门控；源 `bin/web/ainotation-entry.ts`，`bin/web` 下 `bun run aino` 重打 → 需重新 build + 重启 kymido-web）；同步桥 `bin/web/scripts/ainotation-bridge.mjs`（:44091，避开 ferrite 的 :44090；项目名 `kymido-web`，注册目录=本仓库根）；grant 文件 `bin/web/assets/ainotation/connection.json` 已 gitignore。
+- **部件**：SDK bundle 内联在 index（`bin/web/src/app.rs` 的 `debug_assertions` 门控；源 `bin/web/ainotation-entry.ts`，`bin/web` 下 `bun run aino` 重打 → 需重新 build + 重启 kymido-web）；同步桥 `bin/web/scripts/ainotation-bridge.mjs`（:44091，避开 ferrite 的 :44090；项目名 `omenic-web`——ainotation 服务的运行时注册键，改名会断既有 grant，留待后续单独处理；注册目录=本仓库根）；grant 文件 `bin/web/assets/ainotation/connection.json` 已 gitignore。
 - **启动顺序**：ainotation service（ferrite 的 `just aino-service` 或 `npx @ainotation/mcp@beta service`，幂等）→ `node bin/web/scripts/ainotation-bridge.mjs`（常驻，自动注册项目并每 2 分钟续租 grant）→ kymido-web（见上文启动序列）。
-- **MCP 作用域**：本仓 `.omp/mcp.json` 将 `ainotation` 钉到 kymido 目录（影子同名的用户级 ferrite 配置）；改完配置需 `/mcp reload` 或新会话。会话先于 service 启动时 ainotation 工具调用会挂起，reload 可修复。
+- **MCP 作用域**：本仓 `.omp/mcp.json` 将 `ainotation` 钉到 omenic 目录（影子同名的用户级 ferrite 配置）；改完配置需 `/mcp reload` 或新会话。会话先于 service 启动时 ainotation 工具调用会挂起，reload 可修复。
 - **页面**：浮层 A 钮是 `<ainotation-inspector-shell>`（web component + shadow DOM，按普通 div 扫不到）；Dioxus 重渲染替换节点后旧标注目标失效属预期，重标即可。

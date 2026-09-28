@@ -9,9 +9,9 @@ publish = false
 [dependencies]
 web-client = { path = "../web-client" }
 web-state = { path = "../web-state" }
-# T15：`[tui] notify_osc9` 经 config crate 读定。配置解析的单一权属在 config
-# crate，TUI 不自解析同款 TOML（D18 复制实现）；读不到按默认关
-#（`osc9_from_config`）。
+# T15：`[tui] notify_osc9` 经 config crate 读定——`.kymido/config.toml` 的解析
+# 单一权属 config crate（route §1 T15/T17 追记），TUI 不自解析同款 TOML
+#（D18 复制实现）；读不到按默认关（`osc9_from_config`）。
 config = { path = "../config" }
 clap = { workspace = true }
 crossterm = { workspace = true }
