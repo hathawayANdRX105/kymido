@@ -120,7 +120,10 @@ pub(crate) fn checksum_of(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-pub(crate) fn encode_archive(session: &ArchivedSession, messages: &[ArchivedMessage]) -> Vec<u8> {
+pub(crate) fn encode_archive(
+    session: &ArchivedSession,
+    messages: &[ArchivedMessage],
+) -> (Vec<u8>, usize) {
     let mut lines = String::new();
     // `std::iter::once(..).chain(..)` rather than an array with a spread:
     // the array form cannot mix a fixed head with a mapped tail.
@@ -136,12 +139,17 @@ pub(crate) fn encode_archive(session: &ArchivedSession, messages: &[ArchivedMess
         lines.push_str(&serde_json::to_string(&line).expect("encode archive line"));
         lines.push('\n');
     }
-    let sum = checksum_of(lines.as_bytes());
+    // The checksum covers every body byte *before* the newline that
+    // separates the body from the trailer line — the same boundary the
+    // decoder (and a forge test) reads the trailer from.
+    let sum = checksum_of(&lines.as_bytes()[..lines.len() - 1]);
     lines.push_str(
         &serde_json::to_string(&ArchiveLine::Trailer { checksum: sum }).expect("encode trailer"),
     );
     lines.push('\n');
-    zstd::encode_all(lines.as_bytes(), 3).expect("zstd encode")
+    let raw_len = lines.len();
+    let compressed = zstd::encode_all(lines.as_bytes(), 3).expect("zstd encode");
+    (compressed, raw_len)
 }
 
 pub(crate) struct DecodedArchive {

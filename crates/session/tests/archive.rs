@@ -455,7 +455,11 @@ fn a_well_formed_archive_with_an_unknown_role_is_rejected() {
     let raw = std::fs::read(&archive).expect("read archive");
     let text = zstd::decode_all(raw.as_slice()).expect("zstd decode");
     let text = String::from_utf8(text).expect("utf8");
-    let cut = text.rfind('\n').expect(" trailer");
+    // The encoder newline-terminates the trailer too: strip that byte so
+    // `body` is everything before the trailer line, matching the framing
+    // the decoder validates.
+    let text = text.strip_suffix('\n').unwrap_or(&text);
+    let cut = text.rfind('\n').expect(" trailer separator");
     let body = &text[..cut];
     // Swap one real role for one this build has never heard of, then reseal
     // the stream with a *valid* checksum: this emulates a well-formed

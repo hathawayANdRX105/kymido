@@ -908,7 +908,7 @@ impl SessionDb {
             )));
         }
 
-        let payload = archive::encode_archive(&archived_session, &messages);
+        let (payload, raw_len) = archive::encode_archive(&archived_session, &messages);
         let written = archive::write_archive_file(&path, &payload)?;
 
         // Only now drop the rows. If the delete fails the archive is still on
@@ -937,7 +937,7 @@ impl SessionDb {
         Ok(ArchiveReceipt {
             session_id: id_owned,
             messages: removed as usize,
-            raw_bytes: payload.len() as u64,
+            raw_bytes: raw_len as u64,
             archived_bytes: written,
         })
     }
