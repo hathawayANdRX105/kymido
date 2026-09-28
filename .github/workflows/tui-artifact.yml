@@ -18,6 +18,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
@@ -45,3 +47,18 @@ jobs:
           name: kymido-tui-debug
           path: target/debug/kymido
           retention-days: 3
+      # The actions-artifact download redirects to Azure blob storage, which
+      # times out on CN networks (three consistent TLS failures, 2026-09-29);
+      # release assets come from objects.githubusercontent.com, which is
+      # reachable. Publish both — artifact for other networks, release for
+      # this one.
+      - name: Publish as a release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create ci-tui --target "$GITHUB_SHA" \
+            --title "TUI eyeball build (debug, all five visual waves)" \
+            --notes "Throwaway build for route-tui-polish P2 路 B eyeball acceptance. Not a versioned release." \
+            2>/dev/null || true
+          gh release upload ci-tui target/debug/kymido --clobber
