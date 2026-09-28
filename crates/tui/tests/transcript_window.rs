@@ -343,7 +343,7 @@ fn wide_characters_count_as_display_cells() {
 /// 与断行因此在两种终端配置下一致。
 #[test]
 fn emoji_and_combining_marks_count_as_display_cells() {
-    let body = format!("{} {}", "🙂".repeat(30), "é".repeat(30));
+    let body = format!("{} {}", "\u{1F642}".repeat(30), "e\u{301}".repeat(30));
     for width in [20u16, 40] {
         let mut app = history(vec![user_msg(&body)]);
         sync(&mut app, width, 30);
