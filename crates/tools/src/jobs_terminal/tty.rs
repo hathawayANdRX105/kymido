@@ -479,13 +479,16 @@ impl Tool for TerminalScreenshot {
 /// state, not a failure, and an empty box with no explanation reads like a
 /// broken screen rather than an empty one.
 fn frame_note(frame: &ScreenSnapshot) -> String {
-    if frame.fed_bytes == 0 {
-        format!(
-            "terminal {}x{} — no output received yet",
-            frame.cols, frame.rows
-        )
+    let geometry = format!("terminal {}x{}", frame.cols, frame.rows);
+    if let Some(error) = &frame.reply_error {
+        // A program blocked on a cursor-position report never draws, and a
+        // blank frame with no reason reads as "still starting up". Say what
+        // actually happened.
+        format!("{geometry} — emulator reply failed: {error}")
+    } else if frame.fed_bytes == 0 {
+        format!("{geometry} — no output received yet")
     } else {
-        format!("terminal {}x{}", frame.cols, frame.rows)
+        geometry
     }
 }
 
