@@ -308,3 +308,54 @@ fn reasoning_precedes_text_parts() {
         "thinking body must precede the text part:\n{text}"
     );
 }
+
+/// T23：宽字符按**显示格宽**断行——模型数出的行数必须等于画面上真占的行数。
+///
+/// 这条是 T23 的本体 bug。断行核心原来按 `chars().count()` 算宽度：一个 CJK
+/// 字被当成 1 格，而它在终端里占 2 格。于是每个折行片段的实际宽度都是预算
+/// 的两倍，**画面上的行数翻倍，而 `count_wrapped` 只按片段个数记账**——两者
+/// 从此永久脱节，`ScrollModel::max_offset` / `view_top` 随之错位，滚动量算错。
+///
+/// 断言直接比**画面实际行数**与 `viewport().total()`：只调计数函数证明不了
+/// 什么（它和渲染共用同一个错误的折行核心），只有画面能揭穿它。
+#[test]
+fn wide_characters_count_as_display_cells() {
+    // 60 个 CJK 字 = 120 个显示格；按字符数断行只会算成 60 格。
+    let body = "中".repeat(60);
+    for width in [20u16, 40, 80] {
+        let mut app = history(vec![user_msg(&body)]);
+        sync(&mut app, width, 30);
+        let drawn = screen_at(&app, width, 30);
+        let rows_on_screen = drawn.lines().filter(|line| line.contains('中')).count();
+        let counted = app.viewport().total();
+        assert_eq!(
+            rows_on_screen, counted,
+            "width {width}: 画面上 {rows_on_screen} 行有内容，模型只数了 {counted} 行——\n\
+             折行落点按字符数算的，CJK 每行宽度翻倍，计数侧与画面脱节"
+        );
+    }
+}
+
+/// T23：emoji 与组合符同样按显示格宽处理。
+///
+/// emoji 是 2 格，组合附加符号是 0 格。手搓码位段表对这两类的判断依赖
+/// 「终端按 CJK wide 渲染」这一前提；unicode-width 的口径是确定的，宽度
+/// 与断行因此在两种终端配置下一致。
+#[test]
+fn emoji_and_combining_marks_count_as_display_cells() {
+    let body = format!("{} {}", "🙂".repeat(30), "é".repeat(30));
+    for width in [20u16, 40] {
+        let mut app = history(vec![user_msg(&body)]);
+        sync(&mut app, width, 30);
+        let drawn = screen_at(&app, width, 30);
+        let rows = drawn
+            .lines()
+            .filter(|l| l.contains('🙂') || l.contains('\u{301}'))
+            .count();
+        assert_eq!(
+            rows,
+            app.viewport().total(),
+            "width {width}: emoji/组合符行的实际行数与模型计数脱节"
+        );
+    }
+}
