@@ -45,6 +45,52 @@ pub async fn launch() {
     #[cfg(not(debug_assertions))]
     let aino_script = String::new();
 
+    // liveview auto-reconnect (Bug B): the dioxus-liveview client opens one WS
+    // to /ws but ships no reconnect (its `ws.onerror` is a `// todo: retry`).
+    // When kymido-web restarts, the tab stays stuck on "Connecting" until a
+    // manual hard refresh. Wrap the WebSocket constructor so the liveview
+    // channel, when it dies unexpectedly, triggers a *bounded* page reload —
+    // the VDOM is server-authoritative, so a reload re-fetches the initial DOM
+    // and re-establishes the WS. Reloads are debounced via sessionStorage
+    // (max 3 per 60s, surviving reloads) so a genuinely-down server does not
+    // loop into a reload storm.
+    let reconnect_script = String::from(
+        r#"<script>
+(function () {
+  var KEY = '__lv_reload_stamps';
+  var WINDOW_MS = 60000;
+  var MAX = 3;
+  function stamps() {
+    try { return JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch (e) { return []; }
+  }
+  function setStamps(a) { try { sessionStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
+  function unexpectedClose(e) {
+    // clean closes (1000/1001, wasClean) are intentional; ignore them.
+    if (e && (e.wasClean || e.code === 1000 || e.code === 1001)) return;
+    var now = Date.now();
+    var s = stamps().filter(function (t) { return now - t < WINDOW_MS; });
+    if (s.length >= MAX) return; // storm guard: server likely down
+    s.push(now);
+    setStamps(s);
+    setTimeout(function () { location.reload(); }, 250);
+  }
+  var RealWS = window.WebSocket;
+  window.WebSocket = function (url, proto) {
+    var ws = new RealWS(url, proto);
+    var path = (typeof url === 'string' ? url : '').split(/[?#]/)[0];
+    if (path && path.endsWith('/ws')) {
+      ws.addEventListener('close', unexpectedClose);
+    }
+    return ws;
+  };
+  window.WebSocket.prototype = RealWS.prototype;
+  window.WebSocket.CONNECTING = RealWS.CONNECTING;
+  window.WebSocket.OPEN = RealWS.OPEN;
+  window.WebSocket.CLOSING = RealWS.CLOSING;
+  window.WebSocket.CLOSED = RealWS.CLOSED;
+})();
+</script>"#,
+    );
     let index_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -59,6 +105,7 @@ pub async fn launch() {
 </head>
 <body>
     <div id="main"></div>
+    {reconnect_script}
     {glue}
     <script>
     (function() {{
