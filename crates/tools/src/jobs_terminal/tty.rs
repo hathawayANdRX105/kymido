@@ -3,11 +3,15 @@
 
 use super::*;
 use serde_json::Value;
-use std::path::Path;
 
 use crate::{Tool, ToolError};
+#[cfg(debug_assertions)]
+use std::path::Path;
+#[cfg(debug_assertions)]
+use terminal::ScreenSnapshot;
+#[cfg(debug_assertions)]
 use terminal::screen::{render_ascii, render_json, render_svg};
-use terminal::{ScreenSnapshot, TerminalId, TerminalRegistry};
+use terminal::{TerminalId, TerminalRegistry};
 
 // -----------------------------------------------------------------------------
 // terminal_create
@@ -316,16 +320,19 @@ impl Tool for TerminalList {
 // aborting between the snapshot and the return would only throw away the
 // frame the model asked for.
 
+#[cfg(debug_assertions)]
 pub struct TerminalScreen {
     reg: Arc<TerminalRegistry>,
 }
 
+#[cfg(debug_assertions)]
 impl TerminalScreen {
     pub fn new(reg: Arc<TerminalRegistry>) -> Self {
         Self { reg }
     }
 }
 
+#[cfg(debug_assertions)]
 impl Tool for TerminalScreen {
     fn name(&self) -> &str {
         "terminal_screen"
@@ -392,16 +399,19 @@ impl Tool for TerminalScreen {
     }
 }
 
+#[cfg(debug_assertions)]
 pub struct TerminalScreenshot {
     reg: Arc<TerminalRegistry>,
 }
 
+#[cfg(debug_assertions)]
 impl TerminalScreenshot {
     pub fn new(reg: Arc<TerminalRegistry>) -> Self {
         Self { reg }
     }
 }
 
+#[cfg(debug_assertions)]
 impl Tool for TerminalScreenshot {
     fn name(&self) -> &str {
         "terminal_screenshot"
@@ -478,6 +488,7 @@ impl Tool for TerminalScreenshot {
 /// A session that has been created but has produced nothing yet is a normal
 /// state, not a failure, and an empty box with no explanation reads like a
 /// broken screen rather than an empty one.
+#[cfg(debug_assertions)]
 fn frame_note(frame: &ScreenSnapshot) -> String {
     let geometry = format!("terminal {}x{}", frame.cols, frame.rows);
     if let Some(error) = &frame.reply_error {
@@ -493,6 +504,7 @@ fn frame_note(frame: &ScreenSnapshot) -> String {
 }
 
 /// Write one frame artifact, reporting the path that failed.
+#[cfg(debug_assertions)]
 fn write_frame(path: &Path, body: &str) -> Result<(), ToolError> {
     std::fs::write(path, body)
         .map_err(|e| ToolError::Message(format!("cannot write {}: {e}", path.display())))
@@ -506,6 +518,7 @@ fn write_frame(path: &Path, body: &str) -> Result<(), ToolError> {
 /// session's directory. Everything outside `[A-Za-z0-9_-]` becomes `_`, and
 /// the label is capped so a long name cannot push the file name past what a
 /// filesystem accepts.
+#[cfg(debug_assertions)]
 fn screenshot_label(name: Option<&str>) -> String {
     name.map_or_default(|raw| {
         raw.chars()
