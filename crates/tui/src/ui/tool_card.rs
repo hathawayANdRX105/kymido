@@ -133,6 +133,11 @@ fn kind_glyph(kind: &str) -> char {
 /// 全显（一个键全部展开/折叠）。
 fn result_lines(tc: &ToolCall, expanded: bool, width: usize) -> Vec<Line<'static>> {
     let text = super::transcript::sanitize(&tc.detail);
+    // T27：edit 类结果先判 diff——形态像且解析得动才走 diff 渲染，否则
+    // 维持现有折叠路径（判据宁严勿宽，误判比漏判严重）。
+    if super::diff::renderable(&text) {
+        return super::diff::lines(&text, width);
+    }
     let logical: Vec<&str> = text.lines().collect();
     if logical.is_empty() {
         return Vec::new();
@@ -164,6 +169,10 @@ fn result_lines(tc: &ToolCall, expanded: bool, width: usize) -> Vec<Line<'static
 /// 结果区行数（[`result_lines`] 的镜像：分支、折叠头尾切片逐一对应）。
 fn result_rows(tc: &ToolCall, expanded: bool, width: usize) -> usize {
     let text = super::transcript::sanitize(&tc.detail);
+    // T27：与 result_lines 同一判定、同一数据路径——分叉即测试红。
+    if super::diff::renderable(&text) {
+        return super::diff::rows(&text, width);
+    }
     let logical: Vec<&str> = text.lines().collect();
     if logical.is_empty() {
         return 0;
