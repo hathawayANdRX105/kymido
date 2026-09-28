@@ -1862,56 +1862,85 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
 
     // --- #183: cli init ---
 
+    /// The init tests point `KYMIDO_CONFIG_DIR` at their own temp dir (init
+    /// writes the user-scoped config there) and restore the environment
+    /// afterwards. The env var is process-global, so serialize the three to
+    /// keep parallel tests in this binary from seeing a foreign config dir.
+    static INIT_ENV_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
     #[cfg_attr(test, test)]
     fn init_creates_data_dir_and_config() {
+        let _guard = INIT_ENV_LOCK.lock();
         let dir = std::env::temp_dir().join(format!(
             "kymido-cli-test-init-create-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        let config_dir = dir.join(".kymido");
+        unsafe {
+            std::env::set_var("KYMIDO_CONFIG_DIR", &config_dir);
+        }
         init_cmd_at(&dir, false).unwrap();
-        assert!(dir.join(".kymido").is_dir());
-        assert!(dir.join(".kymido/config.toml").is_file());
-        assert!(dir.join(".kymido/specs").is_dir());
-        let content = std::fs::read_to_string(dir.join(".kymido/config.toml")).unwrap();
+        assert!(config_dir.is_dir());
+        assert!(config_dir.join("config.toml").is_file());
+        assert!(config_dir.join("specs").is_dir());
+        let content = std::fs::read_to_string(config_dir.join("config.toml")).unwrap();
         assert!(content.contains("omp_path = \"omp\""));
-        assert!(content.contains("data_dir = \"./.kymido\""));
         assert!(content.contains("model = \"default\""));
         let _ = std::fs::remove_dir_all(&dir);
+        unsafe {
+            std::env::remove_var("KYMIDO_CONFIG_DIR");
+        }
     }
 
     #[cfg_attr(test, test)]
     fn init_idempotent() {
+        let _guard = INIT_ENV_LOCK.lock();
         let dir =
             std::env::temp_dir().join(format!("kymido-cli-test-init-idem-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        let config_dir = dir.join(".kymido");
+        unsafe {
+            std::env::set_var("KYMIDO_CONFIG_DIR", &config_dir);
+        }
         init_cmd_at(&dir, false).unwrap();
-        let toml = std::fs::read_to_string(dir.join(".kymido/config.toml")).unwrap();
+        let toml = std::fs::read_to_string(config_dir.join("config.toml")).unwrap();
         init_cmd_at(&dir, false).unwrap();
         // Not overwritten.
         assert_eq!(
             toml,
-            std::fs::read_to_string(dir.join(".kymido/config.toml")).unwrap()
+            std::fs::read_to_string(config_dir.join("config.toml")).unwrap()
         );
-        assert!(dir.join(".kymido").is_dir());
+        assert!(config_dir.is_dir());
         let _ = std::fs::remove_dir_all(&dir);
+        unsafe {
+            std::env::remove_var("KYMIDO_CONFIG_DIR");
+        }
     }
 
     #[cfg_attr(test, test)]
     fn init_partial_existing() {
+        let _guard = INIT_ENV_LOCK.lock();
         let dir = std::env::temp_dir().join(format!(
             "kymido-cli-test-init-partial-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".kymido")).unwrap();
+        let config_dir = dir.join(".kymido");
+        unsafe {
+            std::env::set_var("KYMIDO_CONFIG_DIR", &config_dir);
+        }
         init_cmd_at(&dir, false).unwrap();
         // config.toml + specs created, .kymido already there.
-        assert!(dir.join(".kymido/config.toml").is_file());
-        assert!(dir.join(".kymido/specs").is_dir());
+        assert!(config_dir.join("config.toml").is_file());
+        assert!(config_dir.join("specs").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
+        unsafe {
+            std::env::remove_var("KYMIDO_CONFIG_DIR");
+        }
     }
 
     // --- #181: cli ready / cli blocked ---
