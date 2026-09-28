@@ -70,6 +70,15 @@ impl Scheme {
             // Yellow 在白底上基本消失 → 深黄。
             (Scheme::Dark, Role::Warn) => Color::LightYellow,
             (Scheme::Light, Role::Warn) => Color::Yellow,
+            // heading：标题。暗底 LightCyan 够亮且与 brand 的 LightBlue、
+            // warn 的 LightYellow 都分得开；亮底 Cyan 反差足够。
+            (Scheme::Dark, Role::Heading) => Color::LightCyan,
+            (Scheme::Light, Role::Heading) => Color::Cyan,
+            // code_fg：代码与行内 code 的前景。DarkGray/Gray 在亮底不可读
+            // 是本文件记录过的既有事故，两档都取中灰——代码靠 `▌` 左条与
+            // 缩进识别，前景不需要抢眼，只需要在两种终端上都读得出。
+            (Scheme::Dark, Role::CodeFg) => Color::Gray,
+            (Scheme::Light, Role::CodeFg) => Color::Gray,
         }
     }
 }
@@ -83,6 +92,8 @@ enum Role {
     Border,
     Success,
     Warn,
+    Heading,
+    CodeFg,
 }
 
 /// 面板与卡的轮廓色。比 dim 更冷一档，浅色终端上仍与正文分得开。
@@ -98,6 +109,17 @@ pub fn success() -> Style {
 /// 需要留意但不是错误：折叠提示、行数截断、被跳过的工具。
 pub fn warn() -> Style {
     Style::default().fg(color(Role::Warn))
+}
+
+/// markdown 标题（T26）：与正文的层级区分靠加粗 + `#` 前缀 + 本色。
+pub fn heading() -> Style {
+    Style::default().fg(color(Role::Heading))
+}
+
+/// 代码前景（T26/T27）：围栏代码块与行内 code。刻意不抢眼——代码靠
+/// `▌` 左条与缩进识别，前景只需要在两种终端上都读得出。
+pub fn code_fg() -> Style {
+    Style::default().fg(color(Role::CodeFg))
 }
 
 /// 进程级活跃方案槽（`AtomicU8`：值 = [`Scheme::ALL`] 下标 + 1，0 = 未

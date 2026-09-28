@@ -2110,6 +2110,8 @@ dependencies = [
  "clap",
  "config",
  "crossterm",
+ "diffy",
+ "pulldown-cmark",
  "ratatui",
  "serde_json",
  "thiserror 2.0.21",
