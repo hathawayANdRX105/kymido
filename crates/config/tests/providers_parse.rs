@@ -16,9 +16,10 @@ fn cwd_lock() -> MutexGuard<'static, ()> {
 }
 
 /// 在 tempdir 写 `providers.toml`（可选再写 config.toml），切 cwd 加载，
-/// 恢复 cwd 后返回 Config。
-fn load_providers(providers_toml: Option<&str>, config_toml: Option<&str>) -> Config {
-    let _guard = cwd_lock();
+/// 恢复 cwd 后返回 Config。调用方必须已持有 `cwd_lock`——锁不可重入，
+/// 本函数自身不再抢锁（曾有两个 env 测试持锁再走 `load_providers`，
+/// 双重抢锁把整个二进制吊死在 CI 的 25 分钟超时上）。
+fn load_providers_held(providers_toml: Option<&str>, config_toml: Option<&str>) -> Config {
     let dir = tempfile::tempdir().expect("tempdir");
     if let Some(body) = providers_toml {
         std::fs::write(dir.path().join("providers.toml"), body).expect("write providers");
@@ -35,6 +36,13 @@ fn load_providers(providers_toml: Option<&str>, config_toml: Option<&str>) -> Co
         Ok(Err(e)) => panic!("Config::load failed: {e}"),
         Err(_) => panic!("Config::load panicked"),
     }
+}
+
+/// 不直接碰 env 变量的便捷包装：加载期间持锁。碰 env 变量的测试自己
+/// 持锁（set_var…remove_var 全程串行化），改调 `load_providers_held`。
+fn load_providers(providers_toml: Option<&str>, config_toml: Option<&str>) -> Config {
+    let _guard = cwd_lock();
+    load_providers_held(providers_toml, config_toml)
 }
 
 const FILE: &str = r#"
@@ -72,7 +80,7 @@ input = ["text", "image"]
 #[test]
 fn active_route_resolves_with_model_level_capabilities() {
     let _guard = cwd_lock();
-    let c = load_providers(Some(FILE), None);
+    let c = load_providers_held(Some(FILE), None);
     let llm = c.active_llm().expect("active route must resolve");
     assert_eq!(llm.model, "deepseek-chat");
     assert_eq!(llm.base_url, "https://api.deepseek.com");
@@ -136,7 +144,7 @@ fn unresolved_key_yields_no_credential() {
     unsafe {
         std::env::remove_var("KYMIDO_TEST_DEEPSEEK_KEY");
     }
-    let c = load_providers(Some(FILE), None);
+    let c = load_providers_held(Some(FILE), None);
     assert!(
         c.active_llm().is_none(),
         "no key resolvable -> no orbit model"
@@ -155,7 +163,7 @@ fn set_api_key_env_counts_as_ready() {
     unsafe {
         std::env::set_var("KYMIDO_TEST_DEEPSEEK_KEY", "sk-from-env");
     }
-    let c = load_providers(Some(FILE), None);
+    let c = load_providers_held(Some(FILE), None);
     // 凭据在 env 变量仍在时解析（resolve 读 env 是调用时语义），再清理。
     let llm = c.active_llm().expect("env key resolves the route");
     // SAFETY: 同上；离开前清掉，避免污染同进程后续用例。
@@ -319,7 +327,7 @@ fn waterfall_hops_inherit_target_provider_credentials() {
     unsafe {
         std::env::set_var("KYMIDO_TEST_DEEPSEEK_KEY", "sk-primary");
     }
-    let c = load_providers(Some(FILE), None);
+    let c = load_providers_held(Some(FILE), None);
     unsafe {
         std::env::remove_var("KYMIDO_TEST_DEEPSEEK_KEY");
     }
@@ -385,7 +393,7 @@ fn env_overrides_respect_local_key_declarations() {
         std::env::set_var("KYMIDO_LLM_API_KEY", "sk-from-global-env");
         std::env::set_var("KYMIDO_LLM_BASE_URL", "http://env-override");
     }
-    let c = load_providers(Some(FILE), None);
+    let c = load_providers_held(Some(FILE), None);
     // 凭据在 env 变量仍在时解析（resolve 读 env 是调用时语义），再清理。
     let llm = c.active_llm().expect("resolve");
     unsafe {
@@ -413,7 +421,7 @@ fn env_vars_fill_empty_provider_row() {
         std::env::set_var("KYMIDO_LLM_BASE_URL", "http://127.0.0.1:18099");
         std::env::set_var("KYMIDO_LLM_MODEL", "test-model");
     }
-    let c = load_providers(
+    let c = load_providers_held(
         Some(
             r#"
 active = "smoke"
