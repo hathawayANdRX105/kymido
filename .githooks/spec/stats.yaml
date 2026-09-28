@@ -10,9 +10,9 @@ anchors:
     expect: '页面内容限宽 1200 居中，px-10 留白。'
     source: 'omenic: crates/web-ui/src/views/stats.rs:13'
   - key: range-switch
-    find: 'bg-layer-1 border border-b1 rounded-[10px] p-0.5'
-    expect: '头部时间范围分段切换（1h–All）为 layer-1 底 r10 分段控件，激活项 bg-selector。'
-    source: 'omenic: crates/web-ui/src/views/stats.rs:20'
+    find: 'SegmentedCapsule {'
+    expect: '头部时间范围分段切换（1h–All）为 ui-kit SegmentedCapsule（胶囊分段容器 + 激活段 bg-primary + 滚轮循环）。'
+    source: 'omenic: crates/web-ui/src/views/stats.rs:184（ui-kit SegmentedCapsule）；原 dsh r10 分段控件已随 ui-kit 统一替换'
   - key: kpi-grid
     find: 'grid grid-cols-5 gap-3.5'
     expect: 'KPI 卡五列网格。'

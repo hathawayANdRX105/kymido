@@ -53,7 +53,7 @@ fn seed(db: &SessionDb, id: &str, n: i64) {
         } else {
             SessionRole::Assistant
         };
-        db.append_message(id, role, &format!("message {i}"), &[])
+        db.append_message(id, role, &format!("message {i}"), &[], &[])
             .expect("append");
     }
 }
@@ -272,9 +272,9 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
     // Deterministic recency: the three seeds can land inside one clock
     // millisecond, so raise the two keepers' updated_at strictly above
     // old-1's with appends written after its last insert.
-    f.db.append_message("keep-1", SessionRole::User, "bump", &[])
+    f.db.append_message("keep-1", SessionRole::User, "bump", &[], &[])
         .expect("bump keep-1");
-    f.db.append_message("keep-2", SessionRole::User, "bump", &[])
+    f.db.append_message("keep-2", SessionRole::User, "bump", &[], &[])
         .expect("bump keep-2");
 
     // Everything is touched now, so nothing is idle yet.
@@ -338,7 +338,7 @@ fn compression_actually_shrinks_the_payload() {
     let filler = "the quick brown fox jumps over the lazy dog. ".repeat(40);
     f.db.ensure_session("big", "big").expect("ensure");
     for _ in 0..20 {
-        f.db.append_message("big", SessionRole::Assistant, &filler, &[])
+        f.db.append_message("big", SessionRole::Assistant, &filler, &[], &[])
             .expect("append");
     }
     let receipt = f.db.archive_session("big").expect("archive");
@@ -434,7 +434,7 @@ fn checkpoint_wal_empties_the_wal_sidecar() {
     let filler = "checkpoint fodder. ".repeat(50);
     f.db.ensure_session("wal", "wal").expect("ensure");
     for _ in 0..30 {
-        f.db.append_message("wal", SessionRole::User, &filler, &[])
+        f.db.append_message("wal", SessionRole::User, &filler, &[], &[])
             .expect("append");
     }
     let mut wal = f.path.clone().into_os_string();

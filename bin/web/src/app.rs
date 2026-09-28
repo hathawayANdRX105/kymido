@@ -33,6 +33,18 @@ pub async fn launch() {
     let glue = dioxus_liveview::interpreter_glue("/ws");
     let css = include_str!(concat!(env!("OUT_DIR"), "/tailwind.gen.css")).to_string();
 
+    // Ainotation 标注 bundle（`npm run aino` 生成，源 bin/web/ainotation-entry.ts）：
+    // 仅 dev 构建内联进 index——release 无痕。同步链：页面 SDK → 本地桥
+    // （scripts/ainotation-bridge.mjs :44091 签 grant）→ MCP service。`</script`
+    // 转义防内联脚本截断。用法：起 service + omenic 桥（见 AGENTS.md 标注栈节）。
+    #[cfg(debug_assertions)]
+    let aino_script = format!(
+        "<script>{}</script>",
+        include_str!("../assets/ainotation/ainotation.iife.js").replace("</script", "<\\/script")
+    );
+    #[cfg(not(debug_assertions))]
+    let aino_script = String::new();
+
     let index_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -43,6 +55,7 @@ pub async fn launch() {
     <style>
 {css}
     </style>
+    {aino_script}
 </head>
 <body>
     <div id="main"></div>
@@ -62,7 +75,8 @@ pub async fn launch() {
             el.scrollIntoView({{ behavior: "smooth", block: "start" }});
         }}
 
-        // Minimap: click/wheel navigation + scroll-spy highlight, all client-side.
+        // Minimap: wheel gradient + scroll-spy highlight, all client-side; bars are
+        // visual anchors only — no click-to-jump, no message-follow (聚簇居中).
         // Bars carry a `data-anchor` (the prompt element id). A discrete 3-level
         // gradient is centered on a reference index (scroll position at rest, the
         // cursor while hovering): only the center bar + the two on each side (5 bars
@@ -167,11 +181,7 @@ pub async fn launch() {
             }}
             if (!NS.wired) {{
                 NS.wired = true;
-                mm.addEventListener('click', function(e) {{
-                    var bar = e.target.closest('[data-anchor]');
-                    if (!bar) return;
-                    scrollToIdx(getBars().indexOf(bar));
-                }});
+                // 用户要求：minimap 不做点击跳转，条只是视觉锚点（wheel/hover 渐变保留）。
                 mm.addEventListener('wheel', function(e) {{
                     e.preventDefault();
                     var bs = getBars();

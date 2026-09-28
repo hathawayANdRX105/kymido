@@ -34,7 +34,7 @@ fn daemon_roundtrip() {
     // create + append(user)
     wd.create_session("rt-1", "往返测试")
         .expect("create_session");
-    wd.append_message("rt-1", true, "你好，daemon", &[])
+    wd.append_message("rt-1", true, "你好，daemon", &[], &[])
         .expect("append user");
 
     // list 断言含该会话（存储无状态概念 → Idle）
@@ -136,7 +136,7 @@ fn attachment_survives_socket_roundtrip() {
         media_type: "image/png".into(),
         data: "aGVsbG8=".into(),
     }];
-    wd.append_message("att-1", true, "看这张图", &picked)
+    wd.append_message("att-1", true, "看这张图", &picked, &[])
         .expect("append user with attachment");
 
     let msgs = wd.load_messages("att-1", 10).expect("load_messages");
@@ -174,7 +174,7 @@ fn daemon_rejects_non_image_attachment() {
         data: "aGk=".into(),
     }];
     let err = wd
-        .append_message("att-2", true, "带坏附件", &bad)
+        .append_message("att-2", true, "带坏附件", &bad, &[])
         .expect_err("daemon 应拒绝非图片附件");
     assert!(
         err.to_string().contains("media type"),

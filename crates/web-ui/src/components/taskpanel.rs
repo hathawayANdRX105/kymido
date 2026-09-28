@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 use web_state::types::TaskItem;
 
-use crate::components::icons::X;
-use crate::components::ui::IconButton;
+use ui_kit::button::{Button, ButtonSize, ButtonVariant};
+use ui_kit::icons::IconX;
 
 #[component]
 pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
@@ -41,7 +41,13 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
                     span { class: "text-[14px] leading-5 font-medium text-label", "任务看板" }
                     span { class: "text-[12px] leading-5 text-label-3", "{done_count}/{total_count} 完成" }
                 }
-                IconButton { title: "关闭", onclick: move |_| on_close.call(()), X { size: 14 } }
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
+                    title: "关闭",
+                    onclick: move |_| on_close.call(()),
+                    IconX { size: 14 }
+                }
             }
             // 进度条
             div { class: "h-1 bg-layer-3",

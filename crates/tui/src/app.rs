@@ -1275,7 +1275,10 @@ impl App {
     /// 循环迭代）。焦点随被裁消息作废，搜索命中/视口快照同步失效：与
     /// [`Self::clear_view`] 共用同一个失效源 [`Self::forget_search`]，
     /// 不另写一份清理。
-    fn drop_tail_from(&mut self, keep: usize) {
+    /// Visible to integration tests (`session_window.rs`): the truncation
+    /// bounds are a pinned contract of the rewind/edit path. No external
+    /// callers today.
+    pub fn drop_tail_from(&mut self, keep: usize) {
         if self.ui.messages.len() > keep {
             self.ui.messages.truncate(keep);
             self.focused = None;

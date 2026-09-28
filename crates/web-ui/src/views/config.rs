@@ -2,9 +2,10 @@
 //! 「模型与渠道」承载 LLM 配置表单；「MCP 服务器」承载 [[mcp.servers]]
 //! 的列表编辑；「关于」放版本与项目信息。
 
-use crate::components::icons::{Gear, Terminal, Trash, X};
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, Modal};
+use crate::components::ui::Modal;
 use dioxus::prelude::*;
+use ui_kit::button::{Button, ButtonSize, ButtonVariant};
+use ui_kit::icons::{IconGear, IconTerminal, IconTrash, IconX};
 use web_client::llm::{LlmFallbackForm, LlmRuntimeConfig, McpServerForm};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,14 +56,14 @@ pub fn SettingsModal(
                         r#type: "button",
                         class: "{nav_cell(section() == Section::Models)}",
                         onclick: move |_| section.set(Section::Models),
-                        Gear { size: 16, class: "text-label-3" }
+                        IconGear { size: 16, class: "text-label-3" }
                         span { "模型与渠道" }
                     }
                     button {
                         r#type: "button",
                         class: "{nav_cell(section() == Section::Mcp)}",
                         onclick: move |_| section.set(Section::Mcp),
-                        Terminal { size: 16, class: "text-label-3" }
+                        IconTerminal { size: 16, class: "text-label-3" }
                         span { "MCP 服务器" }
                     }
                     button {
@@ -77,7 +78,13 @@ pub fn SettingsModal(
                 div { class: "flex-1 min-w-0 flex flex-col",
                     div { class: "h-[54px] px-6 flex items-center justify-between border-b border-b1 shrink-0",
                         span { class: "text-[14px] leading-5 font-medium text-label", "{title}" }
-                        IconButton { title: "关闭", onclick: move |_| on_close.call(()), X { size: 16 } }
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::IconSm,
+                            title: "关闭",
+                            onclick: move |_| on_close.call(()),
+                            IconX { size: 16 }
+                        }
                     }
                     div { class: "flex-1 overflow-y-auto",
                         if section() == Section::Models {
@@ -627,12 +634,14 @@ fn McpServerCard(
                     }
                     span { class: "text-[12px] leading-4 text-caption font-mono truncate", "{transport}" }
                 }
-                IconButton {
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
                     title: "删除",
                     onclick: move |_| {
                         servers.write().remove(index);
                     },
-                    Trash { size: 14 }
+                    IconTrash { size: 14 }
                 }
             }
 
@@ -748,12 +757,14 @@ fn LlmFallbackCard(
                     }
                     span { class: "text-[12px] leading-4 text-caption font-mono truncate", "{summary}" }
                 }
-                IconButton {
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
                     title: "删除",
                     onclick: move |_| {
                         fallbacks.write().remove(index);
                     },
-                    Trash { size: 14 }
+                    IconTrash { size: 14 }
                 }
             }
 
