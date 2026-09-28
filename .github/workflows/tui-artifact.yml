@@ -1,0 +1,47 @@
+name: tui-artifact
+
+# One-off, dispatch-only: builds the TUI binary with all five visual waves
+# (T0 driver, P0 visual, P1 scroll, P2 markdown, P2 diff) and uploads it as a
+# downloadable artifact for eyeball acceptance (route-tui-polish P2 路 B).
+# Not wired to push/PR on purpose — it exists only when someone asks for a
+# binary to look at.
+
+on:
+  # workflow_dispatch only registers once the file sits on the default
+  # branch; until then, pushing to any ci/** branch fires this via the push
+  # trigger below (push events evaluate the workflow files in the pushed
+  # ref, not the default branch).
+  workflow_dispatch:
+  push:
+    branches: [ci/**]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Private git dependency (ui-kit) is ssh-addressed; the runner has no
+      # deploy key and GITHUB_TOKEN cannot reach private repos of a public
+      # repo. Same rewrite as ci.yml — twelve of this repo's failed runs died
+      # on exactly this authentication.
+      - name: Allow cargo to fetch private git deps
+        env:
+          UIKIT_PAT: ${{ secrets.UIKIT_PAT }}
+        run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
+      - name: Install system deps (ripgrep for tools tests)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      # Debug build on purpose: the T0 screen tools (terminal_screen /
+      # terminal_screenshot) are compiled into debug builds only, and this
+      # artifact exists to exercise them. Same build line as the smoke job.
+      - name: Build (debug, all five waves)
+        run: cargo build --locked --bin kymido
+      - name: Upload the binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kymido-tui-debug
+          path: target/debug/kymido
+          retention-days: 3
