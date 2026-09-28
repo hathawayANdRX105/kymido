@@ -133,3 +133,127 @@ fn plan_mode_review_round_trip_through_the_daemon() {
     drop(client);
     daemon.shutdown();
 }
+
+/// Session-scoped variant of the round trip: two sessions enter plan mode,
+/// one parks a review while the other keeps working; approving the exit
+/// flips only the owning session.
+fn session_prompt(client: &DaemonClient, session: &str, message: &str) -> Value {
+    client
+        .call(
+            Command::WorkerPrompt,
+            json!({ "session_id": session, "message": message }),
+        )
+        .expect("session prompt")
+}
+
+/// Poll the mock's recorded bodies until `n` POSTs have landed (bounded).
+fn wait_for_bodies(mock: &MockOpenAi, n: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while mock.received().len() < n {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "mock only received {} of {} expected POSTs",
+            mock.received().len(),
+            n
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn two_session_plan_modes_are_isolated_through_the_daemon() {
+    let dir = tempdir().expect("temp dir");
+    std::fs::write(dir.path().join("AGENTS.md"), "# two sessions\n").expect("AGENTS.md");
+    // The mock serves replies[i] to the i-th POST globally (sessions share
+    // one backend), so the whole scenario is scripted as one POST sequence:
+    //  1: a's plan turn -> exit_plan_mode parks the review
+    //  2: b's turn runs while a is parked -> plain completion
+    //  3: a's parked run continues after approval -> completion
+    //  4: a's next prompt -> the approved exit lands at the boundary
+    //  5: b's next prompt -> b was never approved out: marker still there
+    let mock = MockOpenAi::start(vec![
+        sse_tool_call(
+            "exit_plan_mode",
+            &json!({ "plan": "# The plan\n\n1. do the thing" }).to_string(),
+            true,
+        ),
+        sse_tool_call("mark_done", "{}", true),
+        sse_tool_call("mark_done", "{}", true),
+        sse_tool_call("mark_done", "{}", true),
+    ]);
+    let mut daemon = Daemon::start(daemon_cfg(dir.path(), &mock, 4)).expect("daemon start");
+    let client = DaemonClient::connect_to(daemon.socket_addr().path());
+    let mut sub = client.subscribe("worker").expect("subscribe");
+
+    // Both sessions enter plan mode between turns — no LLM round spent.
+    assert_eq!(
+        session_prompt(&client, "a", "/plan")["plan_mode"],
+        json!(true)
+    );
+    assert_eq!(
+        session_prompt(&client, "b", "/plan")["plan_mode"],
+        json!(true)
+    );
+
+    // a's prompt parks its review; the card carries a's session id.
+    session_prompt(&client, "a", "design the thing");
+    let question = wait_for_plan_review(&client);
+    assert_eq!(question["session_id"], json!("a"));
+
+    // b's turn proceeds while a is parked: b is untouched by a's review.
+    session_prompt(&client, "b", "design the other thing");
+    wait_for_bodies(&mock, 2);
+
+    // Approve a: its parked run resumes (POST 3) and ends on mark_done.
+    let answered: Value = client
+        .call(
+            Command::UserAnswer,
+            json!({ "question_id": question["id"], "answer": { "kind": "select", "index": 0 } }),
+        )
+        .expect("approve a's review");
+    assert_eq!(answered["answered"], json!(true));
+    wait_for_bodies(&mock, 3);
+    drain_events(&mut sub);
+
+    // a's next prompt lands the approved exit at the boundary (POST 4, no
+    // marker); b's next prompt is still under plan mode (POST 5, marker).
+    session_prompt(&client, "a", "wrap up");
+    wait_for_bodies(&mock, 4);
+    session_prompt(&client, "b", "wrap up");
+    wait_for_bodies(&mock, 5);
+    drain_events(&mut sub);
+
+    let bodies = mock.received();
+    assert_eq!(bodies.len(), 5, "the scripted five POSTs, in order");
+    assert!(
+        bodies[0].contains(PLAN_SECTION_MARKER),
+        "a's plan-mode turn must carry the section"
+    );
+    assert!(
+        bodies[1].contains(PLAN_SECTION_MARKER),
+        "b's turn still carries the section while a's review is parked"
+    );
+    assert!(
+        bodies[2].contains(PLAN_SECTION_MARKER),
+        "a's in-run follow-up still carries the section (the exit lands at the boundary)"
+    );
+    assert!(
+        !bodies[3].contains(PLAN_SECTION_MARKER),
+        "a's post-approval turn must not carry the section"
+    );
+    assert!(
+        bodies[4].contains(PLAN_SECTION_MARKER),
+        "b is still in plan mode: a's approval must not flip b"
+    );
+
+    let still_pending: Vec<Value> = client
+        .call(Command::UserQuestionPending, json!({}))
+        .expect("pending query");
+    assert!(
+        still_pending.is_empty(),
+        "a's question stays cleared: {still_pending:?}"
+    );
+
+    drop(client);
+    daemon.shutdown();
+}

@@ -223,19 +223,16 @@ impl Daemon {
         // we take the instance lock or bind the socket — no half-started
         // daemon and no stale lock/socket files to clean up.
         //
-        // Plan mode is registered by the daemon (not the composition root):
-        // its review transport only exists here, and the plugin needs the
-        // broker's port at register time.
+        // Plan mode is per session (S5): the registry assembles each
+        // session's plan closure + scoped `exit_plan_mode` against that
+        // session's `ExecState`. No daemon-wide plan plugin — the shared
+        // registration was a dormant duplicate with zero consumers.
         let questions = std::sync::Arc::new(crate::questions::QuestionBroker::new());
         let plan_section = cfg
             .plan_policy_section
             .clone()
             .unwrap_or_else(|| DEFAULT_PLAN_POLICY_SECTION.to_string());
-        let plan_plugin = plugin::plugins::PlanModePlugin::new(plan_mode::PlanModeConfig {
-            section: Some(plan_section.clone()),
-            review_port: Some(questions.review_port()),
-        });
-        let (fiber, plugins) = Self::assemble_plugins(&cfg, plan_plugin)?;
+        let (fiber, plugins) = Self::assemble_plugins(&cfg)?;
 
         let lock = InstanceLock::acquire(&socket_path)?;
         let session_db = session::SessionDb::open(&session_db_path)?;
@@ -703,7 +700,6 @@ impl Daemon {
     /// engine rather than being short-circuited.
     fn assemble_plugins(
         cfg: &DaemonConfig,
-        plan_plugin: plugin::plugins::PlanModePlugin,
     ) -> Result<(plugin::Fiber, plugin::PluginRegistry), DaemonError> {
         let mut doc = serde_json::Map::new();
         if let Some(model) = cfg.orbit_model.as_ref() {
@@ -717,20 +713,10 @@ impl Daemon {
             "max_turns".into(),
             serde_json::Value::from(cfg.max_turns as u64),
         );
-        // plan-mode config slice (same named-slice convention as guard):
-        // the plugin reads config["plan"]["section"] at register time.
-        let plan_section = cfg
-            .plan_policy_section
-            .clone()
-            .unwrap_or_else(|| DEFAULT_PLAN_POLICY_SECTION.to_string());
-        doc.insert(
-            "plan".into(),
-            serde_json::json!({ "section": plan_section }),
-        );
-        // Plan mode rides the daemon-owned broker (see `start`), so the
-        // composition root stays unaware of the review transport.
-        let plugins: Vec<std::sync::Arc<dyn plugin::DshPlugin>> =
-            vec![std::sync::Arc::new(plan_plugin)];
+        // No host plugins: the daemon-owned plan surface is per session
+        // (registry assembly), and the container's core services cover the
+        // rest. An empty host list is a valid composition.
+        let plugins: Vec<std::sync::Arc<dyn plugin::DshPlugin>> = Vec::new();
         Ok(plugin::assemble(serde_json::Value::Object(doc), plugins)?)
     }
 
