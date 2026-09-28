@@ -182,13 +182,15 @@ fn restoring_over_a_live_session_is_refused() {
 }
 
 #[test]
-fn archiving_twice_refuses_to_clobber_the_first_archive() {
+fn re_archiving_a_shrunken_session_refuses_to_overwrite_the_archive() {
     let f = fixture();
     seed(&f.db, "s6", 2);
     f.db.archive_session("s6").expect("first archive");
     f.db.restore_session("s6").expect("restore");
-    f.db.append_message("s6", SessionRole::User, "a new message", &[])
-        .expect("append after restore");
+    // A rewind after the restore leaves the live session holding FEWER
+    // messages than the archive: overwriting would drop archive-only
+    // history, so the count guard must refuse.
+    f.db.truncate_messages("s6", 2).expect("rewind past seq 1");
 
     let err =
         f.db.archive_session("s6")
@@ -267,6 +269,13 @@ fn the_sweep_respects_the_idle_cutoff_and_the_keep_recent_floor() {
     seed(&f.db, "keep-1", 2);
     seed(&f.db, "keep-2", 2);
     seed(&f.db, "old-1", 2);
+    // Deterministic recency: the three seeds can land inside one clock
+    // millisecond, so raise the two keepers' updated_at strictly above
+    // old-1's with appends written after its last insert.
+    f.db.append_message("keep-1", SessionRole::User, "bump", &[])
+        .expect("bump keep-1");
+    f.db.append_message("keep-2", SessionRole::User, "bump", &[])
+        .expect("bump keep-2");
 
     // Everything is touched now, so nothing is idle yet.
     assert!(
@@ -470,7 +479,10 @@ fn a_well_formed_archive_with_an_unknown_role_is_rejected() {
         "{{\"kind\":\"trailer\",\"checksum\":\"{}\"}}\n",
         fnv1a_hex(forged.as_bytes())
     );
-    let payload = zstd::encode_all(format!("{forged}{trailer}").as_bytes(), 3).expect("zstd");
+    // `body` is the bytes *before* the '\n' that separated it from the
+    // trailer, so rebuild that separator or the last message line glues to
+    // the trailer and the decoder sees one malformed line.
+    let payload = zstd::encode_all(format!("{forged}\n{trailer}").as_bytes(), 3).expect("zstd");
     std::fs::write(&archive, payload).expect("write forged archive");
 
     let err =

@@ -902,10 +902,26 @@ impl SessionDb {
 
         let path = archive_path(self.path(), &id_owned);
         if path.exists() {
-            return Err(SessionError::Archive(format!(
-                "an archive already exists at {}; refusing to overwrite it",
-                path.display()
-            )));
+            // An existing archive may be replaced only when the live rows
+            // subsume it: restore-then-append leaves the live session a
+            // superset, so the new archive loses nothing. If the live
+            // session holds FEWER messages than the archive — a rewind
+            // after restore, or a recycled session id — overwriting would
+            // silently drop archive-only history, so refuse. A corrupt
+            // archive cannot prove it holds anything the live rows lack,
+            // so it may be replaced.
+            let raw = std::fs::read(&path).map_err(SessionError::Io)?;
+            if let Ok(old) = archive::decode_archive(&raw) {
+                if old.messages.len() > messages.len() {
+                    return Err(SessionError::Archive(format!(
+                        "an archive at {} holds {} messages but the live session has {}; \
+                         refusing to shrink it — rewind less, or delete the archive by hand",
+                        path.display(),
+                        old.messages.len(),
+                        messages.len()
+                    )));
+                }
+            }
         }
 
         let (payload, raw_len) = archive::encode_archive(&archived_session, &messages);
