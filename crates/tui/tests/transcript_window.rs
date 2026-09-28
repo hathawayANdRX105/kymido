@@ -348,9 +348,13 @@ fn emoji_and_combining_marks_count_as_display_cells() {
         let mut app = history(vec![user_msg(&body)]);
         sync(&mut app, width, 30);
         let drawn = screen_at(&app, width, 30);
+        // 按字形过滤在这里是错的：组合符进不了 cell 符号（ratatui 存
+        // grapheme 时把 0 宽的组合附加符丢在符号串外），带组合符的行在
+        // 画面上只看得到裸 `e`。而本测试里消息是唯一内容、dock 在其下，
+        // 「从顶部数非空行」就是消息实际占的行数，不依赖任何字形。
         let rows = drawn
             .lines()
-            .filter(|l| l.contains('🙂') || l.contains('é') || l.contains('\u{301}'))
+            .take_while(|line| !line.trim().is_empty())
             .count();
         assert_eq!(
             rows,
