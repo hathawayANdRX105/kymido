@@ -605,7 +605,6 @@ fn fallback_hop_via_combo() {
 /// 未命中 combos 原样放行），斜杠路由永远不查表。
 #[test]
 fn bare_and_slashed_specs_bypass_missing_combos() {
-    let _guard = cwd_lock();
     let c = load_providers(
         Some(
             "active = \"openai\"\n\n[providers.openai]\nbase_url = \"https://api.openai.com\"\napi_key = \"k\"\ndefault_model = \"gpt-4o-mini\"\n",
