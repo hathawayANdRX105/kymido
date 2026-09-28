@@ -36,8 +36,16 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:148'
   - key: session-row
     find: 'group h-8 px-2 rounded-lg flex items-center gap-2'
-    expect: '会话行 h32、r8，激活态 bg-ihover 常亮。'
+    expect: '会话行 h32、r8，激活态 bg-ihover 常亮；运行中会话左侧旋转指示；删除钮 hover 行才出现且排在行最右。'
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:288-290（SessionRow）'
+  - key: run-indicator
+    find: 'Spinner { size: 12, class: "text-brand shrink-0" }'
+    expect: '会话状态为 Active（事件流实时写入）时行左侧显示 ui-kit Spinner 旋转加载图标；非运行态不渲染。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs（SessionRow，status == SessionStatus::Active 条件渲染）；用户批注 2'
+  - key: hover-row-actions
+    find: 'opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none'
+    expect: '会话行/项目行删除（🗑）钮默认完全隐藏（opacity-0），hover 行才在行最右出现。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs（SessionRow 删除钮 + 项目行移除钮）；用户批注 1'
   - key: session-indent
     find: 'pl-[22px] flex flex-col gap-px pb-1'
     expect: '会话行相对项目行缩进 22px。'
@@ -70,6 +78,18 @@ anchors:
     find: 'width:56px;min-width:56px;'
     expect: '折叠态侧栏固定 56px rail。'
     source: 'omenic: crates/web-ui/src/components/sidebar.rs:53；dsh: SidebarRoot.module.css:25（56px rail）'
+  - key: rail-footer-pinned
+    find: 'shrink-0 flex flex-col items-center gap-1.5'
+    expect: '折叠 rail 底部「数据统计 / 设置」钮组 shrink-0，窗口偏矮时完整显示在 rail 底部上方，不被会话图标列表挤裁。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:409；用户批注 13'
+  - key: resizer-thin
+    find: 'absolute top-0 right-0 h-full w-0.5 cursor-col-resize hover:bg-brand/20'
+    expect: '侧栏右缘拖拽条 w0.5（2px），hover 仅 20% 品牌蓝减淡提示。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:217；用户批注 6'
+  - key: hidden-scrollbar
+    find: 'no-scrollbar'
+    expect: '会话列表容器保留滚动但隐藏滚动条（scrollbar-width:none + ::-webkit-scrollbar 隐藏，见 bin/web/assets/tailwind-input.css）。'
+    source: 'omenic: crates/web-ui/src/components/sidebar.rs:133/368 + bin/web/assets/tailwind-input.css:144；用户批注 12'
   - key: rail-hover-panel
     find: 'w-52 rounded-xl border border-binv bg-menu px-3 py-2 shadow-lv3'
     expect: '折叠 rail 图标 hover 出纯 CSS 信息面板（标题 + 项目 + 时间）。'
@@ -82,3 +102,7 @@ notes: |
   树分组两个锚点（session-tree-group / child-indent）为 5.3/5.5 谱系分组
   新增：dsh 侧会话列表是扁平的，无父子边，故 source 记 omenic 自研。折叠
   rail 保持扁平迭代（图标列里层级无意义），不参与分组。
+  批注 1/2/6/12/13：删除钮改回 hover 才出现且移到行最右；运行中会话
+  （status == Active，页面在飞时由事件流实时写入）行左侧显示 ui-kit
+  Spinner；右缘拖拽条减薄至 2px、hover 减淡；会话列表隐藏滚动条
+  （no-scrollbar）；折叠 rail 底部钮组 shrink-0 防裁切。

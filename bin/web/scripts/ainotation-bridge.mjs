@@ -1,11 +1,11 @@
-// Ainotation MCP 同步桥——omenic 实例（dev 工具，仅本地）。
+// Ainotation MCP 同步桥——kymido 实例（dev 工具，仅本地）。
 // 与 ferrite/apps/admin-web/scripts/ainotation-bridge.mjs 同构（协议细节见该文件头），
-// 默认值对齐 omenic：origin :8026（oi-web 默认端口）、桥端口 44091（避开 ferrite 的 44090）、
-// 项目名 omenic-web、项目目录 = omenic 仓库根（scripts/ 位于 bin/web/scripts/，根往上两级）。
+// 默认值对齐 kymido：origin :8026（kymido-web 默认端口）、桥端口 44091（避开 ferrite 的 44090）、
+// 项目名 kymido-web、项目目录 = kymido 仓库根（scripts/ 位于 bin/web/scripts/，根往上两级）。
 //
 // 用法：先起 ainotation service（`just aino-service` 或 npx @ainotation/mcp service），
 // 然后 `node bin/web/scripts/ainotation-bridge.mjs`（保持运行即持续续租 5 分钟 grant 租约）。
-// 改了 ainotation-entry.ts / 升级 SDK 后重建 bundle 并重启 oi-web。
+// 改了 ainotation-entry.ts / 升级 SDK 后重建 bundle 并重启 kymido-web。
 import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -15,8 +15,8 @@ const SERVICE_USER_FILE = `${homedir()}/.ainotation/service/connection.json`;
 const SDK_CONNECTION = new URL('../assets/ainotation/connection.json', import.meta.url);
 const ORIGIN = process.env.AINO_ORIGIN ?? 'http://127.0.0.1:8026';
 const FILE_PORT = Number(process.env.AINO_PORT ?? 44091);
-const PROJECT_NAME = 'omenic-web';
-// scripts/ 位于 <omenic-root>/bin/web/scripts/，根 = 往上两级。
+const PROJECT_NAME = 'kymido-web';
+// scripts/ 位于 <kymido-root>/bin/web/scripts/，根 = 往上两级。
 const PROJECT_DIRECTORY = fileURLToPath(new URL('../../..', import.meta.url));
 const RENEW_INTERVAL_MS = 2 * 60 * 1000;
 

@@ -36,7 +36,7 @@ pub async fn launch() {
     // Ainotation 标注 bundle（`npm run aino` 生成，源 bin/web/ainotation-entry.ts）：
     // 仅 dev 构建内联进 index——release 无痕。同步链：页面 SDK → 本地桥
     // （scripts/ainotation-bridge.mjs :44091 签 grant）→ MCP service。`</script`
-    // 转义防内联脚本截断。用法：起 service + omenic 桥（见 AGENTS.md 标注栈节）。
+    // 转义防内联脚本截断。用法：起 service + kymido 桥（见 AGENTS.md 标注栈节）。
     #[cfg(debug_assertions)]
     let aino_script = format!(
         "<script>{}</script>",

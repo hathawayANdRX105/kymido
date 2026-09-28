@@ -7,8 +7,8 @@ description: 工作区页（Workspace）——三列 grid 根容器、侧栏宽�
 anchors:
   - key: root-grid
     file: crates/web-ui/src/layouts/app_frame.rs
-    find: 'grid h-screen w-screen bg-base overflow-hidden relative select-none'
-    expect: '根容器为占满全屏的 grid，bg-base（#151517）暗底，overflow-hidden 防滚动穿透。'
+    find: 'grid h-screen w-screen bg-base overflow-hidden relative select-none grid-rows-[minmax(0,1fr)]'
+    expect: '根容器为占满全屏的 grid，bg-base（#151517）暗底，overflow-hidden 防滚动穿透；grid-rows-[minmax(0,1fr)] 锁行高为视口（内容超高时各列内部滚动，不再撑破 h-screen，批注 13）。'
     source: 'omenic: crates/web-ui/src/layouts/app_frame.rs:33（AppFrame 壳）；dsh: packages/client/ui-layout/src/client/AppFrame.tsx:87（AppFrame 根框架）'
   - key: grid-columns
     file: crates/web-ui/src/layouts/app_frame.rs

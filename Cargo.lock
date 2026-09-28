@@ -2034,6 +2034,7 @@ dependencies = [
  "kymido-tui",
  "llm",
  "mcp",
+ "parking_lot",
  "serde",
  "serde_json",
  "session",

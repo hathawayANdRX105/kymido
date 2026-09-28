@@ -30,7 +30,7 @@ pub fn AppFrame(
     children: Element,
 ) -> Element {
     rsx! {
-        div { class: "grid h-screen w-screen bg-base overflow-hidden relative select-none",
+        div { class: "grid h-screen w-screen bg-base overflow-hidden relative select-none grid-rows-[minmax(0,1fr)]",
             style: "grid-template-columns: {grid_cols(collapsed, width)};",
             onmousemove: on_resize,
             onmouseup: on_resize_end,

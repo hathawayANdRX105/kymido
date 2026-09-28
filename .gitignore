@@ -11,6 +11,7 @@ __pycache__/
 
 # kymido
 /.oi/
+/.kymido/
 node_modules/
 
 # generated tailwind input (rewritten by build.rs each compile)
