@@ -2113,6 +2113,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "thiserror 2.0.21",
+ "unicode-width",
  "web-client",
  "web-state",
 ]

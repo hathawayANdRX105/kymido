@@ -46,6 +46,7 @@ use crate::{
     resolve_session,
 };
 
+use unicode_width::UnicodeWidthChar;
 /// dock 行数（route §3 T8 设计注记 ③ 定稿：单行 composer + 状态行，恒 2）。
 pub const DOCK_ROWS: u16 = 2;
 
@@ -126,48 +127,18 @@ const STATS_RANGE: &str = "24h";
 /// （route §3 T8：同步收尾 → 还光标 → 关 paste → 复位滚动区）。
 static ANCHOR: Mutex<Option<(u16, u16, u16)>> = Mutex::new(None);
 
-// --- 宽度启发（不引 unicode-width 依赖：裁决级判据即可，误差行由
-// 行首 EL 残迹清扫自愈） ---
+// --- 宽度口径（T23）：显示格宽由 unicode-width 说了算 ---
+//
+// 原来这里是一张手搓的码位段表，理由是「本 crate 不带 unicode-width 依赖」。
+// 那个理由在本批已经不成立：依赖已进工作区，而手搓表的代价是每一个没被
+// 列举到的码位段都算错格——错的不是观感，是**断行落点**，落点一错
+// 计数侧与画面就脱节，滚动模型跟着错位。表自陈的「误差行由行首 EL 残迹
+// 自愈」也只覆盖 inline 轨，transcript 轨根本没有那个自愈。
 
-/// 单字符占格数（组合符 0、东亚宽 2、其余 1）。启发式：本 crate 不带
-/// unicode-width 依赖（白名单外不动 Cargo.toml），按主要码位段裁决；
-/// 误判最多造成一次行内自愈（[`EL_END`]/dock EL2 都在下一帧补扫）。
+/// 单字符占格数：组合符 0、东亚宽 2、其余 1。口径与 transcript 轨的断行
+/// 核心（[`crate::ui::transcript`]）同源，两轨宽度不再各说各话。
 fn char_cells(c: char) -> u16 {
-    let cp = c as u32;
-    if matches!(
-        cp,
-        // 十进制码位段（theme_lint 禁十六进制字面量）：
-        768..=879 // 0300..036F 组合附加符号
-        | 6832..=6911 // 1AB0..1AFF
-        | 7616..=7679 // 1DC0..1DFF
-        | 8400..=8447 // 20D0..20FF
-        | 8203..=8207 // 200B..200F 零宽空格/方向记号
-        | 8288..=8292 // 2060..2064
-        | 65024..=65039 // FE00..FE0F 变体选择符
-        | 65056..=65071 // FE20..FE2F
-    ) {
-        return 0;
-    }
-    if matches!(
-        cp,
-        4352..=4447 // 1100..115F 谚文音节
-        | 11904..=12350 // 2E80..303E CJK 部首/符号
-        | 12353..=13311 // 3041..33FF
-        | 13312..=19903 // 3400..4DBF
-        | 19968..=40959 // 4E00..9FFF 统一表意文字
-        | 40960..=42191 // A000..A4CF
-        | 44032..=55203 // AC00..D7A3 谚文音节
-        | 63744..=64255 // F900..FAFF
-        | 65072..=65135 // FE30..FE6F
-        | 65280..=65376 // FF00..FF60 全角
-        | 65504..=65510 // FFE0..FFE6
-        | 127744..=128591 // 1F300..1F64F
-        | 129280..=129535 // 1F900..1F9FF
-        | 131072..=262141 // 20000..3FFFD
-    ) {
-        return 2;
-    }
-    1
+    UnicodeWidthChar::width(c).unwrap_or(0) as u16
 }
 
 /// 按格裁剪到 `cols`（dock 两行的防溢出闸：屏底行写出即可能触发滚动，
@@ -754,7 +725,7 @@ fn drive(
                         match app.handle_key(key) {
                             KeyAction::Quit => break,
                             KeyAction::Abort => {
-                                client.abort_worker().map_err(client_error)?;
+                                client.abort_worker(sid).map_err(client_error)?;
                             }
                             KeyAction::None => {}
                         }

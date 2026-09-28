@@ -25,6 +25,7 @@ use web_state::types::{ChatMessage, MessagePart};
 
 use crate::app::App;
 use crate::theme;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// 渲染 transcript 到 `area`：窗口化——只物化可见窗口（route §3 T6 契约
 /// 种子），历史行不重复物化。
@@ -145,8 +146,8 @@ pub(super) fn push_wrapped(
     style: Style,
 ) {
     let clean = sanitize(text);
-    let indent = " ".repeat(prefix.chars().count());
-    let avail = width.saturating_sub(prefix.chars().count()).max(1);
+    let indent = " ".repeat(UnicodeWidthStr::width(prefix));
+    let avail = width.saturating_sub(UnicodeWidthStr::width(prefix)).max(1);
     let head = prefix;
     let mut line = 0usize;
     wrap_with(&clean, avail, |seg| {
@@ -161,7 +162,7 @@ pub(super) fn push_wrapped(
 /// 第一遍只数不物化）。`pub(super)`：`tool_card` 的标题/结果区计数复用。
 pub(super) fn count_wrapped(text: &str, width: usize, prefix: &str) -> usize {
     let clean = sanitize(text);
-    let avail = width.saturating_sub(prefix.chars().count()).max(1);
+    let avail = width.saturating_sub(UnicodeWidthStr::width(prefix)).max(1);
     let mut rows = 0usize;
     wrap_with(&clean, avail, |_| rows += 1);
     rows
@@ -169,12 +170,19 @@ pub(super) fn count_wrapped(text: &str, width: usize, prefix: &str) -> usize {
 
 /// 断行核心：按空白贪心断行、超宽单词按列宽硬切，逐段回调（不持有段、
 /// 不物化 `Line`——计数侧与物化侧共用这一份，杜绝两边算法漂移）。
+///
+/// **宽度一律按显示格宽，不按字符数**（T23）。按 `chars().count()` 断行
+/// 会把一个 CJK 字或 emoji 算成 1 格，而它在终端里占 2 格，于是渲出来的
+/// 行宽翻倍、`count_wrapped` 数出的行数与画面对不上，`ScrollModel::
+/// max_offset` / `view_top` 整体错位。组合符宽度为 0，归 0 格。
 fn wrap_with(text: &str, width: usize, mut f: impl FnMut(&str)) {
     let width = width.max(1);
     for raw in text.split('\n') {
         let mut line = String::new();
         for word in raw.split(' ') {
-            if !line.is_empty() && line.chars().count() + 1 + word.chars().count() <= width {
+            if !line.is_empty()
+                && UnicodeWidthStr::width(line.as_str()) + 1 + UnicodeWidthStr::width(word) <= width
+            {
                 line.push(' ');
                 line.push_str(word);
                 continue;
@@ -184,11 +192,14 @@ fn wrap_with(text: &str, width: usize, mut f: impl FnMut(&str)) {
                 f(&taken);
             }
             let mut rest = word;
-            while rest.chars().count() > width {
-                let cut = rest
-                    .char_indices()
-                    .nth(width)
-                    .map_or(rest.len(), |(i, _)| i);
+            while UnicodeWidthStr::width(rest) > width {
+                let cut = cell_boundary(rest, width);
+                // 切点必在字符边界（`cell_boundary` 保证），因此
+                // `rest[..cut]` 不会劈开多字节 UTF-8 序列。零宽字符
+                // 独占（`cut == 0`）时整词让出，避免死循环。
+                if cut == 0 {
+                    break;
+                }
                 f(&rest[..cut]);
                 rest = &rest[cut..];
             }
@@ -196,6 +207,22 @@ fn wrap_with(text: &str, width: usize, mut f: impl FnMut(&str)) {
         }
         f(&line);
     }
+}
+
+/// 从 `s` 开头切出不超过 `cells` 个显示格的那一段，返回**字符边界**上的
+/// 字节偏移。跨格字符（占 2 格）只在完整放得下时才被切进来，所以返回的
+/// 切片宽度 ≤ `cells` 且不碎掉任何码位。首字符本身就超宽时返回 0，
+/// 调用方需保证 `width >= 1` 且据此退出。
+fn cell_boundary(s: &str, cells: usize) -> usize {
+    let mut used = 0usize;
+    for (offset, ch) in s.char_indices() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0) as usize;
+        if used + w > cells {
+            return offset;
+        }
+        used += w;
+    }
+    s.len()
 }
 
 /// 滤 C0 控制符：制表并为空格、其余（含 ESC 字节）丢掉，保留换行。

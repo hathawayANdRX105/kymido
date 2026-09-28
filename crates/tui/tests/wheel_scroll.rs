@@ -337,3 +337,116 @@ fn scroll_lines_mirrors_page_semantics_and_clamps() {
     assert_eq!(model.offset(), model.max_offset());
     assert!(model.is_following());
 }
+
+// --- T24 滚动条：滚轮事件后缩略块位置对应新 offset ---
+
+/// 缓冲某列上缩略块 `█` 出现的行号（升序）。
+fn thumb_rows(buffer: &Buffer, x: u16) -> Vec<u16> {
+    let mut rows = Vec::new();
+    for y in 0..buffer.area.height {
+        if let Some(cell) = buffer.cell((x, y)) {
+            if cell.symbol() == "█" {
+                rows.push(y);
+            }
+        }
+    }
+    rows
+}
+
+/// 画一帧 80×24，读预留列（80 列屏 → 第 79 列）的缩略块行区间。
+fn thumb_column(app: &App) -> Vec<u16> {
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("terminal");
+    terminal
+        .draw(|frame| ui::draw(frame, app))
+        .expect("draw must fit without panicking");
+    thumb_rows(terminal.backend().buffer(), 79)
+}
+
+/// 测试侧独立期望：`position`（视口首行）对应的缩略块行区间——ratatui 0.30
+/// `Scrollbar::part_lengths`（`ratatui-widgets-0.3.2/src/scrollbar.rs:557-599`）
+/// 同式：`rounding_divide` 四舍五入、begin `▲` 占 1 行、`track` = 预留列
+/// 高减两端箭头（80×24 下 20 − 2 = 18）。缩略块若仍由陈旧 offset / 错的
+/// 内容总量驱动，行区间就对不上。
+fn expected_thumb_rows(position: usize, total: usize, height: usize, track: usize) -> Vec<u16> {
+    let round = |n: usize, d: usize| (n + d / 2) / d;
+    let viewport = height.max(1);
+    let denom = total.saturating_sub(1) + viewport;
+    assert!(denom > 0, "测试前提：内容非空");
+    let thumb_len = round(viewport * track, denom).clamp(1, track);
+    let start = round(position.clamp(0, total.saturating_sub(1)) * track, denom)
+        .min(track.saturating_sub(thumb_len));
+    (1 + start..1 + start + thumb_len)
+        .map(|r| r as u16)
+        .collect()
+}
+
+/// 滚轮事件后缩略块位置对应**新** offset（bug：缩略块位置不随视口更新 =
+/// 仍拿陈旧 offset 驱动；或方向反了 / content_length 喂错）：60 条历史、
+/// 80×24 视口 20 行 → 预留列在第 79 列（track 18 格）。上滚 10 个 notch
+/// （30 行，3/2/1 缓出分拍到账）后缩略块从跟尾底位跳到 offset 10 的对应
+/// 行区间；再下滚回底重挂，缩略块回到底位。
+#[test]
+fn wheel_events_move_scrollbar_thumb_with_offset() {
+    let mut app = scrollable_app(60);
+    sync(&mut app, 80, 24);
+    assert!(
+        app.scrollbar_visible(),
+        "60 行 > 20 行视口 → 预留（total 按预留宽 79 计数 = 60）"
+    );
+    assert!(app.viewport().is_following(), "跟尾起步");
+    assert_eq!(
+        app.viewport().offset(),
+        40,
+        "跟尾 = 视口钉底（max = 60 − 20）"
+    );
+
+    let at_bottom = thumb_column(&app);
+    assert_eq!(
+        at_bottom,
+        expected_thumb_rows(40, 60, 20, 18),
+        "跟尾缩略块钉在底位行区间"
+    );
+
+    // 上滚 10 notch = 入队 30 行；缓出分拍到账。
+    let t0 = Instant::now();
+    for _ in 0..10 {
+        app.wheel_tick(-1, t0);
+    }
+    assert_eq!(app.wheel_queue(), -30, "每 notch 入队 3 行");
+    let mut now = t0;
+    let mut moved = 0;
+    while moved < 30 {
+        now += Duration::from_millis(REDRAW_CADENCE_MS);
+        let step = app.drain_wheel(now);
+        assert!(step <= 0, "上滚冲刷只向上走");
+        moved += step.unsigned_abs() as usize;
+        assert!(moved <= 30, "缓出不许冲过头");
+    }
+    assert_eq!(app.viewport().offset(), 10, "30 行全到账（40 − 30）");
+    assert_eq!(app.viewport().lift(), Some(30), "指示 = 距底精确行数");
+
+    let at_lifted = thumb_column(&app);
+    assert_eq!(
+        at_lifted,
+        expected_thumb_rows(10, 60, 20, 18),
+        "缩略块对应新 offset 10"
+    );
+    assert!(
+        at_lifted.first() < at_bottom.first(),
+        "上滚 = 缩略块向上:\n lifted {at_lifted:?} bottom {at_bottom:?}"
+    );
+
+    // 下滚回底：脱钩量逐拍消掉、落 max 重挂，缩略块回底位。
+    let mut now2 = now;
+    let mut guard = 0;
+    while !app.viewport().is_following() {
+        now2 += Duration::from_millis(REDRAW_CADENCE_MS);
+        app.wheel_tick(1, now2);
+        app.drain_wheel(now2);
+        guard += 1;
+        assert!(guard < 20, "下滚必须在有限拍内重挂");
+    }
+    assert_eq!(app.viewport().offset(), 40, "落 max = 视口钉底");
+    let back = thumb_column(&app);
+    assert_eq!(back, at_bottom, "重挂后缩略块回底位");
+}

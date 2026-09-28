@@ -159,10 +159,14 @@ impl WebDaemon {
     }
 
     /// 中止当前运行（orbit 模式置 abort 标志；omp 模式转发 abort）。
-    pub fn abort_worker(&self) -> Result<(), ClientError> {
+    ///
+    /// `session_id` 必传：S1 路由按它锁定**该会话**的 worker handle——
+    /// 空参数会落到默认 handle，abort 打在不跑 turn 的引擎上（T26 验收
+    /// 实测：状态栏亮 aborting 而流式 delta 照常到达，run 以 ok 收尾）。
+    pub fn abort_worker(&self, session_id: &str) -> Result<(), ClientError> {
         self.client.call_raw(
             daemon::protocol::Command::WorkerAbort,
-            serde_json::json!({}),
+            serde_json::json!({ "session_id": session_id }),
         )?;
         Ok(())
     }

@@ -32,6 +32,9 @@ ammonia = "4"
 ctrlc = "3"
 diffy = "0.5"
 ratatui = "0.30"
+# T23：显示格宽的唯一口径。ratatui 0.30 已传递引入 0.2，锁文件里本就有，
+# 这里显式声明是为了让 tui crate 合法直引（不再手搓码位段启发）。
+unicode-width = "0.2"
 crossterm = "0.29"
 zstd = "0.13"
 

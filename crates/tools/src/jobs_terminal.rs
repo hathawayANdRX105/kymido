@@ -43,9 +43,13 @@
 
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+<<<<<<< HEAD
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+=======
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
+>>>>>>> origin/main
 use std::time::{Duration, Instant};
 
 use crate::{Tool, ToolError};
@@ -82,7 +86,10 @@ const READ_CHUNK_BYTES: usize = 16 * 1024;
 /// (anything up to a few hundred columns of mostly-ASCII) fit whole; past
 /// that the frame is cut and the cut says so, with `terminal_screenshot` as
 /// the uncapped way through.
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 const SCREEN_CHUNK_BYTES: usize = 16 * 1024;
 
 /// Where `terminal_screenshot` writes a frame's `.txt` / `.svg` / `.json`
@@ -93,13 +100,19 @@ const SCREEN_CHUNK_BYTES: usize = 16 * 1024;
 /// is the same reason [`truncate_output`](crate::truncate_output) puts one in
 /// its spill filenames: a restarted daemon restarts its `term-N` sequence and
 /// would otherwise write over the previous run's frames.
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 const SCREENSHOT_DIR: &str = "/tmp/kymido-screenshots";
 
 /// Per-process counter behind the `NNN-` prefix of a screenshot's files, so
 /// two shots in one session never collide and their call order is readable
 /// off the name.
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 static SCREENSHOT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // -----------------------------------------------------------------------------
@@ -391,6 +404,11 @@ pub fn session_tools(
         Arc::new(TerminalResize::new(Arc::clone(&terminals))),
         Arc::new(TerminalKill::new(Arc::clone(&terminals))),
         Arc::new(TerminalList::new(Arc::clone(&terminals))),
+<<<<<<< HEAD
+        Arc::new(TerminalScreen::new(Arc::clone(&terminals))),
+        Arc::new(TerminalScreenshot::new(terminals)),
+    ]
+=======
     ];
     // The two screen tools are a development aid (T0 TUI observability):
     // compiled only into debug builds, so a release binary never registers
@@ -400,6 +418,7 @@ pub fn session_tools(
     #[cfg(debug_assertions)]
     tools.push(Arc::new(TerminalScreenshot::new(terminals)));
     tools
+>>>>>>> origin/main
 }
 
 /// Names of the job/terminal tools [`session_tools`] always registers, in
@@ -415,6 +434,8 @@ const BASE_TOOL_NAMES: &[&str] = &[
     "terminal_resize",
     "terminal_kill",
     "terminal_list",
+    "terminal_screen",
+    "terminal_screenshot",
 ];
 
 /// The screen tools are a development aid (T0 TUI observability): compiled

@@ -18,6 +18,9 @@ crossterm = { workspace = true }
 # T1 不 import（T2 全屏渲染用）：P1 已批的两行 workspace 依赖随本 crate
 # 入锁，T2 接线时直接可用，不再动根 Cargo.toml（route §9 所有权表）。
 ratatui = { workspace = true }
+# T23：断行按显示格宽算（`chars().count()` 把 CJK/emoji 算成 1 格，
+# 渲出来的行宽翻倍，计数侧与画面脱节 → 滚动模型整体错位）。
+unicode-width = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

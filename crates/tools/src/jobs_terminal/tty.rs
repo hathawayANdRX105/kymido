@@ -3,8 +3,13 @@
 
 use super::*;
 use serde_json::Value;
+use std::path::Path;
 
 use crate::{Tool, ToolError};
+<<<<<<< HEAD
+use terminal::screen::{render_ascii, render_json, render_svg};
+use terminal::{ScreenSnapshot, TerminalId, TerminalRegistry};
+=======
 #[cfg(debug_assertions)]
 use std::path::Path;
 #[cfg(debug_assertions)]
@@ -12,6 +17,7 @@ use terminal::ScreenSnapshot;
 #[cfg(debug_assertions)]
 use terminal::screen::{render_ascii, render_json, render_svg};
 use terminal::{TerminalId, TerminalRegistry};
+>>>>>>> origin/main
 
 // -----------------------------------------------------------------------------
 // terminal_create
@@ -320,19 +326,28 @@ impl Tool for TerminalList {
 // aborting between the snapshot and the return would only throw away the
 // frame the model asked for.
 
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 pub struct TerminalScreen {
     reg: Arc<TerminalRegistry>,
 }
 
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 impl TerminalScreen {
     pub fn new(reg: Arc<TerminalRegistry>) -> Self {
         Self { reg }
     }
 }
 
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 impl Tool for TerminalScreen {
     fn name(&self) -> &str {
         "terminal_screen"
@@ -399,19 +414,28 @@ impl Tool for TerminalScreen {
     }
 }
 
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 pub struct TerminalScreenshot {
     reg: Arc<TerminalRegistry>,
 }
 
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 impl TerminalScreenshot {
     pub fn new(reg: Arc<TerminalRegistry>) -> Self {
         Self { reg }
     }
 }
 
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 impl Tool for TerminalScreenshot {
     fn name(&self) -> &str {
         "terminal_screenshot"
@@ -488,7 +512,10 @@ impl Tool for TerminalScreenshot {
 /// A session that has been created but has produced nothing yet is a normal
 /// state, not a failure, and an empty box with no explanation reads like a
 /// broken screen rather than an empty one.
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 fn frame_note(frame: &ScreenSnapshot) -> String {
     let geometry = format!("terminal {}x{}", frame.cols, frame.rows);
     if let Some(error) = &frame.reply_error {
@@ -504,7 +531,10 @@ fn frame_note(frame: &ScreenSnapshot) -> String {
 }
 
 /// Write one frame artifact, reporting the path that failed.
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 fn write_frame(path: &Path, body: &str) -> Result<(), ToolError> {
     std::fs::write(path, body)
         .map_err(|e| ToolError::Message(format!("cannot write {}: {e}", path.display())))
@@ -518,7 +548,10 @@ fn write_frame(path: &Path, body: &str) -> Result<(), ToolError> {
 /// session's directory. Everything outside `[A-Za-z0-9_-]` becomes `_`, and
 /// the label is capped so a long name cannot push the file name past what a
 /// filesystem accepts.
+<<<<<<< HEAD
+=======
 #[cfg(debug_assertions)]
+>>>>>>> origin/main
 fn screenshot_label(name: Option<&str>) -> String {
     name.map_or_default(|raw| {
         raw.chars()
