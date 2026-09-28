@@ -49,6 +49,7 @@ fn linear_output_emits_zero_escape_bytes() {
         },
         AgentEvent::TurnEnd {
             stop_reason: "end_turn".into(),
+            active_model: None,
         },
     ]);
     // 空 turn（无正文无工具）：占位正文嵌 stop_reason，同样必须零 ESC。
@@ -56,6 +57,7 @@ fn linear_output_emits_zero_escape_bytes() {
         AgentEvent::TurnStart,
         AgentEvent::TurnEnd {
             stop_reason: "error\u{1b}[31m".into(),
+            active_model: None,
         },
     ]));
 

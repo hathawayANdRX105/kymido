@@ -503,6 +503,7 @@ fn commit_frame_only_on_turn_settle_and_rewrites_nothing() {
     screen.feed(
         &AgentEvent::TurnEnd {
             stop_reason: "end_turn".into(),
+            active_model: None,
         },
         &mut proj,
     );
@@ -576,6 +577,7 @@ fn streaming_tail_merges_in_place_until_settle() {
     screen.feed(
         &AgentEvent::TurnEnd {
             stop_reason: "end_turn".into(),
+            active_model: None,
         },
         &mut proj,
     );

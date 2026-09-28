@@ -272,7 +272,10 @@ impl WorkerHandle {
                 // [`try_clear_active_run`]) so later unattributed events do
                 // not keep stamping a run that already ended.
                 if is_orbit
-                    && let WorkerEvent::AgentEnd { stop_reason } = &event
+                    && let WorkerEvent::AgentEnd {
+                        stop_reason,
+                        active_model: _,
+                    } = &event
                     && let Some(run) = attributed.as_deref()
                 {
                     let user_paused = user_abort.load(std::sync::atomic::Ordering::SeqCst);

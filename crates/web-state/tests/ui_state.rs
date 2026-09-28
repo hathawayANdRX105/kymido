@@ -24,6 +24,7 @@ fn agent_event_serde_round_trip() {
         },
         AgentEvent::TurnEnd {
             stop_reason: "end_turn".into(),
+            active_model: None,
         },
     ];
     for ev in events {
@@ -70,6 +71,7 @@ fn streamed_sequence_builds_chronological_parts() {
         },
         AgentEvent::TurnEnd {
             stop_reason: "end_turn".into(),
+            active_model: None,
         },
     ] {
         ui.apply(&ev);
@@ -108,6 +110,7 @@ fn empty_turn_end_writes_placeholder_text() {
     let mut ui = UiState::default();
     ui.apply(&AgentEvent::TurnEnd {
         stop_reason: "max_turns".into(),
+        active_model: None,
     });
     assert_eq!(ui.messages.len(), 1);
     assert!(ui.messages[0].content.contains("max_turns"));

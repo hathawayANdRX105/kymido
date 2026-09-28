@@ -52,7 +52,8 @@ fn start_end_pairs_share_synthetic_id() {
     assert_eq!(
         t.translate(&json!({ "type": "agent_end" })),
         Some(AgentEvent::TurnEnd {
-            stop_reason: "end_turn".into()
+            stop_reason: "end_turn".into(),
+            active_model: None
         })
     );
 }
@@ -234,7 +235,8 @@ fn daemon_worker_event_shape_also_translates() {
     assert_eq!(
         t.translate(&json!({ "event": "agent_end" })),
         Some(AgentEvent::TurnEnd {
-            stop_reason: "end_turn".into()
+            stop_reason: "end_turn".into(),
+            active_model: None
         })
     );
 }
@@ -247,13 +249,15 @@ fn error_becomes_error_turn_end_and_unknown_ignored() {
     assert_eq!(
         t.translate(&json!({ "type": "error", "error": "boom" })),
         Some(AgentEvent::TurnEnd {
-            stop_reason: "error".into()
+            stop_reason: "error".into(),
+            active_model: None
         })
     );
     assert_eq!(
         t.translate(&json!({ "event": "error", "error": "boom" })),
         Some(AgentEvent::TurnEnd {
-            stop_reason: "error".into()
+            stop_reason: "error".into(),
+            active_model: None
         })
     );
     // 未知类型 / 空帧 / 缺工具名：丢弃

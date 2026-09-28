@@ -32,6 +32,11 @@ pub enum AgentEvent {
     },
     TurnEnd {
         stop_reason: TurnStop,
+        /// Model that actually served this turn when a backend routed between
+        /// providers (the waterfall fallback). `None` when the backend did not
+        /// report one — old events parse as `None` via `serde(default)`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_model: Option<String>,
     },
 }
 

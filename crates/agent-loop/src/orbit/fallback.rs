@@ -17,6 +17,8 @@
 
 use std::sync::atomic::AtomicBool;
 
+use parking_lot::Mutex;
+
 use llm::{Context, Model, StreamEvent, ToolDef, openai::RetryPolicy};
 
 use super::LlmBackend;
@@ -60,11 +62,29 @@ impl LlmProvider {
 /// (no `TextDelta`/`ToolCall` emitted); a partially-emitted turn is never
 /// replayed on another provider, and aborts (consumer intent) stop
 /// immediately.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WaterfallLlm {
     pub primary: LlmProvider,
     pub fallbacks: Vec<LlmProvider>,
     pub retry: RetryPolicy,
+    /// The model of the most recent provider that served a round cleanly.
+    /// Lets the status line report the *active* provider rather than the
+    /// configured primary once a fallback has taken over. `None` until the
+    /// first successful (or cleanly aborted) round.
+    last_model: Mutex<Option<String>>,
+}
+
+impl Clone for WaterfallLlm {
+    /// The per-instance winner is dropped on clone: a new clone starts with
+    /// no active model yet. The provider list is what matters.
+    fn clone(&self) -> Self {
+        Self {
+            primary: self.primary.clone(),
+            fallbacks: self.fallbacks.clone(),
+            retry: self.retry.clone(),
+            last_model: Mutex::new(None),
+        }
+    }
 }
 
 impl WaterfallLlm {
@@ -73,6 +93,22 @@ impl WaterfallLlm {
             primary,
             fallbacks,
             retry: RetryPolicy::default(),
+            last_model: Mutex::new(None),
+        }
+    }
+
+    /// Build with an explicit per-provider retry policy; the winner record
+    /// starts empty.
+    pub fn with_retry(
+        primary: LlmProvider,
+        fallbacks: Vec<LlmProvider>,
+        retry: RetryPolicy,
+    ) -> Self {
+        Self {
+            primary,
+            fallbacks,
+            retry,
+            last_model: Mutex::new(None),
         }
     }
 
@@ -91,11 +127,13 @@ impl WaterfallLlm {
 
     /// One provider's call plus the waterfall decision on it.
     ///
-    /// Emits `true` when the round is finished (success, a clean abort, or a
-    /// failure that already leaked content — in which case the error was
-    /// just emitted and must not be retried elsewhere) and `false` when the
-    /// provider failed *before emitting anything* and the next provider
-    /// should take over.
+    /// Returns `(finished, last_error)`: `finished` is `true` when the round
+    /// is over (success, a clean abort, or a failure that already leaked
+    /// content — the error was just emitted and must not be retried
+    /// elsewhere) and `false` when the provider failed *before emitting
+    /// anything* and the next provider should take over. `last_error` is the
+    /// terminal `Error` text when the call failed, so the waterfall can
+    /// aggregate per-provider failures on total exhaustion.
     ///
     /// Forwarding rule: every event is passed to the consumer in order,
     /// *except* a terminal `Error` from a call that leaked no content. That
@@ -112,7 +150,7 @@ impl WaterfallLlm {
         signal: &AtomicBool,
         policy: RetryPolicy,
         emit: &mut dyn FnMut(&StreamEvent),
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         // Observe every event the per-provider call hands out: record
         // whether content leaked, whether the round ended in a clean abort,
         // and what the terminal event was — while forwarding every event
@@ -154,12 +192,18 @@ impl WaterfallLlm {
         );
         if terminal != Terminal::Error {
             // Clean `Done`: success (an abort is consumer intent, also done).
-            return Ok(());
+            // `true` = served the round cleanly (success or a clean abort),
+            // so this provider is the *active* model for the status line.
+            return Ok(true);
         }
         if leaked_content {
             // Content leaked before the error: the failure was just emitted
             // and must not be replayed elsewhere. The waterfall stops here.
-            return Ok(());
+            // `false` = content leaked before the error. The failure was
+            // emitted to the consumer and must not be replayed on the next
+            // provider, so the round is over — but this provider did *not*
+            // serve the turn cleanly, hence no `last_model` write.
+            return Ok(false);
         }
         // Error, no content leaked, round ended: the next provider may take
         // over — the caller decides (continue or final error).
@@ -167,8 +211,9 @@ impl WaterfallLlm {
     }
 
     /// Run the waterfall. After all providers fail, emit one terminal
-    /// `Error` naming the last provider's index; after any provider
-    /// succeeds the round stops.
+    /// `Error` that aggregates every provider's own failure text (jcode's
+    /// fallback-aggregation shape); after any provider succeeds the round
+    /// stops and the winner is remembered for the status line.
     fn run(
         &self,
         context: &Context,
@@ -178,20 +223,39 @@ impl WaterfallLlm {
     ) {
         let providers = self.providers();
         let last = providers.len() - 1;
+        // Each provider's own failure, kept so the terminal error can list
+        // *every* one. A debug should not have to re-drive the chain
+        // provider by provider to learn that the primary 500'd and the
+        // fallback 401'd — and the 401/403 text has to survive into that
+        // aggregate, not just ride along in a `last error:` suffix.
+        let mut failures: Vec<String> = Vec::new();
         for (i, provider) in providers.iter().enumerate() {
             match Self::attempt_provider(provider, context, tools, signal, self.retry, emit) {
-                Ok(()) => return,
+                // Round is over. A clean round (success or consumer abort)
+                // means this provider actually served the turn, so it — not
+                // the configured primary — is what the status line reports.
+                Ok(clean) => {
+                    if clean {
+                        *self.last_model.lock() = Some(provider.model.clone());
+                    }
+                    return;
+                }
                 Err(last_err) => {
                     // This provider failed before leaking anything. The next
-                    // provider may still take over — only the last one's
-                    // failure is terminal, and it carries the original error
-                    // so a 401/403 survives the fallback chain.
+                    // provider may still take over; only the last one's
+                    // failure ends the round.
+                    failures.push(format!("provider {i} ({}): {last_err}", provider.model));
                     if i < last {
                         continue;
                     }
+                    let detail = failures
+                        .iter()
+                        .map(|f| format!("  - {f}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     emit(&StreamEvent::Error(format!(
-                        "llm provider {i} ({}) failed: all providers exhausted (last error: {last_err})",
-                        provider.model
+                        "all {} llm providers failed:\n{detail}",
+                        providers.len()
                     )));
                     return;
                 }
@@ -212,5 +276,9 @@ impl LlmBackend for WaterfallLlm {
         // The providers carry their own models; the loop's `model` argument
         // is the primary's, used only for host-side metadata.
         self.run(context, tools, signal, emit);
+    }
+
+    fn active_model(&self) -> Option<String> {
+        self.last_model.lock().clone()
     }
 }

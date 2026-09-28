@@ -97,3 +97,53 @@ fn footer_shows_only_verified_fields() {
     );
     assert!(!inflight_footer.contains('%'), "照样不许有百分比");
 }
+
+/// fallback 切走 primary 后，footer 必须报**本轮真正服务的** model。
+///
+/// 配置里的 `model` 只是 primary；waterfall 切到 fallback 时它没参与本轮，
+/// 继续报它就是对着不相干的模型说谎。这条钉住 `TurnEnd` 回填的 `active_model`
+/// 优先于配置值，且只有回填过才切换。
+#[test]
+fn footer_reports_active_model_after_fallback() {
+    use web_state::ui_state::AgentEvent;
+
+    let mut app = App::new();
+    app.set_model("primary-model");
+
+    // 回填前：报配置的 primary。
+    assert_eq!(app.model(), "primary-model", "未回填时用配置的 model");
+    assert!(footer_row(&screen(&app), "primary-model").contains("primary-model"));
+
+    // `TurnEnd` 带 active_model（waterfall 已切走）→ 改报实际的。
+    app.apply_event(&AgentEvent::TurnEnd {
+        stop_reason: "end_turn".into(),
+        active_model: Some("fallback-model".into()),
+    });
+    assert_eq!(
+        app.active_model(),
+        Some("fallback-model"),
+        "TurnEnd 回填的 active_model 可读"
+    );
+    let after = screen(&app);
+    let row = footer_row(&after, "fallback-model");
+    assert!(
+        row.contains("fallback-model"),
+        "footer 报实际服务的 model:\n{row}"
+    );
+    assert!(
+        !row.contains("primary-model"),
+        "primary 没服务本轮，不许再出现在 footer:\n{row}"
+    );
+
+    // `active_model: None` 的旧事件不得清掉已回填的值——那是「本轮没走
+    // waterfall / 后端没报」，不是「回到 primary」。
+    app.apply_event(&AgentEvent::TurnEnd {
+        stop_reason: "end_turn".into(),
+        active_model: None,
+    });
+    assert_eq!(
+        app.model(),
+        "fallback-model",
+        "None 只表示后端没报，不回落配置值"
+    );
+}

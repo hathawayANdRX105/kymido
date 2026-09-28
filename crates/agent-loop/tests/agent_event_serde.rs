@@ -37,6 +37,7 @@ fn every_variant_round_trips() {
         },
         AgentEvent::TurnEnd {
             stop_reason: TurnStop::EndTurn,
+            active_model: None,
         },
     ];
     for event in &events {
@@ -80,6 +81,7 @@ fn wire_shape_is_pinned() {
     assert_eq!(
         round_trip(&AgentEvent::TurnEnd {
             stop_reason: TurnStop::MaxTurns,
+            active_model: None,
         }),
         json!({ "type": "turn_end", "stop_reason": "max_turns" })
     );

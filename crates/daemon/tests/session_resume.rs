@@ -33,6 +33,10 @@ use tempfile::tempdir;
 const RESUME_USER: &str = "第一轮";
 /// Distinctive assistant reply that will be persisted then replayed.
 const RESUME_ASSISTANT: &str = "第一轮回复";
+/// Persisted `system` / `tool` rows that a resume MUST skip: the replay
+/// drops them so only user/assistant history reaches the LLM body.
+const RESUME_SYSTEM: &str = "系统指令";
+const RESUME_TOOL: &str = "工具结果";
 /// A second user prompt that arrives *after* the history has been appended.
 const FRESH_PROMPT: &str = "第二轮";
 /// A third prompt on the same daemon + session: the dedupe gate must keep
@@ -248,6 +252,14 @@ fn restart_resumes_session_history_into_the_llm_request() {
         let _ = client
             .session_append("s-b2a", SessionRole::Assistant, RESUME_ASSISTANT, &[], &[])
             .expect("session.append (assistant)");
+        // System + tool rows persist to the DB but a resume must replay
+        // them out of the LLM context.
+        let _ = client
+            .session_append("s-b2a", SessionRole::System, RESUME_SYSTEM, &[])
+            .expect("session.append (system)");
+        let _ = client
+            .session_append("s-b2a", SessionRole::Tool, RESUME_TOOL, &[])
+            .expect("session.append (tool)");
 
         // First prompt on process 1: the engine was just spawned, so this
         // is the first replay for this session — the two persisted rows get
@@ -375,6 +387,18 @@ fn restart_resumes_session_history_into_the_llm_request() {
         2,
         "the live context carries the replayed user row + its assistant reply \
          exactly once each (a re-replay would double both); saw: {second_req:?}"
+    );
+
+    // System + tool rows persist to the DB but the replay must drop them:
+    // none of their content reaches the LLM request body.
+    let joined_all = post_restart.join("\n");
+    assert!(
+        !joined_all.contains(RESUME_SYSTEM),
+        "the persisted system row must be skipped by the resume replay: {joined_all}"
+    );
+    assert!(
+        !joined_all.contains(RESUME_TOOL),
+        "the persisted tool row must be skipped by the resume replay: {joined_all}"
     );
 }
 

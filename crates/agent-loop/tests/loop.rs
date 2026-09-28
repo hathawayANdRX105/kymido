@@ -128,7 +128,8 @@ fn plain_answer_ends_loop() {
                 delta: "world".into()
             },
             AgentEvent::TurnEnd {
-                stop_reason: TurnStop::EndTurn
+                stop_reason: TurnStop::EndTurn,
+                active_model: None,
             },
         ]
     );
@@ -227,7 +228,8 @@ fn invariant_3_abort_drops_pending_tool_calls() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::Aborted
+            stop_reason: TurnStop::Aborted,
+            active_model: None,
         })
     );
     // Assistant message recorded WITHOUT the tool_use block.
@@ -626,7 +628,8 @@ fn turn_cap_stops_runaway_tool_loops() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::MaxTurns
+            stop_reason: TurnStop::MaxTurns,
+            active_model: None,
         })
     );
 }
@@ -831,7 +834,8 @@ fn follow_up_extends_the_run_past_model_endturn() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::EndTurn
+            stop_reason: TurnStop::EndTurn,
+            active_model: None,
         })
     );
 }
@@ -902,7 +906,8 @@ fn bare_continue_extends_the_run_without_injecting_a_message() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::EndTurn
+            stop_reason: TurnStop::EndTurn,
+            active_model: None,
         })
     );
 }
@@ -949,7 +954,8 @@ fn auth_failure_hard_stops_the_run() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::Error
+            stop_reason: TurnStop::Error,
+            active_model: None,
         })
     );
 }
@@ -989,7 +995,8 @@ fn same_error_stops_after_the_cap_and_a_different_one_resets() {
     assert_eq!(
         events.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::Error
+            stop_reason: TurnStop::Error,
+            active_model: None,
         })
     );
 
@@ -1026,7 +1033,8 @@ fn same_error_stops_after_the_cap_and_a_different_one_resets() {
     assert_eq!(
         events2.last(),
         Some(&AgentEvent::TurnEnd {
-            stop_reason: TurnStop::EndTurn
+            stop_reason: TurnStop::EndTurn,
+            active_model: None,
         })
     );
 }

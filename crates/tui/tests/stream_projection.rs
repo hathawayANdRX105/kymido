@@ -20,6 +20,7 @@ fn streamed_text_accumulates_until_turn_end() {
     }
     let end = AgentEvent::TurnEnd {
         stop_reason: "end_turn".to_string(),
+        active_model: None,
     };
     render_linear_line(&end, &mut state, &mut out).expect("write to Vec cannot fail");
     let text = String::from_utf8(out).expect("linear output is utf-8");

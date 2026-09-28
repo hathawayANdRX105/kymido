@@ -108,6 +108,10 @@ pub struct McpServerConfig {
     /// daemon/CLI process cwd.
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Tool-level filter: only these of this server's tools (matched against
+    /// the server-known tool name) are exposed. Empty (default) = expose all.
+    #[serde(default)]
+    pub tools: Vec<String>,
     /// When true, a server that fails to start/handshake aborts the whole MCP
     /// bring-up instead of being skipped. Default false (skip + log).
     #[serde(default)]

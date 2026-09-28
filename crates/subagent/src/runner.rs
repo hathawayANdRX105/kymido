@@ -123,7 +123,10 @@ pub fn run_subagent(
         }
         AgentEvent::ToolStart { .. } => {}
         AgentEvent::ToolResult { .. } => {}
-        AgentEvent::TurnEnd { stop_reason } => {
+        AgentEvent::TurnEnd {
+            stop_reason,
+            active_model: _,
+        } => {
             last_stop.set(Some(stop_reason));
         }
     };

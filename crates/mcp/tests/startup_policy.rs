@@ -25,6 +25,7 @@ fn server(name: &str, command: &str) -> McpServerConfig {
         reconnect: None,
         cwd: None,
         fail_on_startup_error: None,
+        tools: Vec::new(),
     }
 }
 

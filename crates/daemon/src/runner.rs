@@ -396,10 +396,19 @@ fn event_record(event: &WorkerEvent) -> serde_json::Value {
     let mut truncated = false;
     let mut rec = match event {
         WorkerEvent::AgentStart => serde_json::json!({ "event": "agent_start" }),
-        WorkerEvent::AgentEnd { stop_reason } => serde_json::json!({
-            "event": "agent_end",
-            "stop_reason": stop_reason
-        }),
+        WorkerEvent::AgentEnd {
+            stop_reason,
+            active_model,
+        } => {
+            let mut v = serde_json::json!({
+                "event": "agent_end",
+                "stop_reason": stop_reason
+            });
+            if let Some(m) = active_model {
+                v["active_model"] = serde_json::Value::String(m.to_string());
+            }
+            v
+        }
         WorkerEvent::Message { text } => {
             if text.len() > EVENT_FIELD_MAX_BYTES {
                 truncated = true;

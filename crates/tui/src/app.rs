@@ -147,6 +147,9 @@ pub struct App {
     answers: VecDeque<AnswerRequest>,
     /// T3：footer 的 model 段（事件循环注入运行时配置；测试可显式注入）。
     model: String,
+    /// 本轮真正服务的 model（`TurnEnd` 回填）。fallback 切走 primary 后它与
+    /// 上面的配置值不同，footer 优先报它；`None` = 还没有回填过。
+    active_model: Option<String>,
     /// T3：`stats.summary` 的半开 run 计数（footer 空闲段 run 状态）。
     in_flight: u64,
     /// T3：本轮开始时刻（footer 耗时段；无 run = `None`）。
@@ -654,9 +657,18 @@ impl App {
         &self.ui.messages
     }
 
-    /// footer 的 model 段（事件循环注入运行时配置）。
+    /// footer 的 model 段：优先报**本轮真正服务的** model（`TurnEnd` 回填的
+    /// `active_model`），没有回填过才回落配置的 `model`。
+    ///
+    /// 两者不同的唯一情形是 fallback 切走了 primary——那时报配置值就是在
+    /// 说谎（本轮根本没走那个模型）。
     pub fn model(&self) -> &str {
-        &self.model
+        self.active_model.as_deref().unwrap_or(&self.model)
+    }
+
+    /// 本轮真正服务的 model（`TurnEnd` 回填；`None` = 还没回填过）。
+    pub fn active_model(&self) -> Option<&str> {
+        self.active_model.as_deref()
     }
 
     /// 注入 footer 的 model 段（`footer::configured_model`；测试显式给值）。
@@ -715,7 +727,15 @@ impl App {
     }
 
     /// 折一个 worker 事件进 transcript 投影。
+    ///
+    /// `TurnEnd` 顺带记下 `active_model`：fallback 切走 primary 后，配置里
+    /// 的 `model` 不再是本轮真正服务的那个，footer 要报实际的。
     pub fn apply_event(&mut self, ev: &AgentEvent) {
+        if let AgentEvent::TurnEnd { active_model, .. } = ev {
+            if let Some(m) = active_model {
+                self.active_model = Some(m.clone());
+            }
+        }
         self.ui.apply(ev);
     }
 
