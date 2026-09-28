@@ -8,10 +8,8 @@
 //! and the blank-id guard. Nothing here touches the archive machinery —
 //! those contracts live in `archive.rs`.
 
-use session::{SessionDb, SessionRole};
+use session::{MAX_LIMIT, SessionDb, SessionRole};
 use tempfile::tempdir;
-
-const MAX_LIMIT: u32 = 10_000;
 
 /// Seed `n` messages, alternating roles, and return the db path owner.
 struct Fixture {
