@@ -320,20 +320,20 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
         Ok(config)
     }
 
-    /// The primary LLM credential: the active route from `providers.toml`,
+    /// The primary LLM credential: the active spec (combo name or route)
     /// resolved against the provider table. `None` when the route is
     /// missing, unresolvable, or the provider has no usable key: the
     /// daemon then runs without an orbit model rather than guessing.
     ///
-    /// `Config::validate` already rejects an active route that names a
+    /// `Config::validate` already rejects an active spec that names a
     /// provider or model that does not exist (the typo protection of the
     /// old `active_profile` contract), so this only returns `None` for
-    /// "no active route" and "no key resolvable".
+    /// "no active spec" and "no key resolvable".
     pub fn active_llm(&self) -> Option<ResolvedLlm> {
         self.providers
             .active
             .as_deref()
-            .and_then(|route| self.providers.resolve_route(route))
+            .and_then(|spec| self.providers.resolve_spec(spec))
     }
 
     /// Waterfall hops for the active provider, in listed order. Unknown or
@@ -341,9 +341,12 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
     /// typo'd hop must stay visible, not silently take down the daemon);
     /// a hop that resolves but has no key is the same warn-and-skip.
     pub fn fallback_llms(&self) -> Vec<ResolvedLlm> {
-        let Some(route) = self.providers.active.as_deref() else {
+        let Some(spec) = self.providers.active.as_deref() else {
             return Vec::new();
         };
+        // A combo active spec resolves to its target route first; the
+        // waterfall belongs to the provider row that route names.
+        let route = self.providers.spec_to_route(spec);
         let Some((provider_name, _)) = ProvidersFile::split_route(route) else {
             return Vec::new();
         };
@@ -354,11 +357,11 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
             .fallbacks
             .iter()
             .enumerate()
-            .filter_map(|(i, hop)| match self.providers.resolve_route(hop) {
+            .filter_map(|(i, hop)| match self.providers.resolve_spec(hop) {
                 Some(resolved) => Some(resolved),
                 None => {
                     eprintln!(
-                        "warn: providers fallback #{i} `{hop}` does not resolve (unknown provider/model, missing base_url or key); skipped"
+                        "warn: providers fallback #{i} `{hop}` does not resolve (unknown combo/provider/model, missing base_url or key); skipped"
                     );
                     None
                 }
@@ -419,7 +422,8 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
         // and a named model must be one the provider declared. Silently
         // falling back would hand the run a *different* provider than the
         // file asked for — the worst possible failure for a credential typo.
-        if let Some(route) = self.providers.active.as_deref() {
+        if let Some(spec) = self.providers.active.as_deref() {
+            let route = self.providers.spec_to_route(spec);
             let (name, model) = match crate::providers::ProvidersFile::split_route(route) {
                 Some(r) => r,
                 None => {
@@ -458,6 +462,61 @@ providers.toml ([providers.<name>] + [[providers.<name>.models]]) and delete the
                     field: "providers.active",
                     message: format!(
                         "provider `{name}` names no model and has no default_model; use the route `{name}/<model>`"
+                    ),
+                });
+            }
+        }
+
+        // [combos]: every target must be a literal `provider/model` route
+        // naming an existing provider row and (when that provider declares
+        // a capability table) one of its models. A combo is a pinned alias
+        // to a configured model: a bare-provider target or a combo-to-combo
+        // value is a load error, never a silent indirection.
+        let mut combo_names: Vec<&String> = self.providers.combos.keys().collect();
+        combo_names.sort();
+        for name in combo_names {
+            let target = self.providers.combos[name].trim();
+            let (prov, model) = match crate::providers::ProvidersFile::split_route(target) {
+                Some(r) => r,
+                None => {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.combos",
+                        message: format!(
+                            "combo `{name}` target `{target}` must be `provider/model`"
+                        ),
+                    });
+                }
+            };
+            let Some(m) = &model else {
+                return Err(ConfigError::Invalid {
+                    field: "providers.combos",
+                    message: format!(
+                        "combo `{name}` target must name a model (got bare provider `{prov}`)"
+                    ),
+                });
+            };
+            let entry = match self.providers.provider(&prov) {
+                Some(e) => e,
+                None => {
+                    return Err(ConfigError::Invalid {
+                        field: "providers.combos",
+                        message: format!(
+                            "combo `{name}` targets provider `{prov}` which is not in providers.toml"
+                        ),
+                    });
+                }
+            };
+            if !entry.models.is_empty() && !entry.models.iter().any(|x| x.id == *m) {
+                return Err(ConfigError::Invalid {
+                    field: "providers.combos",
+                    message: format!(
+                        "combo `{name}` target model `{m}` is not declared by provider `{prov}` (declared: {})",
+                        entry
+                            .models
+                            .iter()
+                            .map(|x| x.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                 });
             }

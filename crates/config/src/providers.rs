@@ -10,7 +10,10 @@
 //! Shape (TOML native named tables):
 //!
 //! ```toml
-//! active = "deepseek/deepseek-chat"
+//! active = "fast"
+//!
+//! [combos]
+//! fast = "deepseek/deepseek-chat"
 //!
 //! [providers.deepseek]
 //! base_url = "https://api.deepseek.com"
@@ -54,15 +57,22 @@ impl ModelInput {
     }
 }
 
-/// `providers.toml` root: the active route plus every `[providers.<name>]`
-/// entry. All fields optional — an empty file is a valid (no-credential)
-/// machine, same contract as `config.toml`.
+/// `providers.toml` root: the active spec, named model combos, and every
+/// `[providers.<name>]` entry. All fields optional — an empty file is a
+/// valid (no-credential) machine, same contract as `config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct ProvidersFile {
-    /// Active route `"provider"` or `"provider/model"`; absent = no direct
-    /// LLM credential (the daemon runs omp-compat mode, the historic path).
+    /// Active spec: a combo name, `"provider"`, or `"provider/model"`;
+    /// absent = no direct LLM credential (the daemon runs omp-compat mode,
+    /// the historic path).
     #[serde(default)]
     pub active: Option<String>,
+    /// `[combos]`: named model combos (`"name" -> "provider/model"`).
+    /// One hop only: a value must be a literal route, never another combo
+    /// name (validate rejects multi-hop indirection and bare-provider
+    /// targets). `active` and `fallbacks` entries may reference a combo.
+    #[serde(default)]
+    pub combos: HashMap<String, String>,
     /// `[providers.<name>]` entries, keyed by provider name.
     #[serde(default)]
     pub providers: HashMap<String, ProviderEntry>,
@@ -275,5 +285,27 @@ impl ProvidersFile {
             context_window: entry.and_then(|m| m.context_window),
             input: entry.map(|m| m.input.clone()).unwrap_or_else(default_input),
         })
+    }
+
+    /// The literal route behind a model spec. A combo name is looked up in
+    /// `[combos]` (one hop: the value must itself be a literal route, so a
+    /// combo can never point at another combo); anything else — a slashed
+    /// route or an unknown bare name — passes through verbatim. Slashed
+    /// specs are never combo-looked-up: a combo named like a route is simply
+    /// unreachable, which is a validate error, not a silent indirection.
+    pub fn spec_to_route<'a>(&'a self, spec: &'a str) -> &'a str {
+        let spec = spec.trim();
+        if spec.contains('/') {
+            return spec;
+        }
+        self.combos.get(spec).map(|t| t.as_str()).unwrap_or(spec)
+    }
+
+    /// Resolve a model spec — a combo name, `"provider"`, or
+    /// `"provider/model"` — to the dialed credentials. The combo hop is
+    /// single-shot: `spec_to_route` substitutes the target once and hands
+    /// the literal route to [`Self::resolve_route`].
+    pub fn resolve_spec(&self, spec: &str) -> Option<ResolvedLlm> {
+        self.resolve_route(self.spec_to_route(spec))
     }
 }

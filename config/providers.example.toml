@@ -38,7 +38,12 @@
 #   任何内容前失败 → 按序切目标路由：凭据继承目标 provider 行，能力跟
 #   目标 model 条目；已泄内容不切 provider（不回滚）。指向不存在路由的
 #   条目跳过（warn），不整文件拒载。
-#
+
+# 【模型 combos】根表 [combos]：自定义短名 → 底层路由。active 与 fallbacks
+#   都可写短名；解析单跳——目标必须是显式 provider/model 路由（裸 provider
+#   名、combo→combo、指向未声明 model 全部加载拒载，报错点名该 combo）。
+#   解析后 LLM 调用用真实 model id：凭据/能力跟目标 provider 行与 model
+#   条目（context% 与压缩预算自动正确）。
 # 【KYMIDO_LLM_* 环境变量】（Config::load，填 active provider 行字段）
 #   KYMIDO_LLM_BASE_URL / KYMIDO_LLM_API_KEY / KYMIDO_LLM_MAX_TOKENS 照填；
 #   KYMIDO_LLM_MODEL 只在路由不带 model 段时填 default_model。
@@ -60,8 +65,15 @@
 #   3. 共享配置进 git 时用 api_key_env，别把 api_key 明文提交。
 # =====================================================================
 
-# active 路由："provider/model"；裸 provider 名走该行 default_model。
+# active spec：combo 短名（见下方 [combos]）、"provider/model"，或裸
+# provider 名（走该行 default_model）。
 active = "deepseek/deepseek-chat"
+
+# 命名模型 combos：自定义短名 → 底层路由（目标强制是配置过的
+# provider/model；单跳，不嵌套）。
+# [combos]
+# fast = "deepseek/deepseek-chat"
+# vision = "deepseek/deepseek-vision"
 
 [providers.deepseek]
 # 端点根（调用方自行拼 /v1）。

@@ -131,9 +131,11 @@ impl LlmRuntimeConfig {
                 Ok(file) => {
                     if let Some(route_text) = file.active.as_deref() {
                         active = route_text.to_string();
-                        if let Some(route) = file.resolve_route(route_text) {
-                            if let Some((provider, _)) =
-                                config::ProvidersFile::split_route(route_text)
+                        // active 可以是 combo 短名（[combos]）：显示保持原文，
+                        // 解析与 provider 归属走 combo 目标路由。
+                        let target = file.spec_to_route(route_text);
+                        if let Some(route) = file.resolve_spec(route_text) {
+                            if let Some((provider, _)) = config::ProvidersFile::split_route(target)
                             {
                                 active_provider = provider;
                             }
