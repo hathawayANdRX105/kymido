@@ -39,13 +39,18 @@ jobs:
       # Debug build on purpose: the T0 screen tools (terminal_screen /
       # terminal_screenshot) are compiled into debug builds only, and this
       # artifact exists to exercise them. Same build line as the smoke job.
+      # The TUI does NOT self-contain its daemon: `kymido tui` spawns a
+      # `daemon` binary found next to itself (or via KYMIDO_DAEMON_PATH), so
+      # both bins must ship together.
       - name: Build (debug, all five waves)
-        run: cargo build --locked --bin kymido
-      - name: Upload the binary
+        run: cargo build --locked --bin kymido --bin daemon
+      - name: Upload the binaries
         uses: actions/upload-artifact@v4
         with:
           name: kymido-tui-debug
-          path: target/debug/kymido
+          path: |
+            target/debug/kymido
+            target/debug/daemon
           retention-days: 3
       # The actions-artifact download redirects to Azure blob storage, which
       # times out on CN networks (three consistent TLS failures, 2026-09-29);
@@ -61,4 +66,4 @@ jobs:
             --title "TUI eyeball build (debug, all five visual waves)" \
             --notes "Throwaway build for route-tui-polish P2 路 B eyeball acceptance. Not a versioned release." \
             2>/dev/null || true
-          gh release upload ci-tui target/debug/kymido --clobber
+          gh release upload ci-tui target/debug/kymido target/debug/daemon --clobber
