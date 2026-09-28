@@ -9,8 +9,9 @@ use ratatui::widgets::Paragraph;
 use crate::app::App;
 use crate::theme;
 
-/// composer 提示符（transcript 的用户前缀是 `❯`，这里用 `>` 区分）。
-const PROMPT: &str = "> ";
+/// composer 提示符：与 transcript 用户前缀同一个 `❯`（T26 验收反馈：输入
+/// 侧符号只保留这一个，`>` 弃用）。
+const PROMPT: &str = "❯ ";
 
 /// 渲染输入行并把光标钉在插入点。
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {

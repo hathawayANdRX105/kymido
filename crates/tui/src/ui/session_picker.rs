@@ -345,7 +345,7 @@ pub fn render(frame: &mut Frame, state: &PickerState) {
     // 光标落在 "> " 之后的过滤词末尾（窄屏夹进可视区）。编辑态光标跟着
     // 改名缓冲走，否则输入看着像没进缓冲。
     let (text, offset) = match state.mode() {
-        PickerMode::Rename { buffer, .. } => (buffer.as_str(), EDIT_PROMPT.len() as u16),
+        PickerMode::Rename { buffer, .. } => (buffer.as_str(), EDIT_PROMPT.chars().count() as u16),
         _ => (state.filter(), PROMPT_COLS),
     };
     let used = text.chars().count() as u16 + offset;
@@ -353,10 +353,10 @@ pub fn render(frame: &mut Frame, state: &PickerState) {
     frame.set_cursor_position(Position::new(chunks[0].x + col, chunks[0].y));
 }
 
-/// 过滤行的 "> " 前缀列宽（光标定位用）。
+/// 过滤行的 "❯ " 前缀列宽（光标定位用）。
 const PROMPT_COLS: u16 = 2;
-/// 改名编辑行的 "rename> " 前缀列宽（光标定位用）。
-const EDIT_PROMPT: &str = "rename> ";
+/// 改名编辑行的 "rename ❯ " 前缀列宽（光标定位用，按字符数计）。
+const EDIT_PROMPT: &str = "rename ❯ ";
 
 /// 模态行：改名编辑回显缓冲 + 删除确认显式带会话名；列表态空行。
 fn mode_line(state: &PickerState) -> Line<'static> {
@@ -384,7 +384,7 @@ fn notice_line(state: &PickerState) -> Line<'static> {
 /// 过滤行：提示符 + 过滤词 + 结果计数（dim）。
 fn filter_line(state: &PickerState) -> Line<'static> {
     Line::from(vec![
-        Span::styled("> ".to_string(), theme::brand_bold()),
+        Span::styled("❯ ".to_string(), theme::brand_bold()),
         Span::styled(state.filter().to_string(), theme::base()),
         Span::styled(format!("  ({})", state.items().len()), theme::dim()),
     ])
@@ -416,7 +416,7 @@ fn render_list(frame: &mut Frame, area: ratatui::layout::Rect, state: &PickerSta
 /// 一行会话：游标前缀 + Active/Aborted 徽章 + 标题（空标题回退 id）。
 fn row_line(selected: bool, item: &PickerItem) -> Line<'static> {
     let mut spans = vec![Span::styled(
-        if selected { "> " } else { "  " },
+        if selected { "❯ " } else { "  " },
         if selected {
             theme::brand_bold()
         } else {

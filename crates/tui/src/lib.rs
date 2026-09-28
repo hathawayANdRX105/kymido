@@ -122,7 +122,7 @@ pub fn run(opts: TuiOptions) -> Result<(), TuiError> {
     let mut input = stdin.lock();
     let mut line = String::new();
     loop {
-        print!("> ");
+        print!("❯ ");
         std::io::stdout().flush()?;
         line.clear();
         if input.read_line(&mut line)? == 0 {
