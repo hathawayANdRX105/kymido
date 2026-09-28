@@ -10,6 +10,7 @@ use ratatui::buffer::Buffer;
 
 use kymido_tui::app::App;
 use kymido_tui::ui;
+use web_state::types::ToolCall;
 use web_state::ui_state::AgentEvent;
 
 /// TestBackend 缓冲 → 逐行文本（同 dsh `tests/chat_flow.rs` 的取样法）。
@@ -142,4 +143,142 @@ fn long_tool_result_collapses_to_header() {
     // 同一键再按 = 全部折回。
     app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!app.tools_expanded(), "再按一次折回折叠态");
+}
+// ——— T22：字形双通道 — 辅助与测试 —
+
+/// 直接构造一张卡（绕开事件流：kind / status 原样给，任意 kind 与三态
+/// 都能直接钉）。
+fn tc(kind: &str, status: &str, title: &str, detail: &str) -> ToolCall {
+    ToolCall {
+        id: "t-1".to_string(),
+        title: title.to_string(),
+        kind: kind.to_string(),
+        summary: String::new(),
+        detail: detail.to_string(),
+        status: status.to_string(),
+    }
+}
+
+/// 卡头（卡的第一行）文本（剥掉样式：钉的是字形本身，不是颜色）。
+fn header_of(kind: &str, status: &str) -> String {
+    let lines = ui::tool_card::lines(&tc(kind, status, "cmd", ""), false, 80);
+    lines
+        .first()
+        .and_then(|line| line.spans.first())
+        .map(|span| span.content.to_string())
+        .unwrap_or_default()
+}
+
+/// T22：三态必须无颜色可辨（catches colour-only state：状态原来只靠卡头
+/// 颜色区分（running=brand / done=dim / failed=danger）——NO_COLOR 终端、
+/// 或分不出红绿的读者，三态视觉上无法区分，且窄列下尾部文案被裁出屏后
+/// 状态信息归零；修法是把形状放进状态位本身）。
+#[test]
+fn status_glyph_distinguishes_states_without_color() {
+    let running = header_of("bash", "running");
+    let done = header_of("bash", "success");
+    let failed = header_of("bash", "error");
+    let unknown = header_of("bash", "weird");
+
+    assert!(running.contains('~'), "running 要有自己的形状:\n{running}");
+    assert!(done.contains('✓'), "done 要有自己的形状:\n{done}");
+    assert!(failed.contains('✗'), "failed 要有自己的形状:\n{failed}");
+    assert!(
+        unknown.contains('?'),
+        "未知状态标 ?（不编造状态）:\n{unknown}"
+    );
+    // 无颜色时三态卡头两两文本可分——两个态共用同一卡头即 NO_COLOR 下不可辨。
+    assert_ne!(running, done, "running/done 卡头要文本可分");
+    assert_ne!(done, failed, "done/failed 卡头要文本可分");
+    assert_ne!(running, failed, "running/failed 卡头要文本可分");
+}
+
+/// T22：未知 kind 必须回落到既定字形（catches a match arm miss：新工具
+/// kind 或历史落库的未识别字符串没有表项——字形位渲染成空串或 panic；
+/// 契约是任意 kind 回落通用品形 ⚙，且已知 kind 不退回兜底）。
+#[test]
+fn unknown_kind_falls_back() {
+    for kind in ["tool", "mystery_tool", "", "BASH"] {
+        let header = header_of(kind, "success");
+        assert!(
+            header.contains('⚙'),
+            "kind {kind:?} 要回落到通用品形:\n{header}"
+        );
+        if !kind.is_empty() {
+            assert!(header.contains(kind), "kind 文本本身仍要显示:\n{header}");
+        }
+    }
+    // 已知 kind 各走自己的字形（表项逐条钉，一条回归一条红）。
+    let table = [
+        ("bash", '$'),
+        ("job", '&'),
+        ("terminal", '⌗'),
+        ("read", '≡'),
+        ("write", '⇓'),
+        ("edit", '✎'),
+        ("delete", '⌫'),
+        ("grep", '⌕'),
+        ("glob", '⌕'),
+        ("subagent", '↗'),
+    ];
+    for (kind, glyph) in table {
+        let header = header_of(kind, "running");
+        assert!(
+            header.contains(glyph),
+            "kind {kind} 要用自己的字形 {glyph}:\n{header}"
+        );
+    }
+}
+
+/// T22：字形不得改变行数（catches a multi-cell glyph：宽字形让 `lines`
+/// 多出行而 `rows` 仍按旧口径计数——窗口化 transcript 总行数与物化行数
+/// 分叉，滚动与画面失同步；修法是全单格字形 + 计数/物化同源）。
+#[test]
+fn glyphs_do_not_change_row_count() {
+    let kinds = [
+        "bash",
+        "job",
+        "terminal",
+        "read",
+        "write",
+        "edit",
+        "delete",
+        "grep",
+        "glob",
+        "subagent",
+        "tool",
+        "mystery_kind",
+    ];
+    let statuses = ["running", "success", "error", "weird"];
+    let details: Vec<String> = vec![
+        String::new(),
+        "file1\nfile2".to_string(),
+        (0..20)
+            .map(|i| format!("line-{i:02}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ];
+    for kind in kinds {
+        for status in statuses {
+            for detail in &details {
+                let card = tc(kind, status, "cmd title", detail);
+                for (expanded, width) in [
+                    (false, 80usize),
+                    (true, 80),
+                    (false, 44),
+                    (true, 44),
+                    (false, 12),
+                    (true, 12),
+                ] {
+                    let lines = ui::tool_card::lines(&card, expanded, width);
+                    assert_eq!(
+                        ui::tool_card::rows(&card, expanded, width),
+                        lines.len(),
+                        "kind {kind} status {status} expanded {expanded} width {width}: \
+                         rows/lines 分叉"
+                    );
+                }
+            }
+        }
+    }
 }

@@ -5,6 +5,8 @@
 //! 自己断行，行数可数 → 底部对齐只需截尾，不依赖 Paragraph wrap 的不可见
 //! 行数。模型内容先过 [`sanitize`]：裸控制字节不许进 cell（同 linear 零
 //! ESC 约束）。
+//! 思考块（`reasoning`，T21）经 [`super::thinking`] 在该消息的文本/工具 part
+//! **之前**出，计数与物化同源（分叉由 `tests/transcript_window.rs` 钉）。
 //!
 //! **T6 窗口化**：渲染不再物化全部历史行——第一遍 [`total_lines`] 只
 //! **计数**（与物化共用 [`wrap_with`] 同一断行核心，历史行不生成
@@ -53,20 +55,29 @@ pub(super) fn total_lines(app: &App, width: u16) -> usize {
 /// 一条消息的行数（与 [`push_message`] 逐分支同源，分叉即测试红）。行数的
 /// **单一出处**：渲染侧 [`total_lines`] / [`window`] 与检索侧
 /// [`crate::ui::search_overlay::line_offset`] 同吃本函数，两边不可能各数各的。
+/// T21：思考块行数先经 [`super::thinking::rows`]（在文本/工具 part 之前，
+/// 与 [`push_message`] 物化侧同序）。
 pub(super) fn message_rows(msg: &ChatMessage, tools_expanded: bool, width: usize) -> usize {
     if msg.role == "user" {
         return count_wrapped(&msg.content, width, "❯ ");
     }
+    // T21：思考块（reasoning）在文本/工具 part 之前出——parts 空与非空
+    // 两个分支都算。历史回填消息 reasoning 为空，`thinking::rows` 对它
+    // 归 0 是零虚构契约（不出裸卡头）。
+    let mut rows = super::thinking::rows(&msg.reasoning, width);
     if msg.parts.is_empty() {
-        return count_wrapped(&msg.content, width, "");
+        rows += count_wrapped(&msg.content, width, "");
+        return rows;
     }
-    msg.parts
+    rows += msg
+        .parts
         .iter()
         .map(|part| match part {
             MessagePart::Text(text) => count_wrapped(text, width, ""),
             MessagePart::Tool(tc) => super::tool_card::rows(tc, tools_expanded, width),
         })
-        .sum()
+        .sum::<usize>();
+    rows
 }
 
 /// 可见窗口的行（第二遍）：只物化与 `[top, top + height)` 相交的消息，
@@ -106,6 +117,9 @@ fn push_message(out: &mut Vec<Line<'static>>, app: &App, msg: &ChatMessage, widt
         push_wrapped(out, &msg.content, width, "❯ ", theme::brand_bold());
         return;
     }
+    // T21：思考块在文本/工具 part 之前（与 message_rows 逐分支同序——计数
+    // 侧与物化侧分叉即测试红）。
+    out.extend(super::thinking::lines(&msg.reasoning, width));
     if msg.parts.is_empty() {
         push_wrapped(out, &msg.content, width, "", theme::base());
         return;

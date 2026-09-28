@@ -59,6 +59,17 @@ impl Scheme {
             // danger：亮底上 LightRed 太浅，换深红保住可读性。
             (Scheme::Dark, Role::Danger) => Color::LightRed,
             (Scheme::Light, Role::Danger) => Color::Red,
+            // border：面板与卡的轮廓。暗底用 DarkGray 免得抢正文；亮底
+            // DarkGray 几乎看不见（同 dim 档的既有事故），改中灰。
+            (Scheme::Dark, Role::Border) => Color::DarkGray,
+            (Scheme::Light, Role::Border) => Color::Gray,
+            // success：工具成功的终局绿。亮底上 LightGreen 太浅，换深绿。
+            (Scheme::Dark, Role::Success) => Color::LightGreen,
+            (Scheme::Light, Role::Success) => Color::Green,
+            // warn：折叠提示、需要留意但不是错误。暗底 Yellow 够亮；亮底
+            // Yellow 在白底上基本消失 → 深黄。
+            (Scheme::Dark, Role::Warn) => Color::LightYellow,
+            (Scheme::Light, Role::Warn) => Color::Yellow,
         }
     }
 }
@@ -69,6 +80,24 @@ enum Role {
     Brand,
     Dim,
     Danger,
+    Border,
+    Success,
+    Warn,
+}
+
+/// 面板与卡的轮廓色。比 dim 更冷一档，浅色终端上仍与正文分得开。
+pub fn border() -> Style {
+    Style::default().fg(color(Role::Border))
+}
+
+/// 成功终局：工具跑完、任务 Done。刻意与 danger 成对，失败面一眼可分。
+pub fn success() -> Style {
+    Style::default().fg(color(Role::Success))
+}
+
+/// 需要留意但不是错误：折叠提示、行数截断、被跳过的工具。
+pub fn warn() -> Style {
+    Style::default().fg(color(Role::Warn))
 }
 
 /// 进程级活跃方案槽（`AtomicU8`：值 = [`Scheme::ALL`] 下标 + 1，0 = 未

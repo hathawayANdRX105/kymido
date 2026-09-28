@@ -11,13 +11,18 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use super::panel_block;
 use crate::app::App;
 use crate::theme;
 
 /// 画候选到 `area`（行数由 `areas` 裁好：0 行 = 面板关闭，直接返回；
-/// 无命中给 1 行提示，行数超出则截尾）。
+/// 无命中给 1 行提示，行数超出则截尾）。T20：外层套 2 行边框（`panel_block`
+/// 圆角 + 标题，与另三个浮动面板同族），内容画进 `block.inner(area)`。
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
-    if area.height == 0 {
+    // T20：area 短于边框（高 ≤ 2）或宽为 0 → 不画任何东西直接返回（小屏上
+    // composer / dock 抢行会真实产出这些 area；边框 + 退化 area 是渲染路径的
+    // panic 类）。
+    if area.width == 0 || area.height <= 2 {
         return;
     }
     let selected = app.slash_selected();
@@ -30,7 +35,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             let highlighted = selected.is_some_and(|sel| sel.name == cmd.name);
             lines.push(Line::from(vec![
                 Span::styled(
-                    if highlighted { "> " } else { "  " }.to_string(),
+                    if highlighted { "❯ " } else { "  " }.to_string(),
                     theme::brand_bold(),
                 ),
                 Span::styled(
@@ -45,6 +50,9 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             ]));
         }
     }
-    lines.truncate(area.height as usize);
-    frame.render_widget(Paragraph::new(lines), area);
+    let block = panel_block("commands");
+    let inner = block.inner(area);
+    lines.truncate(inner.height as usize);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(lines), inner);
 }

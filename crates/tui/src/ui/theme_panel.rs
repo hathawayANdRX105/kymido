@@ -11,12 +11,15 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use super::panel_block;
 use crate::app::App;
 use crate::theme::{self, Scheme};
 
-/// 画方案候选到 `area`（0 行 = 面板关闭，直接返回；超出则截尾）。
+/// 画方案候选到 `area`（0 行 = 面板关闭，直接返回；超出则截尾）。T20：外层套
+/// 2 行边框（`panel_block` 圆角 + 标题，与另三个浮动面板同族），内容画进
+/// `block.inner(area)`。
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
-    if area.height == 0 || !app.theme_panel_open() {
+    if !app.theme_panel_open() || area.width == 0 || area.height <= 2 {
         return;
     }
     let selected = app.theme_scheme_selected();
@@ -25,7 +28,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         let highlighted = selected == Some(scheme);
         let mut spans = vec![
             Span::styled(
-                if highlighted { "> " } else { "  " }.to_string(),
+                if highlighted { "❯ " } else { "  " }.to_string(),
                 theme::brand_bold(),
             ),
             Span::styled(
@@ -42,6 +45,9 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         }
         lines.push(Line::from(spans));
     }
-    lines.truncate(area.height as usize);
-    frame.render_widget(Paragraph::new(lines), area);
+    let block = panel_block("theme");
+    let inner = block.inner(area);
+    lines.truncate(inner.height as usize);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(lines), inner);
 }

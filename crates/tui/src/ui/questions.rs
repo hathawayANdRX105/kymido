@@ -17,6 +17,7 @@ use web_client::QuestionItem;
 
 use crate::theme;
 
+use super::panel_block;
 use super::transcript::sanitize;
 
 /// 一次数字键回答的出站请求：原问题 `question_id` + `choice`（选项下标，
@@ -64,9 +65,9 @@ impl QuestionPanel {
         self.pending.first()
     }
 
-    /// 面板行数：1 行题干 + N 行选项 + 1 行批次进度；无题 = 0。
+    /// 面板行数：1 行题干 + N 行选项 + 1 行批次进度 + 2 行边框（T20）；无题 = 0。
     pub fn rows(&self) -> u16 {
-        self.current().map_or(0, |q| (q.options.len() + 2) as u16)
+        self.current().map_or(0, |q| (q.options.len() + 4) as u16)
     }
 
     /// 数字键 → 出站回答；面板空 / 非数字 / 越界 → `None`（调用方按
@@ -87,11 +88,19 @@ impl QuestionPanel {
         self.pending.retain(|q| q.id != question_id);
     }
 
-    /// 渲染到 `area`（行数 = [`Self::rows`]；超宽文本由 Paragraph 按列裁）。
+    /// 渲染到 `area`（行数 = [`Self::rows`]，含边框；超宽文本由 Paragraph 按列裁）。
+    /// T20：area 短于边框（高 ≤ 2）或宽为 0 时不画任何东西直接返回——小屏上
+    /// composer / dock 抢行会真实产出这些 area；边框 + 退化 area 索引 inner 是
+    /// 渲染路径的 panic 类。
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let Some(question) = self.current() else {
             return;
         };
+        if area.width == 0 || area.height <= 2 {
+            return;
+        }
+        let block = panel_block("question");
+        let inner = block.inner(area);
         let mut lines = Vec::with_capacity(question.options.len() + 2);
         lines.push(Line::styled(
             format!("? {}", flat(&question.summary)),
@@ -109,7 +118,9 @@ impl QuestionPanel {
             format!("question {}/{}", 1, self.pending.len()),
             theme::dim(),
         ));
-        frame.render_widget(Paragraph::new(lines), area);
+        lines.truncate(inner.height as usize);
+        frame.render_widget(block, area);
+        frame.render_widget(Paragraph::new(lines), inner);
     }
 }
 

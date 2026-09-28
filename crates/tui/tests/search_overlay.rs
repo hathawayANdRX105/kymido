@@ -292,7 +292,11 @@ fn ctrl_r_and_slash_search_open_the_same_overlay() {
     let mut via_ctrl = App::new();
     via_ctrl.handle_key(ctrl('r'));
     assert!(via_ctrl.search_open(), "Ctrl+R 打开 overlay");
-    assert_eq!(via_ctrl.search_rows(), search::OVERLAY_ROWS, "占 3 行");
+    assert_eq!(
+        via_ctrl.search_rows(),
+        search::OVERLAY_ROWS + 2,
+        "内容 3 行 + T20 边框 2 行"
+    );
     assert!(via_ctrl.search_state().saved_viewport().is_some());
     assert!(!via_ctrl.confirm_quit(), "开 overlay 顺带撤掉未决退出确认");
 
@@ -314,7 +318,7 @@ fn ctrl_r_and_slash_search_open_the_same_overlay() {
         via_command.take_intent().is_none(),
         "开 overlay 是本地动作，不入意图队列"
     );
-    assert_eq!(via_command.search_rows(), search::OVERLAY_ROWS);
+    assert_eq!(via_command.search_rows(), search::OVERLAY_ROWS + 2);
 
     // 两入口落到同一状态（同源：open_search）。
     assert_eq!(
@@ -477,10 +481,29 @@ fn jump_positions_and_highlights_hit_line() {
         "a needle in the haystack".to_string(),
     )]);
     let shown = screen(&app);
-    assert!(shown.contains("> needle"), "查询行上屏:\n{shown}");
+    assert!(shown.contains("❯ needle"), "查询行上屏:\n{shown}");
     assert!(shown.contains("1 matches"), "状态行计数上屏:\n{shown}");
     assert!(
         shown.contains("enter next · shift+enter prev · esc restore"),
         "按键提示上屏:\n{shown}"
+    );
+}
+
+/// T20：`search_rows()` = 内容 `search::OVERLAY_ROWS` + 2 行边框。守的回归：
+/// 画了边框但让行数没长，`ui::areas` 就少让 2 行给 overlay，状态行（末条
+/// 内容行）被截出屏。
+#[test]
+fn bordered_search_overlay_rows_include_border() {
+    let mut app = App::new();
+    app.handle_key(ctrl('r'));
+    assert_eq!(
+        app.search_rows(),
+        search::OVERLAY_ROWS + 2,
+        "内容 3 行 + 边框 2 行"
+    );
+    let shown = screen(&app);
+    assert!(
+        shown.contains("type to search"),
+        "状态行不许被 overlay 行预算截掉：\n{shown}"
     );
 }
