@@ -725,7 +725,7 @@ fn drive(
                         match app.handle_key(key) {
                             KeyAction::Quit => break,
                             KeyAction::Abort => {
-                                client.abort_worker().map_err(client_error)?;
+                                client.abort_worker(sid).map_err(client_error)?;
                             }
                             KeyAction::None => {}
                         }

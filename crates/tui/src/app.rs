@@ -2055,7 +2055,7 @@ fn event_loop(
                         KeyAction::Quit => break,
                         KeyAction::Abort => {
                             app.set_status("aborting turn");
-                            client.abort_worker().map_err(client_error)?;
+                            client.abort_worker(&sid).map_err(client_error)?;
                         }
                         KeyAction::None => {}
                     }
