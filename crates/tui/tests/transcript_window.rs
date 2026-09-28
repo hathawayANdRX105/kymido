@@ -350,12 +350,12 @@ fn emoji_and_combining_marks_count_as_display_cells() {
         let drawn = screen_at(&app, width, 30);
         let rows = drawn
             .lines()
-            .filter(|l| l.contains('🙂') || l.contains('\u{301}'))
+            .filter(|l| l.contains('🙂') || l.contains('é') || l.contains('\u{301}'))
             .count();
         assert_eq!(
             rows,
             app.viewport().total(),
-            "width {width}: emoji/组合符行的实际行数与模型计数脱节"
+            "width {width}: emoji/组合符行的实际行数与模型计数脱节\n{drawn}"
         );
     }
 }
