@@ -235,3 +235,30 @@ fn panel_selects_apply_and_cancel_is_noop() {
     assert_eq!(theme::active(), Scheme::Light, "apply must switch");
     theme::set_active(Scheme::Dark);
 }
+/// T19：新增的 `Border` / `Success` / `Warn` 三个角色必须两档都给色，且
+/// 每档取不同色。
+///
+/// 缺臂是编译期错误（`Scheme::color` 的 match 穷尽），所以这条真正防的是
+/// 另两种事故：新角色两档**同色**——在某一档上直接不可读（`Dim` 档踩过
+/// DarkGray 在亮底看不见的老坑）；以及某一档随手抄了另一档的值。
+#[test]
+fn new_roles_differ_between_schemes() {
+    theme::set_active(Scheme::Dark);
+    let dark = (theme::border().fg, theme::success().fg, theme::warn().fg);
+    theme::set_active(Scheme::Light);
+    let light = (theme::border().fg, theme::success().fg, theme::warn().fg);
+    theme::set_active(Scheme::Dark);
+
+    for (role, dark_fg, light_fg) in [
+        ("border", dark.0, light.0),
+        ("success", dark.1, light.1),
+        ("warn", dark.2, light.2),
+    ] {
+        assert!(dark_fg.is_some(), "{role} must have a colour in dark");
+        assert!(light_fg.is_some(), "{role} must have a colour in light");
+        assert_ne!(
+            dark_fg, light_fg,
+            "{role} must differ between schemes or it is unreadable on one"
+        );
+    }
+}
