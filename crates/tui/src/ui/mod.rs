@@ -7,6 +7,7 @@
 //! 样式全部来自 `crate::theme`（D11）：本目录不构造 `Color`，只消费语义 token。
 
 mod composer;
+pub mod diff;
 mod dock;
 pub mod footer;
 mod layout;
