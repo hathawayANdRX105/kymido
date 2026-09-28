@@ -64,48 +64,64 @@ data_dir = "./.kymido"
 # 有 active 路由时模型以路由为准，这个值只兜底。必须非空（缺省 "default"）。
 model = "default"
 
-# MCP 外部工具服务器：每个 spawn 一个子进程（stdio）或连 streamable-HTTP，
+# MCP 外部工具服务器：spawn 一个子进程（stdio）或连 streamable-HTTP，
 # 握手成功后工具并入 orbit 引擎（按 name 命名空间前缀）。
 # transport 字段（name/command/url）在合并边界 trim；解析不了的行保留原文不动。
-#
-# [[mcp.servers]]
-# name = "codegraph"
-# command = "npx"
-# args = ["-y", "codegraph-mcp"]
-# # env = { FOO = "bar" }
-#
-# [[mcp.servers]]
-# name = "remote-tools"
-# url = "http://127.0.0.1:8081/mcp"
+[[mcp.servers]]
+name = "codegraph"
+command = "npx"
+args = ["-y", "codegraph-mcp"]
+env = { FOO = "bar" }
+# 子进程工作目录；缺省 = 继承 daemon/CLI 进程 cwd。
+cwd = "."
+# 每次工具调用超时（ms）；缺省 = crate 默认。
+tool_call_timeout_ms = 60000
+# 重连策略（指数退避 + 熔断）；整段缺省 = 500ms → 30s、10 次。
+[mcp.servers.reconnect]
+initial_delay_ms = 500
+max_delay_ms = 30000
+max_attempts = 10
+
+[[mcp.servers]]
+name = "remote-tools"
+# HTTP 端点（streamable-HTTP 传输；与 command 二选一）。
+url = "http://127.0.0.1:8081/mcp"
+# 启动握手失败的服务器：true = 中止整个 MCP bring-up（而非跳过该 server）；
+# 缺省 false = 跳过 + 日志。
+fail_on_startup_error = true
 
 # 本地持久记忆：缺省关。开了才往 memory 目录（缺省 data_dir/memory）写盘。
-# [memory]
-# enabled = false
-# dir = "./.kymido/memory"
+[memory]
+enabled = false
+dir = "./.kymido/memory"
 
 # daemon 会话旋钮。
-# [daemon]
-# # AGENTS.md 发现根；缺省 = daemon 启动目录（不是默认值兜底，是真实 cwd）。
-# cwd = "."
-# # 每轮 LLM 往返上限；缺省 orbit 自己的默认值。
-# max_turns = 64
+[daemon]
+# AGENTS.md 发现根；缺省 = daemon 启动目录（不是默认值兜底，是真实 cwd）。
+cwd = "."
+# 每轮 LLM 往返上限；缺省 orbit 自己的默认值。
+max_turns = 64
 
 # 进程外子代理（ACP 子进程）：daemon 可把 run 委派给它。
 # name 不得与内置 "fork" 撞名；permission 控制客户端如何自动应答子进程的
-# 授权询问（prompt 缺省 = 透传给人）。
-# [[subagent.providers]]
-# name = "acp-remote"
-# command = "acp-agent"
-# args = []
-# env = {}
-# permission = "prompt"
-# # 拆除宽限（缺省 3000ms / 6000ms，毫秒）
-# dispose_grace_ms = 3000
-# dispose_eof_grace_ms = 6000
+# 授权询问（合法值只有 "allow" / "reject"，缺省 reject = 一律拒）。
+[[subagent.providers]]
+name = "acp-remote"
+# 要 spawn 的子代理可执行（必填；裸命令名走 PATH）。
+command = "acp-agent"
+args = []
+env = {}
+# 子进程 cwd；整行缺省 = 继承 daemon 会话 cwd。
+# cwd = "."
+permission = "reject"
+# 拆除宽限（毫秒）：SIGKILL 后收割窗口（缺省 3000）/ stdin-EOF 静默窗口（缺省 6000）。
+dispose_grace_ms = 3000
+dispose_eof_grace_ms = 6000
 
-# TUI 旋钮（缺省全关/默认主题；整段可删）。
-# [tui]
-# # "dark" / "light"；缺省 dark。
-# theme = "dark"
-# # 长回合批次完成时发 OSC9 终端通知（缺省 false）。
-# notify_osc9 = false
+# TUI 旋钮（整段可删，删了全走缺省）。
+[tui]
+# 配色方案，"dark" / "light"；配置层照实读不校验，写了不认识的方案名
+# TUI 侧回落 dark（缺省 dark）。
+theme = "dark"
+# 长回合批次完成时发 OSC9 终端通知（缺省 false = 只响铃）。
+notify_osc9 = false
