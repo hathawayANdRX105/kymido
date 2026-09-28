@@ -982,6 +982,20 @@ fn connection_read_loop(
             return Ok(());
         }
 
+        // `daemon.ping` is answered BEFORE taking the worker lock too: the web
+        // page's 2s-capped health probe must stay fast even while an in-flight
+        // `prompt` holds the worker lock for its whole turn — queueing ping
+        // behind the lock makes every page time out and fall back to the
+        // `Disconnected`/empty state. The `dispatch` Ping arm stays as a
+        // fallback; keep both payload shapes in sync.
+        if matches!(req.command, crate::protocol::Command::Ping) {
+            let resp = Response::ok(req.id.as_deref(), serde_json::json!({ "pong": true }));
+            if out.send(serde_json::to_string(&resp)?).is_err() {
+                return Ok(()); // writer dead — connection effectively gone
+            }
+            continue; // one request per connection: next read hits EOF
+        }
+
         // S1: lock only this request's session handle for the duration of
         // the single request — other connections (other sessions) proceed
         // in parallel on their own handles. Session-less and omp-compat
