@@ -235,7 +235,6 @@ impl Daemon {
             section: Some(plan_section.clone()),
             review_port: Some(questions.review_port()),
         });
-        let plan_mode = plan_plugin.runtime().clone();
         let (fiber, plugins) = Self::assemble_plugins(&cfg, plan_plugin)?;
 
         let lock = InstanceLock::acquire(&socket_path)?;
@@ -263,7 +262,7 @@ impl Daemon {
         // tools don't exist for the daemon worker; omp peers have their own
         // external-tool registration path (task CLI).
         let orbit_setup = match cfg.orbit_model.as_ref() {
-            Some(model) => Some(Self::orbit_setup(&fiber, model, &cfg, &plan_mode)?),
+            Some(model) => Some(Self::orbit_setup(&fiber, model, &cfg)?),
             None => None,
         };
 
@@ -272,7 +271,16 @@ impl Daemon {
         // session id) serves session-less prompts; in omp-compat mode every
         // request routes to it, so a single external worker process is
         // never multiplied.
-        let workers = Arc::new(SessionRegistry::new(cfg.omp_path.clone(), orbit_setup));
+        // S5: the registry re-binds the per-session stateful faces (plan
+        // runtime + session `exit_plan_mode` + scoped review port) at
+        // handle creation; `plan_section` is the policy text each session's
+        // closure injects while that session's plan mode is active.
+        let workers = Arc::new(SessionRegistry::new(
+            cfg.omp_path.clone(),
+            orbit_setup,
+            std::sync::Arc::clone(&questions),
+            plan_section,
+        ));
 
         // S3: attach bookkeeping + tree-gated unloading. The tick thread
         // starts below, next to the accept loop.
@@ -291,10 +299,16 @@ impl Daemon {
         {
             let bus = events.clone();
             questions.set_on_submit(move |item| {
-                let frame = crate::protocol::EventFrame::new(
+                // S5: stamp the submitting session so review cards route
+                // to the owning session view (legacy questions stamp
+                // nothing, mirroring the S2 event-frame rule).
+                let mut frame = crate::protocol::EventFrame::new(
                     USER_QUESTION_TOPIC,
                     serde_json::to_value(item).unwrap_or(serde_json::Value::Null),
                 );
+                if !item.session_id.is_empty() {
+                    frame = frame.with_session_id(&item.session_id);
+                }
                 if let Ok(line) = serde_json::to_string(&frame) {
                     bus.broadcast(USER_QUESTION_TOPIC, &line);
                 }
@@ -331,7 +345,6 @@ impl Daemon {
             next_conn: Arc::new(AtomicU64::new(1)),
             task_data_dir: daemon.task_data_dir.clone(),
             questions: Arc::clone(&questions),
-            plan_mode: plan_mode.clone(),
             attach: daemon.reaper.attach_tracker().clone(),
         })?;
         daemon.accept_thread = Some(accept_thread);
@@ -358,7 +371,6 @@ impl Daemon {
         fiber: &plugin::Fiber,
         model: &llm::Model,
         cfg: &DaemonConfig,
-        plan_mode: &plan_mode::PlanModeRuntime,
     ) -> Result<crate::rpc::worker::OrbitSetup, DaemonError> {
         let catalog = fiber
             .resolve::<tools::ToolCatalog>("harness.tools")
@@ -534,19 +546,12 @@ impl Daemon {
                     .push_back(msg);
             }));
         }
-        // plan:policy provider: the engine recomputes the system prompt per
-        // turn, so flipping plan mode mid-session takes effect on the next
-        // prompt. The closure returns "" while plan mode is off — the engine
-        // then falls back to its own default prompt build (see worker.rs).
-        let plan_section = cfg
-            .plan_policy_section
-            .clone()
-            .unwrap_or_else(|| DEFAULT_PLAN_POLICY_SECTION.to_string());
-        let plan_runtime = plan_mode.clone();
-        let plan_policy_section: Option<std::sync::Arc<dyn Fn() -> String + Send + Sync>> =
-            Some(std::sync::Arc::new(move || {
-                plan_runtime.plan_policy_section(&plan_section)
-            }));
+        // S5: the template no longer bakes a plan-policy closure — a
+        // daemon-wide runtime would leak plan state across sessions. The
+        // registry re-binds this face per session against that session's
+        // `ExecState` (plan runtime + scoped review port), so the template
+        // ships `None` and the per-session assembly supplies the closure.
+        let plan_policy_section: Option<std::sync::Arc<dyn Fn() -> String + Send + Sync>> = None;
         Ok(crate::rpc::worker::OrbitSetup {
             model: model.clone(),
             backend,
@@ -822,7 +827,6 @@ struct AcceptLoopCtx {
     next_conn: Arc<AtomicU64>,
     task_data_dir: PathBuf,
     questions: Arc<crate::questions::QuestionBroker>,
-    plan_mode: plan_mode::PlanModeRuntime,
     attach: AttachTracker,
 }
 
@@ -842,7 +846,6 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 next_conn,
                 task_data_dir,
                 questions,
-                plan_mode,
                 attach,
             } = ctx;
             // We poll the shutdown flag between accepts and use a short
@@ -863,7 +866,6 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 let conn_id = next_conn.fetch_add(1, Ordering::Relaxed);
                 let task_data_dir = task_data_dir.clone();
                 let questions = Arc::clone(&questions);
-                let plan_mode = plan_mode.clone();
                 thread::spawn(move || {
                     if let Err(e) = handle_connection(
                         conn,
@@ -877,7 +879,6 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                         conn_id,
                         task_data_dir,
                         &questions,
-                        &plan_mode,
                     ) {
                         eprintln!("daemon: connection error: {e}");
                     }
@@ -901,7 +902,6 @@ fn handle_connection(
     conn_id: u64,
     task_data_dir: PathBuf,
     questions: &Arc<crate::questions::QuestionBroker>,
-    plan_mode: &plan_mode::PlanModeRuntime,
 ) -> Result<(), DaemonError> {
     // R2 3.3: responses and pushed events share one write channel drained by
     // a dedicated writer thread, so a subscribed connection can receive
@@ -931,7 +931,6 @@ fn handle_connection(
         &task_data_dir,
         &out,
         questions,
-        plan_mode,
     );
     // Teardown: stop pushes, wake the writer thread, let queued frames flush.
     events.remove_conn(conn_id);
@@ -960,7 +959,6 @@ fn connection_read_loop(
     task_data_dir: &std::path::Path,
     out: &std::sync::mpsc::Sender<String>,
     questions: &Arc<crate::questions::QuestionBroker>,
-    plan_mode: &plan_mode::PlanModeRuntime,
 ) -> Result<(), DaemonError> {
     // S1: this connection's most recent explicitly targeted session — the
     // default for steer/abort requests that carry no `session_id`.
@@ -1047,7 +1045,6 @@ fn connection_read_loop(
                 out: out.clone(),
                 task_data_dir: task_data_dir.to_path_buf(),
                 questions: Arc::clone(questions),
-                plan_mode: plan_mode.clone(),
             };
             crate::dispatch::dispatch(&mut ctx, req)
         });

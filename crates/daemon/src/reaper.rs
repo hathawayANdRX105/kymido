@@ -268,7 +268,12 @@ mod tests {
         );
         let runs =
             RunLedger::open_for_socket(&dir.path().join("daemon.sock")).expect("open ledger");
-        let registry = SessionRegistry::new("/nonexistent/omp".into(), Some(stub_setup()));
+        let registry = SessionRegistry::new(
+            "/nonexistent/omp".into(),
+            Some(stub_setup()),
+            std::sync::Arc::new(crate::questions::QuestionBroker::new()),
+            String::new(),
+        );
         let reaper = SessionReaper::new(
             registry.clone(),
             AttachTracker::new(),
