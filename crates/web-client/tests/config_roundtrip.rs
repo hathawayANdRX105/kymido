@@ -213,7 +213,7 @@ fn save_creates_a_missing_data_dir() {
     let nested = sb.path().join("deep/nested/.kymido");
     assert!(!nested.exists(), "前置条件：目标目录尚不存在");
 
-    let cfg = make_cfg(
+    let mut cfg = make_cfg(
         "http://localhost:3182",
         "sk-mkdir",
         "m",
@@ -221,6 +221,10 @@ fn save_creates_a_missing_data_dir() {
         "local",
         "local/m",
     );
+    // 用例要点：data_dir 指向一个尚不存在的深层路径，save_to_file 得把
+    // 整条目录链建出来。make_cfg 默认是 "./.kymido"（扁平、CWD 相对），
+    // 这里改成相对 CWD 的嵌套路径，nested 即其落盘位置。
+    cfg.data_dir = "deep/nested/.kymido".to_string();
     cfg.save_to_file()
         .expect("保存 config 到不存在的目录应自动建目录");
     assert!(nested.join("config.toml").is_file());
