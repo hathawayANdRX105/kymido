@@ -228,13 +228,14 @@ fn tool_names_and_specs_are_wired() {
 
 #[test]
 fn session_tools_registrates_every_tool() {
-    use tools::jobs_terminal::{SESSION_TOOL_NAMES, session_tools};
+    use tools::jobs_terminal::{session_tool_names, session_tools};
 
     let jobs = Arc::new(LocalJobRegistry::new());
     let terminals = Arc::new(TerminalRegistry::new());
     let tools = session_tools(jobs, terminals);
-    assert_eq!(tools.len(), SESSION_TOOL_NAMES.len());
-    for (tool, name) in tools.iter().zip(SESSION_TOOL_NAMES.iter()) {
+    let names = session_tool_names();
+    assert_eq!(tools.len(), names.len());
+    for (tool, name) in tools.iter().zip(names.iter()) {
         assert_eq!(tool.name(), *name);
     }
 }

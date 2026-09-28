@@ -377,9 +377,9 @@ pub fn combined_tools(
 /// kymido 自家引擎（KYMIDO_WORKER_MODE=orbit）：进程内跑 orbit agent
 /// 循环（C1 `run_agent_streaming`），把 protocol::events::AgentEvent 1:1 映射成
 /// [`WorkerEvent`]（词汇与 omp 转发层一致，下游零改动）。模型配置由
-/// DaemonConfig 从 `.kymido/config.toml` 的 llm 三件套解析后传入；cwd /
-/// max_turns / 压缩策略 / 工具集由宿主从装配容器解析后经
-/// [`OrbitSetup`] 传入。
+/// DaemonConfig 从 `providers.toml` 的 active 路由（provider 凭据 + model
+/// 能力字段）解析后传入；cwd / max_turns / 压缩策略 / 工具集由宿主从装配
+/// 容器解析后经 [`OrbitSetup`] 传入。
 struct OrbitEngine {
     model: llm::Model,
     backend: std::sync::Arc<dyn agent_loop::orbit::LlmBackend + Send + Sync>,

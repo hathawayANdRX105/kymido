@@ -110,7 +110,9 @@ pub struct WorkspaceSpace {
 // ── Status line ─────────────────────────────────────────────────────────────
 
 /// 模型上下文上限的中性默认值（原 mock fixture 也是 128k，保持一致）。
-/// 真实 per-model 上限还没有数据源（adaptor 侧未暴露），暂用该常量。
+/// T4 起真实 per-model 上限有数据源：providers.toml active 路由的 model 条目
+/// `context_window`（经 `LlmRuntimeConfig.context_max` 进 statusline）；本常量
+/// 只在未声明窗口的模型上作回落（展示层除以 0 的保护）。
 pub const DEFAULT_CONTEXT_MAX: u64 = 128_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -205,6 +205,8 @@ fn provider(addr: &str, name: &str) -> LlmProvider {
         model: name.to_string(),
         base_url: Some(addr.to_string()),
         max_tokens: None,
+        context_window: None,
+        input: Vec::new(),
     }
 }
 
@@ -220,6 +222,8 @@ fn run_once(backend: &dyn LlmBackend) -> Vec<StreamEvent> {
             model: "mock".into(),
             base_url: None,
             max_tokens: None,
+            context_window: None,
+            input: Vec::new(),
         },
         &ctx,
         &[],

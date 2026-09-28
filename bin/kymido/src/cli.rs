@@ -96,7 +96,7 @@ enum Command {
         #[command(subcommand)]
         sub: DaemonCmd,
     },
-    /// Boot/bundle profiles: prewritten `.kymido/config.toml` starting points.
+    /// Boot/bundle profiles: prewritten `.kymido/config.toml` + `.kymido/providers.toml` starting points.
     Profile {
         #[command(subcommand)]
         sub: ProfileCmd,
@@ -130,7 +130,7 @@ struct TuiCmd {
 enum ProfileCmd {
     /// List embedded profiles (boot / bundle).
     List,
-    /// Write a profile's config into `.kymido/config.toml` (never overwrites).
+    /// Write a profile into `.kymido/config.toml` + `.kymido/providers.toml` as a set (never overwrites).
     Apply { name: String },
 }
 

@@ -4,7 +4,7 @@
 //! TUI 启动会拿到空串 / panic —— 过期配置不该让终端前端起不来。
 //!
 //! `Config::load` 读进程 cwd 下的 `.kymido/config.toml`，所以这些测试不能并行
-//! （沿 `profile_status.rs` 的 `cwd_lock` 口径）。
+//! （同 `mcp_config_validate.rs` 的 `cwd_lock` 口径）。
 
 use std::sync::{LazyLock, Mutex, MutexGuard};
 

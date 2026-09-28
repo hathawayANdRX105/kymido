@@ -64,7 +64,7 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/chat.rs:28；dsh: kind→状态色映射'
   - key: statsline
     find: 'text-[12px] leading-5 text-label-3 text-center select-none'
-    expect: 'StatsLine 状态行 12/20 tertiary 居中：model · ↑in ↓out · $cost · context %。'
+    expect: 'StatsLine 状态行 12/20 tertiary 居中：model · ↑in ↓out · $cost · context %；单行 12px 居中，置于输入卡下方一行（ainnotation 波3 #4 由卡上方移到下方）。'
     source: 'omenic: crates/web-ui/src/components/chat.rs:151；dsh: StatsLine.module.css:8-16（center 12px/20px tertiary）'
   - key: composer-card
     find: 'rounded-[22px] border border-b1 bg-input-bg shadow-lv2'
@@ -72,8 +72,28 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/chat.rs:159；dsh: InputBar.module.css:56,85（border-radius: 22px）'
   - key: send-button
     find: 'w-[34px] h-[34px] rounded-full bg-brand'
-    expect: '发送钮 34px 圆形 bg-brand（#679efe），流式时 disabled 半透明。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:214；dsh: InputBar.module.css:371-379（34px circle）'
+    expect: '静止态发送钮 34px 圆形 bg-brand（#679efe）；流式时同位换 28px 停止钮（stop-button / stop-button-spinner），无 disabled 态（ainnotation 波3 #3）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs 发送/停止钮段；dsh: InputBar.module.css:371-379（34px circle）'
+  - key: stop-button
+    find: 'w-[28px] h-[28px] rounded-full bg-brand'
+    expect: '运行态停止钮 28px 圆形 bg-brand（较旧 34px 小白方块更小更精致，ainnotation 波3 #3），is_streaming 时同位替换静止态发送钮。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs 发送/停止钮段；ainnotation 波3 #3'
+  - key: stop-button-spinner
+    find: 'Spinner { size: 14, class: "text-white" }'
+    expect: '运行态动态效果：ui-kit Spinner 14px animate-spin 描边环替代旧白色小方块，表达「正在跑」（ainnotation 波3 #3）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs 停止钮；ui-kit Spinner'
+  - key: picker-no-chevron
+    find: 'span { "{label}" }'
+    expect: '模型/思考 MenuPicker 触发钮体内仅 label span，无右侧 chevron 图标（ainnotation 波3 #1/#2 删除），点击展开不变。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs MenuPicker；ainnotation 波3 #1/#2'
+  - key: composer-click-outside
+    find: 'onclick: move |_| on_outside_tasks.call(())'
+    expect: '「点外关闭」事件委托：chat 列根节点收 click → 页面层关闭任务 dock（ainnotation 波3 #5）；面板内部与开合钮 stop_propagation 豁免。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs Chat 根节点；接线在 views/workspace.rs'
+  - key: task-toggle-guard
+    find: 'on_toggle_tasks.call(())'
+    expect: '任务看板开合钮保持纯 toggle 语义：stop_propagation 后调 on_toggle_tasks，点外关闭不抢该点击（ainnotation 波3 #5）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs composer 工具栏任务看板钮'
   - key: tool-button-28
     find: 'size: ButtonSize::IconSm'
     expect: 'composer 工具钮（看板/下拉触发）28px（ui-kit Button Ghost + IconSm，dsh 同款几何）。'

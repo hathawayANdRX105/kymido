@@ -76,6 +76,8 @@ fn message_reaches_a_running_subagent() {
                 model: "test".into(),
                 base_url: None,
                 max_tokens: Some(16),
+                context_window: None,
+                input: Vec::new(),
             },
             Arc::new(Vec::new()),
             4,

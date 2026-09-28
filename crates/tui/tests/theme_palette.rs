@@ -9,8 +9,10 @@
 //! 3. **切换顺手改了渲染文本**（linear 零 ESC 不变量）→
 //!    `switching_does_not_change_rendered_text`。
 //!
-//! 主题是进程级槽（`theme::set_active`），每个用例自己设回起点，测试间不留
-//! 脏状态（并行执行也安全——断言只依赖自己设的值）。
+//! 主题是进程级槽（`theme::set_active`），每个用例自己设回起点；但 libtest
+//! 并行跑用例时「自己设的值」会被别的用例中途改掉（CI 实测 `--test-threads`
+//! 2→4 后 `cancel must not switch: left Light right Dark` 稳定复现），所以
+//! 碰主题槽的用例一律先拿 `theme_guard()` 串行化。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kymido_tui::app::App;
@@ -83,6 +85,15 @@ fn open_theme_panel(app: &mut App) {
     app.handle_key(key(KeyCode::Enter)); // 第二段：执行 → 面板
 }
 
+/// 进程级主题槽的用例互斥：碰 `theme::set_active` 的用例开头拿锁，避免
+/// A 的切换撞进 B 的断言窗口（见文件头注释）。毒锁用 `into_inner` 吃掉
+/// ——一个用例失败不连坐其余用例。
+fn theme_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// 调色板单表收敛：全 `crates/tui/src` 里 `Color::` 只许出现在 `theme.rs`。
 ///
 /// 这是「切主题后某组件仍旧色」的结构性防线——组件一旦敢自己拿 `Color`，
@@ -127,6 +138,7 @@ fn palette_is_the_only_place_holding_colors() {
 /// 切不回来）。
 #[test]
 fn switching_changes_semantic_values() {
+    let _guard = theme_guard();
     theme::set_active(Scheme::Dark);
     let dark = (theme::brand().fg, theme::dim().fg, theme::danger().fg);
     theme::set_active(Scheme::Light);
@@ -153,6 +165,7 @@ fn switching_changes_semantic_values() {
 /// 默认（不 panic——过期配置不许让 TUI 起不来）。
 #[test]
 fn scheme_names_round_trip_and_unknown_falls_back() {
+    let _guard = theme_guard();
     for scheme in Scheme::ALL {
         assert_eq!(Scheme::from_name(scheme.name()), Some(scheme));
     }
@@ -164,6 +177,7 @@ fn scheme_names_round_trip_and_unknown_falls_back() {
 /// 切换后 enhanced 帧按新方案重绘（bug 本体：状态改了、画面没变）。
 #[test]
 fn switching_repaints_enhanced_frame() {
+    let _guard = theme_guard();
     theme::set_active(Scheme::Dark);
     let app = App::new();
     let dark = draw_styles(&app);
@@ -183,6 +197,7 @@ fn switching_repaints_enhanced_frame() {
 /// 切换只改颜色、不改任何字符（linear 零 ESC 不变量的同源口径）。
 #[test]
 fn switching_does_not_change_rendered_text() {
+    let _guard = theme_guard();
     theme::set_active(Scheme::Dark);
     let app = App::new();
     let dark = draw_text(&app);
@@ -199,6 +214,7 @@ fn switching_does_not_change_rendered_text() {
 /// 零改动；面板是模态（普通键不漏进 composer——bug 本体：面板开着还在打字）。
 #[test]
 fn panel_selects_apply_and_cancel_is_noop() {
+    let _guard = theme_guard();
     theme::set_active(Scheme::Dark);
     let mut app = App::new();
     assert!(!app.theme_panel_open(), "panel starts closed");
