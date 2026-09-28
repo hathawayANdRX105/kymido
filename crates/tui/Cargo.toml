@@ -21,6 +21,10 @@ ratatui = { workspace = true }
 # T23：断行按显示格宽算（`chars().count()` 把 CJK/emoji 算成 1 格，
 # 渲出来的行宽翻倍，计数侧与画面脱节 → 滚动模型整体错位）。
 unicode-width = { workspace = true }
+# T26/T27：markdown 解析（Text part）与统一 diff 解析（edit 类工具结果）。
+# 两者都已在 [workspace.dependencies]，锁文件里本就有，这里只是让 tui 合法直引。
+pulldown-cmark = { workspace = true }
+diffy = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
