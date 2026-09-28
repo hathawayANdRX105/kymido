@@ -7,8 +7,8 @@ use web_state::types::{ChatMessage, MessagePart, PendingAttachment, StatusLine, 
 
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    IconArrowUp, IconCheck, IconChevronDown, IconFolder, IconGear, IconMoon, IconPaperclip,
-    IconPlus, IconSearch, IconSquareCheck, IconTerminal, IconTrash,
+    IconArrowUp, IconCheck, IconFolder, IconGear, IconMoon, IconPaperclip, IconPlus, IconSearch,
+    IconSquareCheck, IconTerminal, IconTrash,
 };
 use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel, Spinner};
 
@@ -131,6 +131,10 @@ pub fn Chat(
     on_model_change: EventHandler<String>,
     on_toggle_thinking: EventHandler<()>,
     on_toggle_tasks: EventHandler<()>,
+    /// 任务 dock「点外关闭」：chat 列内（滚动区 / minimap / 座位空白等非
+    /// 面板区域）点击时触发。面板内部（TaskPanel 根）自行 stop_propagation
+    /// 豁免，开合钮亦已豁免（见下），保持 toggle 语义（ainotation 波3 #5）
+    on_outside_tasks: EventHandler<()>,
     /// 运行中点停止：中止当前 agent run
     on_abort: EventHandler<()>,
     /// T5 附件门：当前 active 模型是否声明 image 输入。false 时 composer 附件
@@ -215,7 +219,11 @@ pub fn Chat(
         .unwrap_or_default();
 
     rsx! {
+        // 「点外关闭」（ainnotation 波3 #5）：事件委托——本根收 chat 列内的
+        // click 并关闭任务看板；面板内部（TaskPanel 根）与任务看板开合钮
+        // 各自 stop_propagation 豁免，冒泡在豁免点被截断，故不会误关。
         div { class: "relative flex-1 min-h-0 overflow-hidden",
+            onclick: move |_| on_outside_tasks.call(()),
             // 单一滚动面板 = 整个聊天室
             div { class: "absolute inset-0 overflow-y-auto",
                 id: "chat-scroll",
@@ -274,14 +282,10 @@ pub fn Chat(
                 }
             }
 
-            // composer 悬浮座位：渐隐带 + 状态行 + dock + 输入卡
+            // composer 悬浮座位：渐隐带 + dock + 输入卡 + 状态行（状态行移到输入卡下方，ainnotation 波3）
             div { class: "absolute bottom-0 left-0 right-0 z-30 pointer-events-none",
                 div { class: "h-9 bg-gradient-to-t from-base to-transparent" }
                 div { class: "mx-auto w-full max-w-[780px] px-4 pb-2 flex flex-col items-center gap-2",
-                    // 状态行（dsh StatsLine：12/20 tertiary 居中）
-                    div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
-                        "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}"
-                    }
                     // dock 卡片（任务看板）
                     {dock}
                     // 用户问题卡（plan-mode review）：composer 上方、dock 之下。
@@ -419,7 +423,13 @@ pub fn Chat(
                                     variant: ButtonVariant::Ghost,
                                     size: ButtonSize::IconSm,
                                     title: "任务看板",
-                                    onclick: move |_| on_toggle_tasks.call(()),
+                                    // 点外关闭（ainnotation 波3）：开合钮保持纯 toggle 语义——
+                                    // stop_propagation 挡住页面级 click 委托，开→关 / 关→开
+                                    // 都由 on_toggle_tasks 自己完成
+                                    onclick: move |e: MouseEvent| {
+                                        e.stop_propagation();
+                                        on_toggle_tasks.call(());
+                                    },
                                     IconSquareCheck { size: 15 }
                                 }
                                 MenuPicker {
@@ -446,10 +456,13 @@ pub fn Chat(
                                 if is_streaming {
                                     button {
                                         r#type: "button",
-                                        class: "w-[34px] h-[34px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-colors border-none",
+                                        // 运行态停止钮（ainnotation 波3）：28px 小圆钮 + ui-kit Spinner
+                                        // （animate-spin 描边环）替代旧的 34px 白方块——更小更精致，
+                                        // 且动态表达"正在跑"
+                                        class: "w-[28px] h-[28px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-colors border-none",
                                         title: "停止",
                                         onclick: move |_| on_abort.call(()),
-                                        span { class: "w-3 h-3 rounded-[2px] bg-white" }
+                                        Spinner { size: 14, class: "text-white" }
                                     }
                                 } else {
                                     button {
@@ -471,6 +484,10 @@ pub fn Chat(
                                 }
                             }
                         }
+                    }
+                    // 状态行（dsh StatsLine：12/20 tertiary 居中）
+                    div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
+                        "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}"
                     }
                 }
             }
@@ -506,7 +523,6 @@ fn MenuPicker(
                     size: ButtonSize::Sm,
                     class: "{mono_class}",
                     span { "{label}" }
-                    IconChevronDown { size: 12, class: "text-muted-foreground" }
                 }
             },
             content: rsx! {

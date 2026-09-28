@@ -9,10 +9,14 @@ anchors:
     find: 'w-full rounded-2xl border border-binv bg-layer-2 shadow-lv2 overflow-hidden'
     expect: 'dock 卡 r16（rounded-2xl）、layer-2 底、lv2 阴影，宽度随父容器。'
     source: 'omenic: crates/web-ui/src/components/taskpanel.rs:37'
+  - key: panel-click-outside-exempt
+    find: 'onclick: move |e: MouseEvent| e.stop_propagation()'
+    expect: '面板内部根节点统一 stop_propagation：filter chip / 任务卡 / 关闭钮的点击不冒泡到 chat 根节点，「点外关闭」不误关自身（ainnotation 波3 #5）。'
+    source: 'omenic: crates/web-ui/src/components/taskpanel.rs TaskPanel 根节点；ainnotation 波3 #5'
   - key: width-follows-column
     file: crates/web-ui/src/components/chat.rs
     find: 'max-w-[780px] px-4 pb-2 flex flex-col items-center gap-2'
-    expect: 'dock 挂在 composer 悬浮列内，宽随消息列（max-w 780 之内），位于状态行与输入卡之间。'
+    expect: 'dock 挂在 composer 悬浮列内，宽随消息列（max-w 780 之内），位于问题卡与输入卡之上；状态行在输入卡下方一行（ainnotation 波3 #4）。'
     source: 'omenic: crates/web-ui/src/components/chat.rs:149（dock 座位）,155（{dock} 槽位）'
   - key: panel-header
     find: 'flex items-center justify-between pl-4 pr-2 py-1.5 border-b border-b1'
