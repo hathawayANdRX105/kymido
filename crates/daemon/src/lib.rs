@@ -30,7 +30,7 @@
 
 pub mod client;
 mod dispatch;
-mod exec_state;
+pub mod exec_state;
 pub mod lock;
 pub mod protocol;
 mod questions;
@@ -50,6 +50,7 @@ pub use questions::{
     AnswerError, QuestionAnswer, QuestionBroker, QuestionBrokerConfig, QuestionIntent,
     QuestionItem, QuestionOption, QuestionTicket,
 };
+pub use registry::SessionRegistry;
 pub use server::{Daemon, DaemonConfig};
 pub use session_query::SESSION_QUERY_NAME;
 pub use socket::SocketAddr;

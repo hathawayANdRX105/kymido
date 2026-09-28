@@ -148,7 +148,7 @@ impl WorkerHandle {
 
     /// This handle's orbit setup (S5: assembled per session by the
     /// registry — plan closure + session tools bound to this session's
-    #[cfg(test)]
+    /// execution state). `None` in omp-compat mode.
     pub fn setup(&self) -> &Option<crate::rpc::worker::OrbitSetup> {
         &self.orbit_setup
     }
@@ -164,7 +164,7 @@ impl WorkerHandle {
     /// forwards `WorkerEvent::AgentEnd`.  Closing on the ack would make every
     /// run look finished the instant it started.
     pub fn is_orbit(&self) -> bool {
-        self.orbit_setup.is_some()
+        self.setup().is_some()
     }
 
     /// PID of the underlying omp worker (0 if not yet spawned).
