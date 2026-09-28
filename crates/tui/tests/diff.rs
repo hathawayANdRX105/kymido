@@ -155,7 +155,9 @@ fn diff_gap_marker_inserted() {
         .collect();
     assert!(
         joined.contains("lines skipped"),
-        "大间隔必须插空隙标记:\n{joined}"
+        "大间隔必须插空隙标记\nlooks_like_diff={}\nlines={}\n{joined}",
+        diff::looks_like_diff(&far),
+        lines.len()
     );
     assert!(
         joined.contains("17 lines skipped"),
@@ -185,7 +187,15 @@ fn diff_row_cap() {
     let rows = diff::rows(&text, 80);
     let lines = diff::lines(&text, 80);
     assert_eq!(rows, lines.len(), "超限 diff 的 count/render 分叉");
-    assert!(rows < 400, "渲染 {rows} 行远超上限——截断没生效");
+    let joined: String = lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.to_string()))
+        .collect();
+    assert!(
+        rows < 400,
+        "渲染 {rows} 行远超上限——截断没生效\nlooks_like_diff={}\n{joined}",
+        diff::looks_like_diff(&text)
+    );
     let joined: String = lines
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.to_string()))
