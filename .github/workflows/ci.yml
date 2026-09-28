@@ -213,8 +213,9 @@ jobs:
       # T1 linear pipe smoke (route-tui §6): real daemon + one full turn over
       # a pipe — zero ESC bytes on stdout, exit 0; unknown --session = one-line
       # error, exit 2; then `session attach` proves the turn landed in the DB.
-      # LLM traffic goes to a throwaway SSE test server via KYMIDO_LLM_BASE_URL (same
-      # idea as plan_mode_e2e's MockOpenAi), so no API key is needed.
+      # LLM traffic goes to a throwaway SSE test server; credentials come from a
+      # workspace .kymido/providers.toml fixture whose row fields the KYMIDO_LLM_*
+      # env vars fill in (post-cutover, env alone can no longer mint credentials).
       - name: TUI linear pipe smoke
         run: |
           set -euo pipefail
@@ -267,6 +268,15 @@ jobs:
           }
           trap cleanup EXIT
 
+          # providers.toml fixture: the credential source is the active provider
+          # row; KYMIDO_LLM_* below only override its fields. Without the file the
+          # daemon would fall back to the omp worker and CI has no `omp` binary.
+          mkdir -p .kymido
+          cat > .kymido/providers.toml <<'TOML'
+          active = "smoke"
+
+          [providers.smoke]
+          TOML
           export KYMIDO_LLM_BASE_URL="http://127.0.0.1:18099"
           export KYMIDO_LLM_API_KEY="test-key"
           export KYMIDO_LLM_MODEL="test-model"
@@ -368,6 +378,15 @@ jobs:
           }
           trap cleanup EXIT
 
+          # Same providers.toml fixture as the pipe step above; the differing
+          # port is injected via KYMIDO_LLM_BASE_URL. mkdir -p + `cat >` is
+          # idempotent, so it is safe whether or not the pipe step ran first.
+          mkdir -p .kymido
+          cat > .kymido/providers.toml <<'TOML'
+          active = "smoke"
+
+          [providers.smoke]
+          TOML
           export KYMIDO_LLM_BASE_URL="http://127.0.0.1:18100"
           export KYMIDO_LLM_API_KEY="test-key"
           export KYMIDO_LLM_MODEL="test-model"

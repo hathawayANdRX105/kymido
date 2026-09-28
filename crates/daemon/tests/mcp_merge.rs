@@ -104,6 +104,8 @@ fn model() -> llm::Model {
         model: "test".into(),
         base_url: None,
         max_tokens: None,
+        context_window: None,
+        input: Vec::new(),
     }
 }
 

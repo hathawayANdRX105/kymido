@@ -26,6 +26,8 @@ fn orbit_model() -> llm::Model {
         // The engine is never prompted in these tests: no request is issued.
         base_url: Some("http://127.0.0.1:9".into()),
         max_tokens: Some(1024),
+        context_window: None,
+        input: Vec::new(),
     }
 }
 
@@ -87,15 +89,9 @@ fn from_config_carries_mcp_servers() {
         omp_path: "omp".into(),
         data_dir: dir.path().to_path_buf(),
         model: "omp-model".into(),
-        llm_api_key: None,
-        llm_base_url: None,
-        llm_model: None,
-        llm_max_tokens: None,
+        providers: config::ProvidersFile::default(),
         tui_notify_osc9: false,
         tui_theme: "dark".to_string(),
-        llm_fallbacks: Vec::new(),
-        llm_profiles: Vec::new(),
-        llm_active_profile: None,
         mcp_servers: Vec::new(),
         subagent_providers: Vec::new(),
         memory_enabled: false,

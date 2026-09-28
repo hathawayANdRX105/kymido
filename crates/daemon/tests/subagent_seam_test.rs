@@ -26,6 +26,8 @@ fn register_fork(service: &SubagentRuntimeService) {
         model: "test-model".into(),
         base_url: None,
         max_tokens: None,
+        context_window: None,
+        input: Vec::new(),
     };
     let backend: Arc<dyn LlmBackend + Send + Sync> = Arc::new(agent_loop::orbit::HttpLlm);
     let wanted = ["read_file", "grep", "glob"];
@@ -323,6 +325,8 @@ fn daemon_cfg_smoke(
             model: "subagent-smoke".into(),
             base_url: Some(mock.addr.clone()),
             max_tokens: Some(1024),
+            context_window: None,
+            input: Vec::new(),
         }),
         cwd: dir.to_path_buf(),
         max_turns,

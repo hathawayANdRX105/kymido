@@ -65,11 +65,12 @@ pub struct DaemonConfig {
     /// [`DaemonConfig::from_config`]). Their tools ride the orbit engine
     /// only — see [`Self::orbit_setup`]. Empty = nothing is spawned.
     pub mcp_servers: Vec<config::McpServerConfig>,
-    /// Fallback LLM providers tried in order after the primary `[llm]`
-    /// provider fails before emitting any content
-    /// (`.kymido/config.toml` `[[llm.fallbacks]]`). Empty = single-provider
-    /// behaviour (`agent_loop::orbit::HttpLlm`, historic path, zero change).
-    pub llm_fallbacks: Vec<config::LlmFallbackConfig>,
+    /// Waterfall fallback routes for the active provider, resolved at
+    /// daemon start (`providers.toml` provider-level `fallbacks`), tried
+    /// in listed order when the primary fails before emitting content.
+    /// Empty = single-provider behaviour (`agent_loop::orbit::HttpLlm`,
+    /// historic path, zero change).
+    pub llm_fallbacks: Vec<config::ResolvedLlm>,
     /// Out-of-process subagent providers (`[[subagent.providers]]` in
     /// `.kymido/config.toml`), each a spawned ACP child agent the daemon can
     /// delegate runs to. Wired in by [`DaemonConfig::from_config`]; empty =
@@ -81,13 +82,13 @@ pub struct DaemonConfig {
 }
 
 impl DaemonConfig {
-    /// llm 三件套（base_url/api_key/model）在 `.kymido/config.toml` 齐全时
-    /// 构建 orbit 模型配置——设置页写该文件即生效。
+    /// Active provider route（providers.toml）齐全时构建 orbit 模型配置——
+    /// 设置页 / providers.toml 改动即生效；能力字段（context_window /
+    /// input 模态）随凭据一起透传。
     fn resolve_orbit_model(cfg: &config::Config) -> Option<llm::Model> {
-        // `active_llm` picks the active profile, else the flat `[llm]`
-        // fields (which `Config::load` has already let `KYMIDO_LLM_*`
-        // override), and yields nothing when the chosen credential is
-        // incomplete.
+        // `active_llm` resolves the active route from `providers.toml`
+        // (provider credentials + the model entry's capability data) and
+        // yields nothing when the route is missing or unresolvable.
         let resolved = cfg.active_llm()?;
         let base = resolved.base_url.trim();
         let key = resolved.api_key.trim();
@@ -104,6 +105,8 @@ impl DaemonConfig {
             model: model.to_string(),
             base_url: Some(url),
             max_tokens: resolved.max_tokens,
+            context_window: resolved.context_window,
+            input: resolved.input,
         })
     }
 
@@ -113,12 +116,12 @@ impl DaemonConfig {
         let session_db_path = Some(cfg.session_db_path()?);
         let omp_path = cfg.omp_path.to_string_lossy().into_owned();
         let orbit_model = Self::resolve_orbit_model(cfg);
-        // A profile the user cannot select is invisible until a request
-        // fails, so say so at start instead. Ready profiles stay quiet —
+        // A provider the user cannot select is invisible until a request
+        // fails, so say so at start instead. Ready providers stay quiet —
         // the common case should not produce log noise.
-        for (name, status) in cfg.profile_statuses() {
+        for (name, status) in cfg.provider_statuses() {
             if !status.is_ready() {
-                eprintln!("daemon: llm profile `{name}` unusable: {status:?}");
+                eprintln!("daemon: provider `{name}` unusable: {status:?}");
             }
         }
         Ok(DaemonConfig {
@@ -132,7 +135,7 @@ impl DaemonConfig {
                 .max_turns
                 .unwrap_or(agent_loop::orbit::DEFAULT_MAX_TURNS),
             mcp_servers: cfg.mcp_servers.clone(),
-            llm_fallbacks: cfg.llm_fallbacks.clone(),
+            llm_fallbacks: cfg.fallback_llms(),
             subagent_providers: cfg.subagent_providers.clone(),
             plan_policy_section: None,
         })
@@ -375,7 +378,14 @@ impl Daemon {
         let compaction = fiber
             .resolve::<agent_loop::compaction::CharBudgetPolicy>("harness.compaction")
             .unwrap_or_else(|| {
-                std::sync::Arc::new(agent_loop::compaction::CharBudgetPolicy::default())
+                // No plugin-supplied policy: the built-in char budget,
+                // derived from the model's declared context window when one
+                // is set (window × 4 chars/token); an undeclared window
+                // keeps the historic constants — zero behaviour change.
+                std::sync::Arc::new(agent_loop::compaction::CharBudgetPolicy::with_region(
+                    agent_loop::compaction::NoopSummarizer,
+                    agent_loop::compaction::RegionBudget::from_context_window(model.context_window),
+                ))
             });
         let max_turns = fiber
             .resolve::<agent_loop::LoopEngine>("harness.loop")
@@ -384,11 +394,13 @@ impl Daemon {
         // The fork subagent shares the engine's turn budget (documented
         // choice: one knob, no new config surface in this task).
         let subagent_max_turns = max_turns;
-        // B2b1 — waterfall LLM fallback: with `[[llm.fallbacks]]`
-        // configured the backend becomes `WaterfallLlm` (primary +
+        // B2b1 — waterfall LLM fallback: with provider-level `fallbacks`
+        // routes configured the backend becomes `WaterfallLlm` (primary +
         // fallbacks, per-provider retry inside, no switch after content
-        // leaks). Empty list keeps the historic `HttpLlm` path verbatim —
-        // zero behaviour change for single-provider configs.
+        // leaks). Unresolvable routes were already skipped with a warn at
+        // daemon start (`Config::fallback_llms`); an empty list keeps the
+        // historic `HttpLlm` path verbatim — zero behaviour change for
+        // single-provider configs.
         let backend: std::sync::Arc<dyn agent_loop::orbit::LlmBackend + Send + Sync> =
             if cfg.llm_fallbacks.is_empty() {
                 std::sync::Arc::new(agent_loop::orbit::HttpLlm)
@@ -398,36 +410,19 @@ impl Daemon {
                     model: model.model.clone(),
                     base_url: model.base_url.clone(),
                     max_tokens: model.max_tokens,
+                    context_window: model.context_window,
+                    input: model.input.clone(),
                 };
                 let fallbacks = cfg
                     .llm_fallbacks
                     .iter()
-                    .enumerate()
-                    .filter_map(|(i, f)| {
-                        // A model-less fallback row can never be dialed (the
-                        // waterfall switches by model id) — skip it, but say
-                        // so: a typo'd row silently dropping out of the
-                        // waterfall otherwise looks identical to one that is
-                        // simply never reached.
-                        let fallback_model = f
-                            .model
-                            .as_deref()
-                            .map(str::trim)
-                            .filter(|m| !m.is_empty())
-                            .map(str::to_string);
-                        if fallback_model.is_none() {
-                            eprintln!("warn: [[llm.fallbacks]] entry #{i} has no model; skipped");
-                        }
-                        fallback_model.map(|fallback_model| agent_loop::orbit::LlmProvider {
-                            api_key: f
-                                .api_key
-                                .clone()
-                                .or_else(|| Some(model.api_key.clone()))
-                                .unwrap_or_default(),
-                            model: fallback_model,
-                            base_url: f.base_url.clone().or_else(|| model.base_url.clone()),
-                            max_tokens: f.max_tokens,
-                        })
+                    .map(|f| agent_loop::orbit::LlmProvider {
+                        api_key: f.api_key.clone(),
+                        model: f.model.clone(),
+                        base_url: Some(f.base_url.clone()),
+                        max_tokens: f.max_tokens,
+                        context_window: f.context_window,
+                        input: f.input.clone(),
                     })
                     .collect();
                 std::sync::Arc::new(agent_loop::orbit::WaterfallLlm::new(primary, fallbacks))

@@ -34,7 +34,7 @@ fn cwd_lock() -> std::sync::MutexGuard<'static, ()> {
 
 /// Write a `.kymido/config.toml` with one `[[mcp.servers]]` entry and load it
 /// from that cwd, mirroring the `Config::load` harness of
-/// `llm_fallbacks_parse.rs`.
+/// `providers_parse.rs`.
 ///
 /// Holding `cwd_lock` for the whole body, restore included, is what makes
 /// the pair (write, load) atomic with respect to the sibling cases.

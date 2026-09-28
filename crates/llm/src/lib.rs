@@ -24,6 +24,21 @@ pub struct Model {
     pub base_url: Option<String>,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Declared context window (tokens), from the provider's model entry.
+    /// `None` = the engine's built-in compaction budget (zero change).
+    #[serde(default)]
+    pub context_window: Option<u32>,
+    /// Declared input modalities, e.g. `["text", "image"]`. Empty = the
+    /// caller has no capability data (treated as text-only by consumers).
+    #[serde(default)]
+    pub input: Vec<String>,
+}
+
+impl Model {
+    /// True when image blocks are an advertised input modality.
+    pub fn image_input(&self) -> bool {
+        self.input.iter().any(|m| m == "image")
+    }
 }
 
 /// Content block: text, image, tool invocation (assistant), tool result
