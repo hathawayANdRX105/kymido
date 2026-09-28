@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// A fully resolved primary credential: every field present.
 #[derive(Debug, Clone, PartialEq)]
@@ -308,22 +308,13 @@ impl From<toml::de::Error> for ConfigError {
 }
 
 impl Config {
-    /// Load configuration with priority: env > workspace TOML > user TOML > defaults.
+    /// Load configuration with priority: env > TOML file > defaults.
     ///
-    /// The user-scoped copy lives at [`Config::config_file`] — the XDG config
-    /// dir, so the same credentials are found no matter which repository the
-    /// process started in. A workspace-local `.kymido/config.toml` still wins
-    /// when present, the same way a project `.env` beats `~/.env`: it is an
-    /// explicit per-repository override, and the tests rely on being able to
-    /// pin one without touching the developer's real config.
-    ///
-    /// `kymido init` copies a workspace-local file into the XDG dir and then
-    /// renames the original aside, so the steady state is one config in one
-    /// place rather than two files silently shadowing each other.
-    ///
-    /// A missing config dir is not an error: a clean machine gets defaults.
+    /// Config lives in the `.kymido/` directory (`.kymido/config.toml`); the
+    /// legacy root `kymido.toml` is still read when present so pre-.kymido
+    /// workspaces keep working (migrate with `cli init`).
     pub fn load() -> Result<Config, ConfigError> {
-        // Start with defaults (the work-item store is workspace-scoped; see `data_dir`).
+        // Start with defaults (data lives inside the `.kymido/` config dir).
         let mut config = Config {
             omp_path: PathBuf::from("omp"),
             data_dir: PathBuf::from("./.kymido"),
@@ -345,15 +336,12 @@ impl Config {
             tui_notify_osc9: false,
         };
 
-        // Workspace override first, user-scoped second. A missing file is not
-        // an error at any level: pure defaults are a valid machine, and the
-        // XDG directory is laid down on first write by `ensure_config_dir`.
-        // A failed XDG lookup (no HOME) is likewise not fatal — the
-        // workspace file may still be there, and otherwise defaults stand.
-        let mut candidates = vec![PathBuf::from("./.kymido/config.toml")];
-        if let Ok(user_config) = Self::config_file() {
-            candidates.push(user_config);
-        }
+        // Load from TOML file (.kymido/config.toml, legacy fallback kymido.toml);
+        // a missing file is not an error.
+        let candidates = [
+            PathBuf::from("./.kymido/config.toml"),
+            PathBuf::from("./kymido.toml"),
+        ];
         for toml_path in candidates {
             if let Ok(content) = std::fs::read_to_string(&toml_path) {
                 let toml_config: TomlConfig = toml::from_str(&content)?;
@@ -671,43 +659,6 @@ impl Config {
             _ => Ok(platform_config_dir()?.join("kymido").join("daemon.sock")),
         }
     }
-
-    /// The user-scoped config root — the single place `config.toml` lives.
-    ///
-    /// Priority:
-    /// 1. `KYMIDO_CONFIG_DIR` env var (verbatim).
-    /// 2. Platform-specific config directory + `kymido`.
-    ///
-    /// Unlike [`Config::data_dir`] this is **not** workspace-relative: a
-    /// credential or a daemon socket belongs to the user, not to whichever
-    /// repository the process happened to start in. The directory is created
-    /// on first use by [`Config::ensure_config_dir`].
-    pub fn config_dir() -> Result<PathBuf, ConfigError> {
-        match env::var_os("KYMIDO_CONFIG_DIR") {
-            Some(v) if !v.is_empty() => Ok(PathBuf::from(v)),
-            _ => Ok(platform_config_dir()?.join("kymido")),
-        }
-    }
-
-    /// `config.toml` inside [`Self::config_dir`].
-    pub fn config_file() -> Result<PathBuf, ConfigError> {
-        Ok(Self::config_dir()?.join("config.toml"))
-    }
-
-    /// Create [`Self::config_dir`] if missing, and return it.
-    ///
-    /// Idempotent and safe to call from every entry point: the CLI, the daemon
-    /// and the web server all funnel through `Config::load`, so a first run on
-    /// a clean machine has to lay down the directory rather than fail on a
-    /// missing parent. Mode 0700 — `config.toml` carries API keys in plaintext.
-    pub fn ensure_config_dir() -> Result<PathBuf, ConfigError> {
-        let dir = Self::config_dir()?;
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir).map_err(|e| ConfigError::Io(e))?;
-            restrict_to_owner(&dir);
-        }
-        Ok(dir)
-    }
 }
 
 /// Resolve the platform-specific user config directory root.
@@ -753,19 +704,3 @@ fn platform_config_dir() -> Result<PathBuf, ConfigError> {
         })
     }
 }
-
-/// Best-effort `chmod 0700` on a directory the harness owns.
-///
-/// `config.toml` holds API keys in plaintext and the session DB holds every
-/// transcript, so the directory that contains them must not be group- or
-/// world-readable. Failure is not fatal: a filesystem without Unix modes (or
-/// a `noacl` mount) is a legitimate deployment, and refusing to run there
-/// would be worse than running with a wider mode.
-#[cfg(unix)]
-fn restrict_to_owner(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
-}
-
-#[cfg(not(unix))]
-fn restrict_to_owner(_path: &Path) {}

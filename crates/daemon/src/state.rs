@@ -153,6 +153,17 @@ impl RunLedger {
         inner.runs.iter().find(|r| r.run_id == run_id).cloned()
     }
 
+    /// S3: whether `session_id` has any run started but not yet finished
+    /// (`finished_at_ms` still `None`). The reaper treats an open run as
+    /// "in flight" and defers unloading that session's engine.
+    pub fn has_open_run(&self, session_id: &str) -> bool {
+        let inner = self.inner.lock().expect("run ledger poisoned");
+        inner
+            .runs
+            .iter()
+            .any(|r| r.session_id == session_id && r.finished_at_ms.is_none())
+    }
+
     /// Aggregate the ledger into stats for `range` (see
     /// [`parse_stats_range`]).  `now_ms` is the aggregation reference time;
     /// dispatch passes [`now_ms()`].  Holds the lock only long enough to

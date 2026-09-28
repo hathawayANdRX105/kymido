@@ -186,7 +186,7 @@ fn auto_never_selects_inline() {
 }
 
 /// CLI 解析（handoff §4 ⑧）：`--tui` 进第四臂、非法值仍报错——
-/// 与 `bin/kymic/src/cli.rs` 同款 `value_enum` 参数形态。
+/// 与 `bin/kymido/src/cli.rs` 同款 `value_enum` 参数形态。
 #[test]
 fn cli_parses_inline_as_the_fourth_arm_and_rejects_junk() {
     use clap::{Parser, ValueEnum};

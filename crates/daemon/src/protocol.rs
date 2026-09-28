@@ -164,10 +164,14 @@ pub enum Command {
     /// `worker.prompt` — `{ message }` → raw `rpc` response value.
     #[serde(rename = "worker.prompt")]
     WorkerPrompt,
-    /// `worker.steer` — `{ message }` → raw `rpc` response value.
+    /// `worker.steer` — `{ message, session_id? }` → raw `rpc` response value.
+    /// The optional `session_id` routes the steer to that session's engine;
+    /// without it the connection's most recent prompt decides.
     #[serde(rename = "worker.steer")]
     WorkerSteer,
-    /// `worker.abort` — `{}` → raw `rpc` response value.
+    /// `worker.abort` — `{ session_id? }` → raw `rpc` response value.
+    /// The optional `session_id` routes the abort to that session's engine;
+    /// without it the connection's most recent prompt decides.
     #[serde(rename = "worker.abort")]
     WorkerAbort,
     /// `worker.read_event` — `{}` → `WorkerEvent | null`.
@@ -186,8 +190,12 @@ pub enum Command {
     #[serde(rename = "user.question.pending")]
     UserQuestionPending,
 
-    /// `event.subscribe` — `{ topic }` → `{ subscription_id }`.  The
-    /// connection then receives [`EventFrame`] pushes for that topic.
+    /// `event.subscribe` — `{ topic, session? }` → `{ subscription_id }`.
+    /// The connection then receives [`EventFrame`] pushes for that topic.
+    /// The optional `session` is attach bookkeeping only (it keeps that
+    /// session hot against the reaper's 3-minute unloader for the life of
+    /// this connection); it does not filter the topic stream — filtering,
+    /// if any, stays client-side.
     #[serde(rename = "event.subscribe")]
     EventSubscribe,
     /// `event.unsubscribe` — `{ subscription_id }` → `{ removed }`.
@@ -282,6 +290,13 @@ pub struct EventFrame {
     /// [`EventFrame::belongs_to_run`] treats those as pass-through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+    /// The session this event belongs to (S2 session attribution): the
+    /// session key of the engine that emitted it, so multi-session
+    /// subscribers filter by session instead of by run alone. Absent on
+    /// frames from the legacy session-less engine and older daemons;
+    /// [`EventFrame::belongs_to_session`] treats those as pass-through.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl EventFrame {
@@ -291,6 +306,7 @@ impl EventFrame {
             topic: topic.into(),
             event,
             run_id: None,
+            session_id: None,
         }
     }
 
@@ -310,6 +326,25 @@ impl EventFrame {
             Some(frame_run) => frame_run == run,
             None => true,
         }
+    }
+
+    /// S2 routing predicate for subscribers: whether this frame belongs to
+    /// `session`. Frames without a `session_id` stamp (legacy session-less
+    /// engine, older daemon) pass through, mirroring
+    /// [`Self::belongs_to_run`]: a subscriber never silently drops traffic
+    /// it cannot attribute.
+    pub fn belongs_to_session(&self, session: &str) -> bool {
+        match &self.session_id {
+            Some(frame_session) => frame_session == session,
+            None => true,
+        }
+    }
+
+    /// S2: stamp the session this event belongs to (builder-style, next to
+    /// [`Self::with_run_id`]).
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
     }
 }
 

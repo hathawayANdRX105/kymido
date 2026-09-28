@@ -1,8 +1,11 @@
 //! Headless kymido daemon.
 //!
-//! Provides a single-instance, JSONL-over-UDS daemon that owns a long-lived
-//! `crate::rpc::worker::Worker` and a `session::SessionDb`, exposing a small request
-//! surface to local CLI/TUI clients.
+//! Provides a single-instance, JSONL-over-UDS daemon that owns a per-session
+//! worker registry (one long-lived engine per session, S1) and a
+//! `session::SessionDb`, exposing a small request surface to local CLI/TUI
+//! clients. A 30s reaper tick (S3) unloads sessions whose attached clients,
+//! open runs, in-flight runs, and live descendant sessions have all gone
+//! away after a 3-minute grace.
 //!
 //! Lifecycle:
 //!
@@ -11,9 +14,9 @@
 //!   ├─ acquire exclusive InstanceLock (pid file + fs2 lock)
 //!   ├─ bind Unix-domain socket (clean up stale file first)
 //!   ├─ open SessionDb
-//!   ├─ spawn omp Worker (best-effort; deferred until first prompt)
-//!   ├─ accept loop on a background thread
-//!   └─ Drop → join thread, drop Worker, close socket, release lock
+//!   ├─ spawn accept loop on a background thread
+//!   ├─ spawn the 30s reaper tick thread
+//!   └─ Drop → join threads, reset the registry, close socket, release lock
 //! ```
 //!
 //! Protocol: newline-delimited JSON.  Every request is
@@ -30,11 +33,14 @@ mod dispatch;
 pub mod lock;
 pub mod protocol;
 mod questions;
+mod reaper;
+mod registry;
 pub mod rpc;
 pub mod runner;
 mod server;
 pub mod session_query;
 mod socket;
+pub mod startup_sweep;
 pub mod state;
 pub use client::{AppendOutcome, ClientError, DaemonClient, DaemonInfo, Subscription};
 pub use lock::InstanceLock;
