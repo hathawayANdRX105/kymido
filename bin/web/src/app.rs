@@ -69,30 +69,22 @@ pub async fn launch() {
             }}
         }}
 
-        function scrollToId(id) {{
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.scrollIntoView({{ behavior: "smooth", block: "start" }});
-        }}
-
-        // Minimap: wheel gradient + scroll-spy highlight + hover popover +
-        // click-to-jump, all client-side. Bars carry a `data-anchor` (the prompt
-        // element id); hovering a bar floats a popover with that prompt's text
+        // Minimap: hover popover + mousemove spotlight gradient, all client-side.
+        // Bars are visual anchors only — no click-to-jump, no wheel jump, no
+        // message-follow (ainnotation 波4): the chat scroll position never drives
+        // the gradient. Hovering a bar floats a popover with that prompt's text
         // (server-rendered [data-tip] sibling, pointer-events:none so it never
-        // blocks the next hover); clicking smooth-scrolls #chat-scroll to the
-        // prompt. A discrete 3-level
-        // gradient is centered on a reference index (scroll position at rest, the
-        // cursor while hovering): only the center bar + the two on each side (5 bars
-        // total) are emphasized via LENGTH + BRIGHTNESS — center longest/brightest,
-        // ±1 medium, ±2 short; every other bar stays one uniform width. No color fill.
+        // blocks the next hover). A discrete 3-level
+        // gradient is centered on the hovered bar: only the center bar + the two
+        // on each side (5 bars total) are emphasized via LENGTH + BRIGHTNESS —
+        // center longest/brightest, ±1 medium, ±2 short; leaving the minimap
+        // returns every bar to one uniform width. No color fill.
         function setupMinimap() {{
             var mm = document.getElementById('minimap');
             if (!mm) return;
-            var scrollEl = document.getElementById('chat-scroll');
             // Namespaced, persistent shared state (survives repeated setupMinimap calls
             // from the MutationObserver) to avoid polluting globals and stale caches.
             var NS = window.__mm = window.__mm || {{}};
-            if (typeof NS.ref !== 'number') NS.ref = 0;
             // Cached DOM queries; invalidated whenever the chat DOM changes.
             function invalidate() {{ NS.barsCache = null; NS.centers = null; }}
             function getBars() {{
@@ -110,13 +102,13 @@ pub async fn launch() {
                 return NS.centers;
             }}
             // 3-step prominence centered on index c: 0=center, 1=adjacent, 2=outer, else=uniform.
+            // c < 0 (cursor left / nothing hovered yet): every bar stays uniform.
             function applyGradient(c) {{
-                NS.ref = c;
                 var bs = getBars();
                 for (var i = 0; i < bs.length; i++) {{
                     var bar = bs[i].querySelector('.minimap-bar');
                     if (!bar) continue;
-                    var off = Math.abs(i - c);
+                    var off = c < 0 ? 99 : Math.abs(i - c);
                     var width, op;
                     if (off === 0)      {{ width = 28; op = 1.0; }}
                     else if (off === 1) {{ width = 20; op = 0.72; }}
@@ -137,33 +129,8 @@ pub async fn launch() {
                 }}
                 return best;
             }}
-            function scrollToIdx(idx) {{
-                var bs = getBars();
-                if (idx < 0 || idx >= bs.length) return;
-                var anchor = bs[idx].getAttribute('data-anchor');
-                if (anchor) scrollToId(anchor);
-                applyGradient(idx);
-            }}
-            // Bottom detection with a tolerance instead of a brittle -4 magic number.
-            var BOTTOM_TOLERANCE = 32;
-            function isAtBottom() {{
-                return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight <= BOTTOM_TOLERANCE;
-            }}
-            function scrollIndex() {{
-                var bs = getBars();
-                if (!bs.length) return 0;
-                if (isAtBottom()) return bs.length - 1;
-                var top = scrollEl.getBoundingClientRect().top;
-                var active = 0;
-                for (var i = 0; i < bs.length; i++) {{
-                    var a = bs[i].getAttribute('data-anchor');
-                    var el = a ? document.getElementById(a) : null;
-                    if (!el) continue;
-                    if (el.getBoundingClientRect().top - top <= 120) active = i;
-                }}
-                return active;
-            }}
-            // rAF-throttled paint: hot paths (mousemove/scroll) write the DOM at most
+
+            // rAF-throttled paint: the mousemove hot path writes the DOM at most
             // once per frame, and only when the target index actually changes. This
             // avoids layout thrashing from per-event getBoundingClientRect reads.
             var rafPending = false;
@@ -184,15 +151,9 @@ pub async fn launch() {
             }}
             if (!NS.wired) {{
                 NS.wired = true;
-                mm.addEventListener('wheel', function(e) {{
-                    e.preventDefault();
-                    var bs = getBars();
-                    if (!bs.length) return;
-                    var cur = (typeof NS.ref === 'number') ? NS.ref : scrollIndex();
-                    var dir = e.deltaY > 0 ? 1 : -1;
-                    var nxt = Math.max(0, Math.min(bs.length - 1, cur + dir));
-                    scrollToIdx(nxt);
-                }}, {{ passive: false }});
+                // 用户要求：minimap 不做点击/滚轮跳转，条只是视觉锚点
+                // （ainnotation 波4）；hover popover 与 mousemove 聚光渐变保留。
+
                 // hover：浮出 data-tip popover（服务端已渲染好 prompt 文本）。
                 // 注意取条自身内部的 tip——data-anchor 与 data-tip 同在一个
                 // 条容器里，往父级查会永远命中第一条的 popover。
@@ -210,31 +171,18 @@ pub async fn launch() {
                     var tip = bar.querySelector('[data-tip]');
                     if (tip) tip.style.display = 'none';
                 }});
-                // click：平滑滚到该条锚点对应的用户 prompt（ainotation 波2 #3）。
-                mm.addEventListener('click', function(e) {{
-                    var bar = e.target.closest('[data-anchor]');
-                    if (!bar) return;
-                    var idx = getBars().indexOf(bar);
-                    if (idx >= 0) scrollToIdx(idx);
-                }});
                 // Cache bar centers when the hover begins; subsequent snapping reads the
                 // cache (no per-event getBoundingClientRect → no layout thrashing).
                 mm.addEventListener('mouseenter', function() {{ NS.centers = null; getCenters(); }});
                 mm.addEventListener('mousemove', function(e) {{ schedule(nearestIndex(e.clientY)); }});
-                mm.addEventListener('mouseleave', function() {{ schedule(scrollIndex()); }});
-                if (scrollEl) {{
-                    scrollEl.addEventListener('scroll', function() {{
-                        NS.centers = null; // chat scrolled; cached hover centers are stale
-                        schedule(scrollIndex());
-                    }});
-                    window.addEventListener('resize', function() {{ invalidate(); }});
-                }}
+                // 离开 minimap：聚光淡回统一宽度（无 scroll-spy 可回退到）。
+                mm.addEventListener('mouseleave', function() {{ schedule(-1); }});
+                window.addEventListener('resize', function() {{ invalidate(); }});
             }}
-            // DOM may have changed (new messages): re-query and repaint from scroll position.
+            // DOM may have changed (new messages): re-query and repaint the uniform
+            // baseline（不再由滚动位置决定聚焦项）。
             invalidate();
-            var init = scrollIndex();
-            lastPainted = init;
-            applyGradient(init);
+            schedule(-1);
         }}
 
         // Track IME composition explicitly: isComposing alone is unreliable on fcitx/ibus + Linux

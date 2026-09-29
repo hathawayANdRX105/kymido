@@ -100,17 +100,12 @@ anchors:
     source: 'omenic: crates/web-ui/src/components/chat.rs:324（ui-kit Button IconSm = size-7）；dsh: InputBar.module.css:316-324（attach 28px circle）'
   - key: minimap
     find: 'id: "minimap"'
-    expect: '左侧 minimap 锚点列（每条用户 prompt 一条横杠，客户端 JS 聚光梯度 + hover popover + click 平滑跳转，ainotation 波2 #3）。'
-    source: 'omenic: crates/web-ui/src/components/chat.rs:128 + bin/web/src/app.rs setupMinimap'
+    expect: '左侧 minimap 锚点列（每条用户 prompt 一条横杠，紧凑顶对齐整组不悬浮中部；客户端 JS hover popover + mousemove 聚光梯度，纯视觉锚点：不跟随聊天滚动、不点击/滚轮跳转，ainnotation 波4 复刻重构前紧凑布局）。'
+    source: 'omenic: crates/web-ui/src/components/chat.rs minimap 段 + bin/web/src/app.rs setupMinimap'
   - key: minimap-popover
     find: '"data-tip": ""'
     expect: '每个 minimap 条容器内嵌一个服务端渲染的 prompt 文本 popover（r12 border bg-menu shadow-lv3、pointer-events-none、默认 display:none），hover 时由 app.rs minimap JS 显示（ainotation 波2 #3-1）。'
     source: 'omenic: crates/web-ui/src/components/chat.rs minimap 段；bin/web/src/app.rs mouseover/mouseout'
-  - key: minimap-click-jump
-    file: bin/web/src/app.rs
-    find: "mm.addEventListener('click'"
-    expect: '点击 minimap 条 → scrollToIdx → scrollIntoView smooth，平滑滚到 data-anchor 指向的用户 prompt（ainotation 波2 #3-2）。'
-    source: 'omenic: bin/web/src/app.rs setupMinimap click 监听'
   - key: tool-output-format
     find: 'pub fn format_tool_output('
     expect: '工具输出渲染前经 format_tool_output 规整：单行转义文本的 \n \t \r 反转义为真实字符，已含真实换行者原样返回（ainotation 波2 #4-1；单测 crates/web-ui/tests/tool_output.rs）。'
