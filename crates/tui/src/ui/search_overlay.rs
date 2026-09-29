@@ -16,8 +16,6 @@ use ratatui::layout::{Position, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use web_state::types::ChatMessage;
-
 use super::panel_block;
 use crate::app::App;
 use crate::search::{self, SearchState};
@@ -155,17 +153,14 @@ fn styled(matched: bool, text: String) -> Span<'static> {
 ///
 /// 行数 = `transcript::message_rows` 单一直接调用（渲染同源、无第二份
 /// 实现；`tests/search_overlay.rs::line_offset_matches_transcript_total`
-/// 仍用 `viewport().total()` 钉两边同和）。
-pub fn line_offset(
-    messages: &[ChatMessage],
-    tools_expanded: bool,
-    up_to: usize,
-    width: u16,
-) -> usize {
+/// 仍用 `viewport().total()` 钉两边同和）。折叠态查询走 `app.fold_for`
+/// （per-part 三态），与渲染同一查询口——不再传全局 `tools_expanded`。
+pub fn line_offset(app: &crate::app::App, up_to: usize, width: u16) -> usize {
     let width = width.max(1) as usize;
-    messages
+    app.messages()
         .iter()
         .take(up_to)
-        .map(|msg| super::transcript::message_rows(msg, tools_expanded, width))
+        .enumerate()
+        .map(|(msg_idx, msg)| super::transcript::message_rows(app, msg, msg_idx, width))
         .sum()
 }

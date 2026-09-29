@@ -197,23 +197,24 @@ fn empty_transcript_renders_without_panic() {
 #[test]
 fn empty_reasoning_takes_zero_rows() {
     for width in [1usize, 20, 80] {
+        let fold = ui::fold::Fold::Collapsed;
         assert_eq!(
-            ui::thinking::rows("", width),
+            ui::thinking::rows("", fold, width),
             0,
             "empty reasoning takes zero rows at width {width}"
         );
         assert!(
-            ui::thinking::lines("", width).is_empty(),
+            ui::thinking::lines("", fold, width).is_empty(),
             "empty reasoning materializes nothing at width {width}"
         );
         // Whitespace-only is the same class (trim-empty): a header with only
         // whitespace under it is fabricated too.
         assert_eq!(
-            ui::thinking::rows("   \n \t", width),
+            ui::thinking::rows("   \n \t", fold, width),
             0,
             "whitespace-only reasoning takes zero rows at width {width}"
         );
-        assert!(ui::thinking::lines("   \n \t", width).is_empty());
+        assert!(ui::thinking::lines("   \n \t", fold, width).is_empty());
     }
 
     // Message level: an assistant message with empty reasoning (historical
