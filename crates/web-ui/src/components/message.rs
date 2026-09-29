@@ -84,7 +84,8 @@ pub(crate) fn MessageItem(
         };
         // reasoning 在流式时由 ReasoningBlock 自己的 shimmer 承担指示；
         // 「思考中」状态行只兜底「还没收到任何 reasoning/过程」的空窗期
-        let waiting = streaming_tail && !has_final && process.is_empty() && message.reasoning.is_empty();
+        let waiting =
+            streaming_tail && !has_final && process.is_empty() && message.reasoning.is_empty();
         // aui ActionBar 复制源：最终正文优先，缺省回退整条 content
         let copy_src = if !final_text.is_empty() {
             final_text.clone()

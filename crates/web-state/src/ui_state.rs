@@ -4,7 +4,7 @@
 //! 之后换成 daemon `event.subscribe` 的实时流（C3.3），页面代码零改动。
 //! serde 形状对齐 `agent_loop::orbit::AgentEvent`（3.1 定稿后以冻结契约为准）。
 
-use crate::types::{now_epoch_ms, ChatMessage, MessagePart, ToolCall};
+use crate::types::{ChatMessage, MessagePart, ToolCall, now_epoch_ms};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
