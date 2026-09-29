@@ -21,6 +21,7 @@ use web_state::types::ToolCall;
 
 use crate::theme;
 
+use super::fold::Fold;
 use super::transcript::push_wrapped;
 
 /// 折叠阈值：结果超过该行数即默认折叠（route §3「长结果折叠」）。
@@ -32,9 +33,14 @@ const TAIL_LINES: usize = 2;
 
 /// 一张工具卡的全部行：卡头（态字形 · kind 字形 · kind · 三态文案）+ 标题 + 结果区。
 ///
-/// `expanded` 由 `App::tools_expanded` 传入（一个键全部展开/折叠）；
+/// `fold` 由 `App::fold_for` 传入（单 part 三态，Tab 的全局开关作默认值）；
 /// `width` 是列宽，标题与结果按列宽断行（同 transcript 的处理）。
-pub fn lines(tc: &ToolCall, expanded: bool, width: usize) -> Vec<Line<'static>> {
+/// [`Fold::Hidden`] 出一行 stub，不出正文。
+pub fn lines(tc: &ToolCall, fold: Fold, width: usize) -> Vec<Line<'static>> {
+    if fold == Fold::Hidden {
+        return vec![stub(tc)];
+    }
+    let expanded = fold == Fold::Expanded;
     let mut out = Vec::new();
     out.push(header(tc));
     push_wrapped(&mut out, &tc.title, width, "  ", theme::base());
@@ -47,16 +53,28 @@ pub fn lines(tc: &ToolCall, expanded: bool, width: usize) -> Vec<Line<'static>> 
     out
 }
 
+/// [`Fold::Hidden`] 的一行 stub（替代整卡消失——目标没了鼠标就点不回来）：
+/// `▸ kind ‹hidden›`，dim 样式，可点回 [`Fold::Collapsed`]。
+fn stub(tc: &ToolCall) -> Line<'static> {
+    Line::from(Span::styled(
+        format!("▸ {} ‹hidden›", tc.kind),
+        theme::dim(),
+    ))
+}
+
 /// 一张卡的行数（T6 窗口化：与 [`lines`] 同源计数，历史卡不物化）。
 ///
-/// 分支与 [`lines`] / [`result_lines`] 一一镜像：卡头恒 1 行、running 无
-/// 结果区、折叠态 = 头 + 隐藏行数 + 尾；断行走 `transcript::count_wrapped`
-/// （与 `push_wrapped` 同一 `wrap_with` 核心，分叉由 `tests/scroll_follow.rs`
-/// 的 count/render 一致性测试钉；glyph 组合由
-/// `tests/tool_card.rs::glyphs_do_not_change_row_count` 钉）。
+/// 分支与 [`lines`] / [`result_lines`] 一一镜像：Hidden = 1 行 stub、
+/// running 无结果区、Collapsed = 头 + head/tail 折叠、Expanded = 全显；断行
+/// 走 `transcript::count_wrapped`（与 `push_wrapped` 同一 `wrap_with` 核心，
+/// 分叉由 `tests/scroll_follow.rs` 的 count/render 一致性测试钉）。
 ///
 /// T22：`pub` 出给测试直接钉计数/物化对偶（`rows == lines().len()`）。
-pub fn rows(tc: &ToolCall, expanded: bool, width: usize) -> usize {
+pub fn rows(tc: &ToolCall, fold: Fold, width: usize) -> usize {
+    if fold == Fold::Hidden {
+        return 1; // stub 恒 1 行
+    }
+    let expanded = fold == Fold::Expanded;
     let mut rows = 1 + super::transcript::count_wrapped(&tc.title, width, "  ");
     if tc.status == "running" {
         return rows;

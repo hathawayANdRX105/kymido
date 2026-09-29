@@ -152,8 +152,19 @@ pub struct App {
     status: String,
     /// transcript 投影（T1 同一 `UiState::apply` 形状，会话内累积）。
     ui: UiState,
-    /// T3：工具卡展开态（一个键全部展开/折叠）。
+    /// T3：工具卡展开态（一个键全部展开/折叠）——per-part override 的默认
+    /// 来源；`fold_map` 无 override 的卡按它派生（route §3 批 A）。
     tools_expanded: bool,
+    /// 批 A：per-part 折叠 override（key = `(msg_idx, part_idx)`，思考块
+    /// part_idx = `ui::fold::THINKING_PART` 哨兵）。渲染/计数/检索全走
+    /// [`Self::fold_for`] 单一口——行数对偶两侧与检索侧共用同一判定。
+    /// 消息数变化的回填路径（`adopt_session`/`note_rewind_ok`）清零
+    /// （key 是位置索引，消息增删后旧 override 指向错误目标）。
+    fold_map: std::collections::HashMap<(usize, usize), crate::ui::fold::Fold>,
+    /// 批 A：渲染物化侧每帧重建的命中表（`ui::draw` 清表后登记），鼠标
+    /// `Down(Left)` 查询派发。`RefCell`：渲染收 `&App` 不可变借用，命中表
+    /// 是渲染副产物需要 interior mutability（单线程 TUI 无并发风险）。
+    hit: std::cell::RefCell<crate::ui::hit::HitMap>,
     /// T3：问题面板（dock 上方渲染，route §3）。
     questions: QuestionPanel,
     /// T3：数字键产出的待发送回答（事件循环取出走 `answer_question`）。
@@ -554,12 +565,7 @@ impl App {
         if self.view_width == 0 {
             return;
         }
-        let line = crate::ui::search_overlay::line_offset(
-            &self.ui.messages,
-            self.tools_expanded,
-            msg,
-            self.view_width,
-        );
+        let line = crate::ui::search_overlay::line_offset(self, msg, self.view_width);
         let top = {
             let view = &self.viewport;
             view.view_top(view.total(), view.height())
@@ -750,11 +756,64 @@ impl App {
         }
     }
 
-    /// 工具卡展开态（一个键全部展开/折叠，route §3）。
+    /// 工具卡展开态（一个键全部展开/折叠，route §3）——per-part override 的
+    /// 默认来源；无 override 的卡按它派生（`fold::default_fold`）。
     pub fn tools_expanded(&self) -> bool {
         self.tools_expanded
     }
 
+    /// 批 A：单 part 折叠态查询（渲染/计数/检索共用同一口——行数对偶两侧
+    /// 与 `line_offset` 都吃它，不各算各的）。`fold_map` 有 override 用它，
+    /// 否则按 `tools_expanded` 派生默认（Tab 全局开关语义）。
+    pub fn fold_for(&self, msg_idx: usize, part_idx: usize) -> crate::ui::fold::Fold {
+        self.fold_map
+            .get(&(msg_idx, part_idx))
+            .copied()
+            .unwrap_or_else(|| crate::ui::fold::default_fold(self.tools_expanded))
+    }
+
+    /// 批 A：点卡头/思考头/stub 循环三态（Collapsed→Expanded→Hidden→Collapsed）。
+    /// 落 `fold_map` override，下一帧 `fold_for` 命中新值；`Hidden` 渲成 stub
+    /// 行（仍登记命中），可点回 Collapsed 自恢复。
+    fn cycle_fold(&mut self, msg_idx: usize, part_idx: usize) {
+        let next = match self.fold_for(msg_idx, part_idx) {
+            crate::ui::fold::Fold::Collapsed => crate::ui::fold::Fold::Expanded,
+            crate::ui::fold::Fold::Expanded => crate::ui::fold::Fold::Hidden,
+            crate::ui::fold::Fold::Hidden => crate::ui::fold::Fold::Collapsed,
+        };
+        self.fold_map.insert((msg_idx, part_idx), next);
+    }
+
+    /// 批 A：鼠标左键点击派发（`event_loop` 把 `MouseEventKind::Down(Left)`
+    /// 的 `(col,row)` 折进来）。命中表 `hit` 是上一帧物化侧登记的，坐标与
+    /// 画面同帧。返回 `true` = 命中已消费（不再落编辑/焦点语义）。
+    pub fn click(&mut self, col: u16, row: u16) -> bool {
+        // `HitAction` 是 Copy：先把命中结果抄出来、丢掉 `Ref`，再 mutate —
+        // `RefCell` 借用若在 match 体内还活着，`cycle_fold`/`to_end` 的
+        // `&mut self` 会与 `Ref` 的不可变借用冲突（E0502）。
+        let action = self.hit.borrow().hit(col, row);
+        match action {
+            Some(crate::ui::hit::HitAction::ScrollToBottom) => {
+                self.viewport.to_end();
+                true
+            }
+            Some(crate::ui::hit::HitAction::ToggleToolCard { msg_idx, part_idx }) => {
+                self.cycle_fold(msg_idx, part_idx);
+                true
+            }
+            Some(crate::ui::hit::HitAction::ToggleThinking { msg_idx }) => {
+                self.cycle_fold(msg_idx, crate::ui::fold::THINKING_PART);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 批 A：命中表（`ui::draw` 清表后登记，`transcript::render` 把卡头/
+    /// 思考头/stub 行推入）。`RefCell`：渲染收 `&App`，命中表是渲染副产物。
+    pub fn hit(&self) -> &std::cell::RefCell<crate::ui::hit::HitMap> {
+        &self.hit
+    }
     /// 问题面板（渲染与数字键路由读它）。
     pub fn questions(&self) -> &QuestionPanel {
         &self.questions
@@ -1005,6 +1064,9 @@ impl App {
         self.status.clear();
         self.confirm_quit = false;
         self.scroll = 0;
+        // 批 A：位置索引 fold override 随消息表整体作废（新会话 key 指向
+        // 全是别的消息），与搜索快照/焦点同批失效。
+        self.fold_map.clear();
         // T12：焦点/改写挂起都是旧台的坐标，随视图与出站队列（上面的
         // `outgoing.clear()` 连同 retry 的重发项一起丢弃）同批作废——留下
         // 截断点会在新台出站时按旧会话的 seq 截错会话。
@@ -1345,12 +1407,14 @@ impl App {
     /// 不另写一份清理。
     /// Visible to integration tests (`session_window.rs`): the truncation
     /// bounds are a pinned contract of the rewind/edit path. No external
-    /// callers today.
     pub fn drop_tail_from(&mut self, keep: usize) {
         if self.ui.messages.len() > keep {
             self.ui.messages.truncate(keep);
             self.focused = None;
             self.forget_search();
+            // 批 A：截断后 `msg_idx >= keep` 的 override 指向已不存在的消息，
+            // 与被裁焦点/搜索快照同批失效。
+            self.fold_map.retain(|(m, _), _| *m < keep);
         }
     }
 
@@ -2061,11 +2125,14 @@ fn event_loop(
                     }
                 }
                 // T7：滚轮入队（route §3 T7——鼠标捕获只随 enhanced 进屏序列
-                // 开，linear 路径收不到这些事件）；其余鼠标事件（移动/按键/
-                // 拖拽）首版不接管（route §8：点击/拖选后置）。
+                // 开，linear 路径收不到这些事件）；批 A：左键点击按命中表
+                // 派发（回到底部/卡头三态），移动/拖拽仍不接管。
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollUp => app.wheel_tick(-1, Instant::now()),
                     MouseEventKind::ScrollDown => app.wheel_tick(1, Instant::now()),
+                    MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                        app.click(mouse.column, mouse.row);
+                    }
                     _ => {}
                 },
                 // resize/paste/focus 不改状态。

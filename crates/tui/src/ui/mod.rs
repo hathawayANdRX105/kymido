@@ -9,7 +9,9 @@
 mod composer;
 pub mod diff;
 mod dock;
+pub mod fold;
 pub mod footer;
+pub mod hit;
 mod layout;
 pub mod markdown;
 pub mod panels;
@@ -133,17 +135,23 @@ pub fn panel_block(title: &'static str) -> Block<'static> {
         .style(theme::border())
 }
 
-/// 画一帧（自上而下）：transcript（含 T24 滚动条预留列）→ 斜杠面板（T9，0 行不画）→ footer 状态条
-/// → 问题面板（无题 0 行）→ dock（活动 / 排队 / composer / 按键提示，恒压底
-/// ——hints 仍是屏幕最底一行，T2 布局契约不变）→ 搜索 overlay（T11，0 行
-/// 不画）。**最后一笔**是 overlay：光标钉在查询行，压过 composer 的光标
-/// （同一帧只留一个 cursor，焦点归打开的一方）。
+/// 画一帧（自上而下）：transcript（含 T24 滚动条预留列 + 批 A 命中登记）→
+/// 斜杠面板（T9，0 行不画）→ footer 状态条 → 问题面板（无题 0 行）→ dock
+/// （活动 / 排队 / composer / 按键提示，恒压底——hints 仍是屏幕最底一行，
+/// T2 布局契约不变）→ 搜索 overlay（T11，0 行不画）→ 回到底部 overlay
+/// （批 A，脱钩时画，最后一笔 + 命中区最优先）。
+///
+/// 命中表流程（批 A）：`hit.clear()` → `transcript::render` 把本帧画出的卡头/
+/// 思考头/stub 行推进表 → `scroll_to_bottom` 把 overlay 格推进表（后登记优先，
+/// 盖住其下 transcript 行）。`hit` 是 `&App` 上的 `RefCell`——渲染收不可变
+/// 借用，命中表是渲染副产物要 interior mutability。
 ///
 /// footer 与两层面板的行从 transcript 底部让出：dock 几何仍由 [`layout::split`]
 /// 原样决定，不动 T2 的切分语义（route §1 T3 白名单外的 layout/dock 零改动）。
 pub fn draw(frame: &mut Frame, app: &App) {
     let areas = areas(app, frame.area());
-    transcript::render(frame, areas.transcript, app);
+    app.hit().borrow_mut().clear();
+    transcript::render(frame, areas.transcript, app, app.hit());
     mark_focus(frame, areas.transcript, app);
     // T24：滚动条缩略块（零宽列 = 未预留，内部不画）。
     scrollbar::render(frame, areas.scrollbar, app);
@@ -153,6 +161,45 @@ pub fn draw(frame: &mut Frame, app: &App) {
     app.questions().render(frame, areas.panel);
     dock::render(frame, areas.dock, app);
     search_overlay::render(frame, areas.search, app);
+    scroll_to_bottom::render(frame, areas.transcript, app);
+}
+
+/// 批 A：脱钩时的「回到底部」overlay（freebuff `scroll-to-bottom-button` 对应）。
+/// 画在 transcript 区**右下角**最后一行（不占 dock 行——`dock_layout_fits`
+/// 44×20 契约不动），单格 `↓` + 命中区（点它 = `scroll.to_end()` 恢复跟尾）。
+/// 只在脱钩时画（跟尾 = 已在底，无物可点）。渲染同时登记命中：后登记优先，
+/// 盖住该行 transcript 命中的格。
+mod scroll_to_bottom {
+    use ratatui::Frame;
+    use ratatui::layout::Rect;
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::Paragraph;
+
+    use crate::app::App;
+    use crate::theme;
+
+    /// 画 overlay + 登记命中。`area` = transcript 区（已扣滚动条预留列的
+    /// 几何——overlay 落在文本列内最右格，不占滚动条列）。
+    pub fn render(frame: &mut Frame, area: Rect, app: &App) {
+        if app.viewport().is_following() || area.width == 0 || area.height == 0 {
+            return;
+        }
+        // 右下角最后一格：x = 右缘 - 1，y = 底缘 - 1。
+        let x = area.x + area.width - 1;
+        let y = area.y + area.height - 1;
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled("↓", theme::brand_bold()))),
+            Rect {
+                x,
+                y,
+                width: 1,
+                height: 1,
+            },
+        );
+        app.hit()
+            .borrow_mut()
+            .push(x, y, 1, 1, super::hit::HitAction::ScrollToBottom);
+    }
 }
 
 /// T12：焦点行标记（route §3 注记④「焦点消息行最小标记」）——transcript
@@ -175,8 +222,8 @@ fn mark_focus(frame: &mut Frame, area: Rect, app: &App) {
     let height = area.height as usize;
     let total = transcript::total_lines(app, width);
     let top = app.viewport().view_top(total, height);
-    let first = search_overlay::line_offset(app.messages(), app.tools_expanded(), idx, width);
-    let rows = transcript::message_rows(msg, app.tools_expanded(), width as usize);
+    let first = search_overlay::line_offset(app, idx, width);
+    let rows = transcript::message_rows(app, msg, idx, width as usize);
     // 首条可见行：消息窗口 [first, first+rows) 与视口 [top, top+height) 的交集
     // 起点；交不上 = 本帧看不到这条消息，不画。
     let mark = first.max(top);

@@ -161,7 +161,7 @@ fn tc(kind: &str, status: &str, title: &str, detail: &str) -> ToolCall {
 
 /// 卡头（卡的第一行）文本（剥掉样式：钉的是字形本身，不是颜色）。
 fn header_of(kind: &str, status: &str) -> String {
-    let lines = ui::tool_card::lines(&tc(kind, status, "cmd", ""), false, 80);
+    let lines = ui::tool_card::lines(&tc(kind, status, "cmd", ""), ui::fold::Fold::Collapsed, 80);
     lines
         .first()
         .and_then(|line| line.spans.first())
@@ -262,19 +262,20 @@ fn glyphs_do_not_change_row_count() {
         for status in statuses {
             for detail in &details {
                 let card = tc(kind, status, "cmd title", detail);
-                for (expanded, width) in [
-                    (false, 80usize),
-                    (true, 80),
-                    (false, 44),
-                    (true, 44),
-                    (false, 12),
-                    (true, 12),
+                for (fold, width) in [
+                    (ui::fold::Fold::Collapsed, 80usize),
+                    (ui::fold::Fold::Expanded, 80),
+                    (ui::fold::Fold::Hidden, 80),
+                    (ui::fold::Fold::Collapsed, 44),
+                    (ui::fold::Fold::Expanded, 44),
+                    (ui::fold::Fold::Collapsed, 12),
+                    (ui::fold::Fold::Expanded, 12),
                 ] {
-                    let lines = ui::tool_card::lines(&card, expanded, width);
+                    let lines = ui::tool_card::lines(&card, fold, width);
                     assert_eq!(
-                        ui::tool_card::rows(&card, expanded, width),
+                        ui::tool_card::rows(&card, fold, width),
                         lines.len(),
-                        "kind {kind} status {status} expanded {expanded} width {width}: \
+                        "kind {kind} status {status} fold {fold:?} width {width}: \
                          rows/lines 分叉"
                     );
                 }

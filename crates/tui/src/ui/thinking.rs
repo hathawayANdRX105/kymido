@@ -26,6 +26,8 @@ use ratatui::text::{Line, Span};
 
 use crate::theme;
 
+use super::fold::Fold;
+
 /// 折叠阈值：reasoning 逻辑行超过该数即折成「头尾预览 + 隐藏行数」（与
 /// 工具卡折叠同形，独立常数——P2 的展开键留独立调参空间）。恒大于
 /// [`HEAD`] + [`TAIL`]，折叠切片不越界。
@@ -39,14 +41,17 @@ const TAIL: usize = 2;
 const HEADER: &str = "◇ Thought";
 
 /// 思考块行数（计数侧，`message_rows` 的对偶）：空 / 纯空白 reasoning =
-/// 0 行；否则卡头 1 行 + 可见逻辑行的断行数（长内容含「… N lines
-/// hidden」提示行）。分支与断行核心与 [`lines`] 同源——对偶是结构性的。
-pub fn rows(reasoning: &str, width: usize) -> usize {
+/// 0 行（零虚构契约不变）；Hidden = 1 行 stub；否则卡头 1 行 + 可见逻辑行
+/// 的断行数（长内容含「… N lines hidden」提示行）。分支与 [`lines`] 同源。
+pub fn rows(reasoning: &str, fold: Fold, width: usize) -> usize {
     if reasoning.trim().is_empty() {
         return 0;
     }
+    if fold == Fold::Hidden {
+        return 1; // stub 恒 1 行
+    }
     let clean = super::transcript::sanitize(reasoning);
-    let visible = visible(&clean);
+    let visible = visible(&clean, fold);
     let body: usize = visible
         .iter()
         .map(|(line, _)| super::transcript::count_wrapped(line, width, "  "))
@@ -54,16 +59,18 @@ pub fn rows(reasoning: &str, width: usize) -> usize {
     1 + body
 }
 
-/// 思考块行（物化侧，`push_message` 的对偶）：空 / 纯空白 = 不出一行
-/// （零虚构：不出裸卡头）；否则卡头行（warn）+ 可见逻辑行（正文 dim、
-/// 隐藏提示 warn）。0 行 / 窄列宽永不 panic（断行核心与 `transcript`
-/// 共用，列宽 < 前缀宽时按 1 列硬切）。分支与断行核心与 [`rows`] 同源。
-pub fn lines(reasoning: &str, width: usize) -> Vec<Line<'static>> {
+/// 思考块行（物化侧，`push_message` 的对偶）：空 / 纯空白 = 不出一行；
+/// Hidden = 一行 stub；否则卡头行（warn）+ 可见逻辑行（正文 dim、隐藏提示
+/// warn）。0 行 / 窄列宽永不 panic。分支与断行核心与 [`rows`] 同源。
+pub fn lines(reasoning: &str, fold: Fold, width: usize) -> Vec<Line<'static>> {
     if reasoning.trim().is_empty() {
         return Vec::new();
     }
+    if fold == Fold::Hidden {
+        return vec![stub()];
+    }
     let clean = super::transcript::sanitize(reasoning);
-    let vis = visible(&clean);
+    let vis = visible(&clean, fold);
     let mut out: Vec<Line<'static>> = Vec::with_capacity(vis.len() + 1);
     out.push(Line::from(Span::styled(HEADER, theme::warn())));
     for (line, style) in vis {
@@ -72,13 +79,20 @@ pub fn lines(reasoning: &str, width: usize) -> Vec<Line<'static>> {
     out
 }
 
-/// 可见逻辑行规格（计数 / 物化两侧同一调用点——对偶的结构性所在）：短
-/// 内容全显；长内容 = 头 [`HEAD`] 行 + 「… N lines hidden」提示 + 尾
-/// [`TAIL`] 行。每项 `(文本, 样式)`：正文行 dim、提示行 warn（提示也走
-/// 断行核心，窄列宽下提示自身换行时两侧同步换行）。
-fn visible(clean: &str) -> Vec<(Cow<'_, str>, Style)> {
+/// [`Fold::Hidden`] 的一行 stub（同工具卡：整卡消失会让鼠标点不回来）：
+/// `◇ Thought ‹hidden›`，warn 样式，可点回 [`Fold::Collapsed`]。
+fn stub() -> Line<'static> {
+    Line::from(Span::styled("◇ Thought ‹hidden›", theme::warn()))
+}
+
+/// 可见逻辑行规格（计数 / 物化两侧同一调用点——对偶的结构性所在）：
+/// `Expanded` = 全部逻辑行；`Collapsed` = 短内容全显、长内容头 [`HEAD`] 行 +
+/// 「… N lines hidden」提示 + 尾 [`TAIL`] 行。`Hidden` 不走到这里（在
+/// `rows`/`lines` 顶层短路成 stub）。每项 `(文本, 样式)`：正文行 dim、提示行
+/// warn（提示也走断行核心，窄列宽下提示自身换行时两侧同步换行）。
+fn visible(clean: &str, fold: Fold) -> Vec<(Cow<'_, str>, Style)> {
     let logical: Vec<&str> = clean.lines().collect();
-    if logical.len() <= FOLD_AFTER {
+    if fold == Fold::Expanded || logical.len() <= FOLD_AFTER {
         return logical
             .iter()
             .map(|line| (Cow::Borrowed(*line), theme::dim()))

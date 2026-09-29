@@ -226,7 +226,7 @@ fn tool_card_rows_match_lines_with_diff() {
                 MessagePart::Tool(t) => t,
                 _ => unreachable!(),
             },
-            true,
+            ui::fold::Fold::Expanded,
             width,
         );
         let rows = ui::tool_card::rows(
@@ -234,7 +234,7 @@ fn tool_card_rows_match_lines_with_diff() {
                 MessagePart::Tool(t) => t,
                 _ => unreachable!(),
             },
-            true,
+            ui::fold::Fold::Expanded,
             width,
         );
         assert_eq!(

@@ -429,19 +429,14 @@ fn jump_positions_and_highlights_hit_line() {
 
     // ① 断行同源：`line_offset` 数到末尾 == `viewport().total()`（同一份
     //    `count_wrapped` / `tool_card::rows` 核心，分叉即测试红）。
-    let total = search_overlay::line_offset(
-        app.messages(),
-        app.tools_expanded(),
-        app.messages().len(),
-        SCREEN_W,
-    );
+    let total = search_overlay::line_offset(&app, app.messages().len(), SCREEN_W);
     assert_eq!(total, app.viewport().total(), "命中行坐标与总行数同和");
 
     // ② 跳转落位：目标行 == 视口首行（超出 max 夹到 max）。
     app.handle_key(ctrl('r'));
     app.set_search_hits(hits(&[30]));
     app.handle_key(key(KeyCode::Enter));
-    let line = search_overlay::line_offset(app.messages(), app.tools_expanded(), 30, SCREEN_W);
+    let line = search_overlay::line_offset(&app, 30, SCREEN_W);
     let top = view_top(&app);
     assert_eq!(
         top,
