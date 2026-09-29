@@ -10,6 +10,7 @@ mod composer;
 mod dock;
 pub mod footer;
 mod layout;
+pub mod markdown;
 pub mod panels;
 pub mod questions;
 mod scrollbar;

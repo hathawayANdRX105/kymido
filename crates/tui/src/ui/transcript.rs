@@ -74,7 +74,8 @@ pub(super) fn message_rows(msg: &ChatMessage, tools_expanded: bool, width: usize
         .parts
         .iter()
         .map(|part| match part {
-            MessagePart::Text(text) => count_wrapped(text, width, ""),
+            // T26：assistant 正文走 markdown（标题/列表/围栏代码块/引用块）。
+            MessagePart::Text(text) => super::markdown::rows(text, width),
             MessagePart::Tool(tc) => super::tool_card::rows(tc, tools_expanded, width),
         })
         .sum::<usize>();
@@ -127,7 +128,9 @@ fn push_message(out: &mut Vec<Line<'static>>, app: &App, msg: &ChatMessage, widt
     }
     for part in &msg.parts {
         match part {
-            MessagePart::Text(text) => push_wrapped(out, text, width, "", theme::base()),
+            // T26：与 message_rows 同分支同源——assistant 正文走 markdown，
+            // 用户消息与历史回填（parts 为空）保持纯文本字面量。
+            MessagePart::Text(text) => out.extend(super::markdown::lines(text, width)),
             // T3：一个 Tool part = 一张卡（序列折叠与三态都在 tool_card）。
             MessagePart::Tool(tc) => {
                 out.extend(super::tool_card::lines(tc, app.tools_expanded(), width));
