@@ -17,6 +17,8 @@ fn user_msg(text: &str) -> ChatMessage {
         role: "user".to_string(),
         content: text.to_string(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![MessagePart::Text(text.to_string())],
         timestamp: String::new(),

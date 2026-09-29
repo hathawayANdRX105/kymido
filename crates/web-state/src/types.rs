@@ -55,6 +55,14 @@ pub struct ChatMessage {
     /// 思考模型链式思维增量（仅展示，不回放上下文）。
     #[serde(default)]
     pub reasoning: String,
+    /// 首个 reasoning delta 的时刻（epoch ms）；瞬态，仅用于结算
+    /// [`Self::reasoning_ms`]，刷新读回为 `None`（reasoning 本身不落库）。
+    #[serde(default)]
+    pub reasoning_started_ms: Option<u64>,
+    /// 思考耗时（ms）：TurnEnd 时由 `now - reasoning_started_ms` 结算。
+    /// `None` = 在飞或未产生 reasoning。aui 对位：「Thought for Ns」。
+    #[serde(default)]
+    pub reasoning_ms: Option<u64>,
     #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
     /// 真实发生顺序的有序片段；为空时回退到 content + tool_calls 渲染。

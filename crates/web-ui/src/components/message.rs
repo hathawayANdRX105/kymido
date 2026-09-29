@@ -3,7 +3,7 @@
 //! format_tool_output / line_is_error / KindIcon）仍在 `super::chat`。
 
 use dioxus::prelude::*;
-use web_state::types::{ChatMessage, MessagePart, ToolCall};
+use web_state::types::{ChatMessage, MessagePart, ToolCall, format_duration_ms};
 
 use crate::shared as sh;
 use ui_kit::Spinner;
@@ -82,7 +82,9 @@ pub(crate) fn MessageItem(
             }
             None => (String::new(), parts.clone(), false),
         };
-        let waiting = streaming_tail && !has_final && process.is_empty();
+        // reasoning 在流式时由 ReasoningBlock 自己的 shimmer 承担指示；
+        // 「思考中」状态行只兜底「还没收到任何 reasoning/过程」的空窗期
+        let waiting = streaming_tail && !has_final && process.is_empty() && message.reasoning.is_empty();
         // aui ActionBar 复制源：最终正文优先，缺省回退整条 content
         let copy_src = if !final_text.is_empty() {
             final_text.clone()
@@ -99,6 +101,7 @@ pub(crate) fn MessageItem(
                     ReasoningBlock {
                         text: message.reasoning.clone(),
                         running: streaming_tail,
+                        duration: message.reasoning_ms,
                     }
                 }
                 if waiting {
@@ -259,13 +262,21 @@ fn ToolLine(tool: ToolCall) -> Element {
 }
 
 /// aui `Reasoning` part：受控折叠思考块（替换旧的原生 `details`）。
-/// 流式中：shimmer 「思考中」+ 默认展开；完成：「思考过程」label + 默认折叠；
-/// 点击可覆盖默认。无 chevron（沿用 ainotation #2 决策：折叠靠点击整行）。
+/// 流式中：shimmer 「思考中」+ 默认展开；完成：「已思考 Ns」（aui 对位
+/// "Thought for Ns"；无真实耗时时回退「思考过程」）+ 默认折叠；点击可覆盖
+/// 默认。无 chevron（沿用 ainotation #2 决策：折叠靠点击整行）。
+/// 思考正文走 markdown 渲染（保留 omenic 的 markdown 样式），左侧边框保留
+/// 「过程显示」观感。
 #[component]
-fn ReasoningBlock(text: String, running: bool) -> Element {
+fn ReasoningBlock(text: String, running: bool, duration: Option<u64>) -> Element {
     // None = 跟随 running；Some = 用户点过之后的显式开关
     let mut toggle = use_signal(|| None::<bool>);
     let open = toggle().unwrap_or(running);
+    // 完成态标题：有真实耗时 →「已思考 Ns」；没有（历史读回/未结算）→「思考过程」
+    let done_label: String = match duration {
+        Some(ms) if ms > 0 => format!("{} {}", sh::LBL_THOUGHT_FOR, format_duration_ms(ms)),
+        _ => sh::LBL_REASONING.to_string(),
+    };
     rsx! {
         div { class: "select-none",
             div {
@@ -276,14 +287,15 @@ fn ReasoningBlock(text: String, running: bool) -> Element {
                 },
                 if running {
                     span { class: "shimmer-text text-[13px] font-medium", {sh::MSG_THINKING} }
+                    span { class: "ml-1.5", Spinner {} }
                 } else {
-                    span { class: "text-[12px] leading-5 text-label-3 hover:text-label-2 transition-colors", {sh::LBL_REASONING} }
+                    span { class: "text-[12px] leading-5 text-label-3 hover:text-label-2 transition-colors", "{done_label}" }
                 }
             }
             if open {
                 div {
-                    class: "mt-1 text-[13px] leading-6 text-label-2 whitespace-pre-wrap break-words border-l border-b1 pl-3",
-                    "{text}"
+                    class: "mt-1 markdown-sm border-l border-b1 pl-3",
+                    dangerous_inner_html: "{markdown_to_html(&text)}"
                 }
             }
         }

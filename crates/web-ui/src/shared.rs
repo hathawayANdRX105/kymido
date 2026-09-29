@@ -45,6 +45,8 @@ pub const LBL_PICK_SESSION: &str = "选择会话快速切换";
 pub const LBL_PLAN_REVIEW: &str = "计划评审";
 pub const LBL_WORK_PROCESS: &str = "Work Process";
 pub const LBL_REASONING: &str = "思考过程";
+/// aui 对位「Thought for Ns」的完成态前缀；耗时由 `format_duration_ms` 现算
+pub const LBL_THOUGHT_FOR: &str = "已思考";
 pub const LBL_DESCRIPTION: &str = "描述";
 pub const LBL_ACCEPTANCE: &str = "验收标准";
 pub const LBL_RUNNING: &str = "运行中";

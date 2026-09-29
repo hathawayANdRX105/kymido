@@ -22,6 +22,8 @@ fn mk_msg(id: &str, role: &str, content: &str) -> ChatMessage {
         role: role.to_string(),
         content: content.to_string(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![],
         attachments: vec![],

@@ -4,7 +4,7 @@
 //! 之后换成 daemon `event.subscribe` 的实时流（C3.3），页面代码零改动。
 //! serde 形状对齐 `agent_loop::orbit::AgentEvent`（3.1 定稿后以冻结契约为准）。
 
-use crate::types::{ChatMessage, MessagePart, ToolCall};
+use crate::types::{now_epoch_ms, ChatMessage, MessagePart, ToolCall};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -65,6 +65,10 @@ impl UiState {
             }
             AgentEvent::Reasoning { delta } => {
                 let msg = self.last_assistant_or_placeholder();
+                // aui 对位「Thought for Ns」：首个 delta 定起点，TurnEnd 结算
+                if msg.reasoning_started_ms.is_none() {
+                    msg.reasoning_started_ms = Some(now_epoch_ms());
+                }
                 msg.reasoning.push_str(delta);
             }
             AgentEvent::ToolCall { id, name, args } => {
@@ -101,6 +105,13 @@ impl UiState {
             }
             AgentEvent::TurnEnd { stop_reason } => {
                 let msg = self.last_assistant_or_placeholder();
+                // 思考耗时结算：有真实起点（首个 reasoning delta）才结算，
+                // 模型没思考（reasoning 空）或中途读回（起点丢失）保持 None。
+                if let Some(start) = msg.reasoning_started_ms
+                    && !msg.reasoning.is_empty()
+                {
+                    msg.reasoning_ms = Some(now_epoch_ms().saturating_sub(start));
+                }
                 if msg.content.is_empty() && msg.tool_calls.is_empty() {
                     let text = format!(
                         "Agent 执行结束（原因: {stop_reason}）。未能获取有效回复，请在「设置」页检查 API 凭证与端点地址。"
@@ -123,6 +134,8 @@ impl UiState {
                 role: "assistant".into(),
                 content: String::new(),
                 reasoning: String::new(),
+                reasoning_started_ms: None,
+                reasoning_ms: None,
                 tool_calls: vec![],
                 parts: vec![],
                 attachments: vec![],
