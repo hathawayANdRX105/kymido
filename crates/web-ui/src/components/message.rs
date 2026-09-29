@@ -7,6 +7,7 @@ use web_state::types::{ChatMessage, MessagePart, ToolCall};
 
 use crate::shared as sh;
 use ui_kit::Spinner;
+use ui_kit::icons::{IconCheck, IconCopy};
 
 use crate::utils::markdown::markdown_to_html;
 
@@ -82,22 +83,22 @@ pub(crate) fn MessageItem(
             None => (String::new(), parts.clone(), false),
         };
         let waiting = streaming_tail && !has_final && process.is_empty();
+        // aui ActionBar 复制源：最终正文优先，缺省回退整条 content
+        let copy_src = if !final_text.is_empty() {
+            final_text.clone()
+        } else {
+            message.content.clone()
+        };
 
         rsx! {
             div { class: "flex flex-col gap-2 w-full group",
                 id: "{dom_id}",
-                // 思考过程（reasoning 增量）：details 原生折叠；流式中展开，
-                // 无图标、无 emoji——纯文本 label
+                // 思考过程（aui reasoning part）：受控折叠块；流式中 shimmer
+                // 「思考中」+ 默认展开，完成后「思考过程」label + 默认折叠
                 if !message.reasoning.is_empty() {
-                    details {
-                        class: "select-none",
-                        open: streaming_tail,
-                        summary { class: "inline-flex items-center text-[12px] leading-5 text-label-3 cursor-pointer hover:text-label-2 transition-colors",
-                            {sh::LBL_REASONING}
-                        }
-                        div { class: "mt-1 text-[13px] leading-6 text-label-2 whitespace-pre-wrap break-words border-l border-b1 pl-3",
-                            "{message.reasoning}"
-                        }
+                    ReasoningBlock {
+                        text: message.reasoning.clone(),
+                        running: streaming_tail,
                     }
                 }
                 if waiting {
@@ -120,12 +121,24 @@ pub(crate) fn MessageItem(
                     if streaming_tail {
                         div { class: "flex items-center gap-2 h-[26px]",
                             Spinner {}
-                            span { class: "text-[12px] leading-5 text-label-3", "正在生成回复..." }
+                            span { class: "text-[12px] leading-5 text-label-3", {sh::MSG_GENERATING} }
                         }
                     }
-                    // hover 元信息（时间戳）
-                    span { class: "text-[12px] leading-5 text-label-3 -ml-1 h-5 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
-                        "{message.timestamp}"
+                    // aui ActionBar：hover 显现 复制 + 时间戳
+                    div {
+                        class: "flex items-center gap-2 -ml-1 h-5 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
+                        button {
+                            class: "size-5 rounded flex items-center justify-center text-label-3 hover:text-label-2 cursor-pointer",
+                            title: sh::BTN_COPY,
+                            onclick: move |_| {
+                                let t = copy_src.clone();
+                                _ = document::eval(&format!(
+                                    "navigator.clipboard && navigator.clipboard.writeText({t:?})"
+                                ));
+                            },
+                            IconCopy { size: 11 }
+                        }
+                        span { class: "text-[12px] leading-5 text-label-3", "{message.timestamp}" }
                     }
                 }
             }
@@ -184,6 +197,12 @@ fn ToolLine(tool: ToolCall) -> Element {
     let chip = kind_chip(&tool.kind);
     let label = kind_label(&tool.kind);
     let formatted = format_tool_output(&tool.kind, &tool.detail);
+    // aui ToolCall running 态：标题加 shimmer 扫光（CSS 变量，随现有主题走）
+    let title_class = if running {
+        "shimmer-text font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0"
+    } else {
+        "font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0"
+    };
 
     rsx! {
         div { class: "flex flex-col",
@@ -197,12 +216,17 @@ fn ToolLine(tool: ToolCall) -> Element {
                     "{label}"
                 }
                 span { class: "text-[12px] leading-5 text-label-3 shrink-0", "·" }
-                span { class: "font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0", "{tool.title}" }
+                // aui ToolCall running 态：标题 shimmer 替代 spinner 独占注意力
+                span { class: "{title_class}", "{tool.title}" }
                 if running {
                     Spinner {}
                 }
                 if is_err {
                     span { class: "text-[11px] leading-4 font-medium text-danger shrink-0", {sh::MSG_TOOL_FAILED} }
+                }
+                if !running && !is_err {
+                    // aui ToolCall 完成勾
+                    IconCheck { size: 12, class: "shrink-0 text-success-2" }
                 }
             }
             if open() {
@@ -228,6 +252,38 @@ fn ToolLine(tool: ToolCall) -> Element {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// aui `Reasoning` part：受控折叠思考块（替换旧的原生 `details`）。
+/// 流式中：shimmer 「思考中」+ 默认展开；完成：「思考过程」label + 默认折叠；
+/// 点击可覆盖默认。无 chevron（沿用 ainotation #2 决策：折叠靠点击整行）。
+#[component]
+fn ReasoningBlock(text: String, running: bool) -> Element {
+    // None = 跟随 running；Some = 用户点过之后的显式开关
+    let mut toggle = use_signal(|| None::<bool>);
+    let open = toggle().unwrap_or(running);
+    rsx! {
+        div { class: "select-none",
+            div {
+                class: "h-5 flex items-center cursor-pointer w-fit",
+                onclick: move |e: MouseEvent| {
+                    e.stop_propagation();
+                    toggle.set(Some(!open));
+                },
+                if running {
+                    span { class: "shimmer-text text-[13px] font-medium", {sh::MSG_THINKING} }
+                } else {
+                    span { class: "text-[12px] leading-5 text-label-3 hover:text-label-2 transition-colors", {sh::LBL_REASONING} }
+                }
+            }
+            if open {
+                div {
+                    class: "mt-1 text-[13px] leading-6 text-label-2 whitespace-pre-wrap break-words border-l border-b1 pl-3",
+                    "{text}"
                 }
             }
         }

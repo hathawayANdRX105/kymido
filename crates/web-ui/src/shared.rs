@@ -29,6 +29,7 @@ pub const BTN_SAVE_MCP: &str = "保存 MCP 配置";
 pub const BTN_EXPAND_SIDEBAR: &str = "展开侧边栏";
 pub const BTN_COLLAPSE_SIDEBAR: &str = "收起侧边栏";
 pub const BTN_TASK_PANEL: &str = "任务看板";
+pub const BTN_COPY: &str = "复制";
 
 // ---- LBL_ : 标签 / 表头 / 区段名 ----
 pub const LBL_SESSIONS: &str = "会话";
