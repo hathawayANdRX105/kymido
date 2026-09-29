@@ -79,6 +79,13 @@ impl Scheme {
             // 缩进识别，前景不需要抢眼，只需要在两种终端上都读得出。
             (Scheme::Dark, Role::CodeFg) => Color::Gray,
             (Scheme::Light, Role::CodeFg) => Color::Gray,
+            // diff_add / diff_del：新增与删除。绿/红的自然语义，与 success /
+            // danger 同色是刻意的——跨角色的色彩复用在本文件有先例（border
+            // 与 dim 同色），语义对齐比另造色重要。
+            (Scheme::Dark, Role::DiffAdd) => Color::LightGreen,
+            (Scheme::Light, Role::DiffAdd) => Color::Green,
+            (Scheme::Dark, Role::DiffDel) => Color::LightRed,
+            (Scheme::Light, Role::DiffDel) => Color::Red,
         }
     }
 }
@@ -94,6 +101,8 @@ enum Role {
     Warn,
     Heading,
     CodeFg,
+    DiffAdd,
+    DiffDel,
 }
 
 /// 面板与卡的轮廓色。比 dim 更冷一档，浅色终端上仍与正文分得开。
@@ -120,6 +129,16 @@ pub fn heading() -> Style {
 /// `▌` 左条与缩进识别，前景只需要在两种终端上都读得出。
 pub fn code_fg() -> Style {
     Style::default().fg(color(Role::CodeFg))
+}
+
+/// diff 新增行（T27）：与 [`success`] 同色是刻意的语义对齐。
+pub fn diff_add() -> Style {
+    Style::default().fg(color(Role::DiffAdd))
+}
+
+/// diff 删除行（T27）：与 [`danger`] 同色是刻意的语义对齐。
+pub fn diff_del() -> Style {
+    Style::default().fg(color(Role::DiffDel))
 }
 
 /// 进程级活跃方案槽（`AtomicU8`：值 = [`Scheme::ALL`] 下标 + 1，0 = 未
