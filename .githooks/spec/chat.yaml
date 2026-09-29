@@ -10,42 +10,50 @@ anchors:
     expect: '消息列为居中限宽容器（实现统一 780；dsh 消息列 748，见 notes 偏差记录）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs:92；dsh: ConversationRoot.module.css:22（--dsh-chat-content-width: 748px）'
   - key: user-bubble
+    file: crates/web-ui/src/components/message.rs
     find: 'bg-bubble rounded-[22px] px-4 py-2.5 max-w-[525px]'
     expect: '用户气泡 bg-bubble（#2c2c2e）、r22、内边距 10/16、最大宽 525。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:238；dsh: MessageItem.module.css:17-27（bubble r22 pad 10/16 max-width 525）'
+    source: 'kymido: crates/web-ui/src/components/message.rs:47（4146126 自 chat.rs 拆出消息树）；dsh: MessageItem.module.css:17-27（bubble r22 pad 10/16 max-width 525）'
   - key: bubble-right-align
+    file: crates/web-ui/src/components/message.rs
     find: 'flex flex-col items-end gap-1 w-full group'
     expect: '用户消息整行右对齐（items-end），气泡下挂 hover 时间戳。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:235；dsh: MessageItem.module.css userRow（align-items: flex-end）'
+    source: 'kymido: crates/web-ui/src/components/message.rs:31（4146126 自 chat.rs 拆出）；dsh: MessageItem.module.css userRow（align-items: flex-end）'
   - key: assistant-body
     file: bin/web/assets/tailwind-input.css
     find: 'line-height: 28px;'
     expect: 'assistant 正文 markdown-body 16/28。'
     source: 'kymido: bin/web/assets/tailwind-input.css:152-158；dsh: AssistantMarkdown 16/28 规格'
   - key: process-header
+    file: crates/web-ui/src/components/message.rs
     find: 'h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit'
     expect: '「Work Process」折叠行高 24px，无 chevron（ainotation #2 删除），计数为 caption 弱化文本；最后一轮默认展开、更早轮静止折叠（#4-6）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:619；dsh: DisclosureRow.module.css:15（头高 24px）'
+    source: 'kymido: crates/web-ui/src/components/message.rs:161（ProcessBlock，4146126 自 chat.rs 拆出）；dsh: DisclosureRow.module.css:15（头高 24px）'
   - key: process-title
+    file: crates/web-ui/src/components/message.rs
     find: '"Work Process"'
     expect: '折叠块标题为英文「Work Process」（ainotation #4-7，原「工作过程」改为英文名）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:624；ainotation #4 第 7 条'
+    source: 'kymido: crates/web-ui/src/components/message.rs:166；ainotation #4 第 7 条'
   - key: tool-row-header
+    file: crates/web-ui/src/components/message.rs
     find: 'h-6 flex items-center gap-2 cursor-pointer select-none w-fit'
     expect: '单条工具调用行（ToolLine）头高 24px，与工作过程行同构；头行 = kind 图标 + 大写 kind 文本 + 「·」+ 命令标题，无 chevron（ainotation #2/#4）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:660；dsh: DisclosureRow.module.css:15（24px 头）'
+    source: 'kymido: crates/web-ui/src/components/message.rs:209（ToolLine，4146126 自 chat.rs 拆出）；dsh: DisclosureRow.module.css:15（24px 头）'
   - key: tool-chip
+    file: crates/web-ui/src/components/message.rs
     find: 'font-mono text-[10px] font-semibold uppercase shrink-0'
     expect: '工具 kind 标签：纯文本（无 chip 底/边框，ainotation #4-1）、mono 10px 大写、首字母大写显示（#4-2），颜色走 400 字级 token，shrink-0。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:666；dsh: 状态色 400 字规格'
+    source: 'kymido: crates/web-ui/src/components/message.rs:215；dsh: 状态色 400 字规格'
   - key: tool-kind-icon
+    file: crates/web-ui/src/components/message.rs
     find: 'KindIcon { kind: "{tool.kind}" }'
     expect: 'kind 前挂一个 12px、text-label-3 的类型图标（ainotation #4-4；字形映射语义对齐 dsh GenericToolCard VARIANT_ICONS）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:44-61,665；dsh: GenericToolCard.tsx VARIANT_ICONS'
+    source: 'kymido: crates/web-ui/src/components/chat.rs:92-102（KindIcon 定义）+ message.rs:214（4146126 调用点自 chat.rs 拆出）；dsh: GenericToolCard.tsx VARIANT_ICONS'
   - key: tool-kind-sep
+    file: crates/web-ui/src/components/message.rs
     find: 'span { class: "text-[12px] leading-5 text-label-3 shrink-0", "·" }'
     expect: 'kind 标签与命令标题之间插「·」分隔符（ainotation #4-3）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:669；ainotation #4 第 3 条'
+    source: 'kymido: crates/web-ui/src/components/message.rs:218；ainotation #4 第 3 条'
   - key: chip-kind-bash
     find: '"bash" | "job" | "terminal" => "text-brand-300"'
     expect: 'bash / job / terminal 类工具 kind 文本同为 brand-300 字色（三者都是「跑命令」，靠 kind 文字区分，不靠颜色；chip 底已按 #4-1 删除）。'
@@ -83,9 +91,10 @@ anchors:
     expect: '运行态动态效果：ui-kit Spinner 14px animate-spin 描边环替代旧白色小方块，表达「正在跑」（ainnotation 波3 #3）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs 停止钮；ui-kit Spinner'
   - key: picker-no-chevron
+    file: crates/web-ui/src/components/menu_picker.rs
     find: 'span { "{label}" }'
     expect: '模型/思考 MenuPicker 触发钮体内仅 label span，无右侧 chevron 图标（ainnotation 波3 #1/#2 删除），点击展开不变。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs MenuPicker；ainnotation 波3 #1/#2'
+    source: 'kymido: crates/web-ui/src/components/menu_picker.rs:37（MenuPicker，4146126 自 chat.rs 拆出）；ainnotation 波3 #1/#2'
   - key: composer-click-outside
     find: 'onclick: move |_| on_outside_tasks.call(())'
     expect: '「点外关闭」事件委托：chat 列根节点收 click → 页面层关闭任务 dock（ainnotation 波3 #5）；面板内部与开合钮 stop_propagation 豁免。'
@@ -116,9 +125,10 @@ anchors:
     expect: '工具输出渲染前经 format_tool_output 规整：单行转义文本的 \n \t \r 反转义为真实字符，已含真实换行者原样返回（ainotation 波2 #4-1；单测 crates/web-ui/tests/tool_output.rs）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs format_tool_output'
   - key: tool-output-block
+    file: crates/web-ui/src/components/message.rs
     find: 'tool-output bg-codeblock rounded-lg px-3 py-2 font-mono text-[12px] leading-[18px] text-label-2 whitespace-pre-wrap break-all'
     expect: '工具输出体为等宽终端样式块（bg-codeblock、font-mono 12/18、真实换行 pre-wrap），逐行着色：diff +/- 绿红、@@ 蓝、$ 命令行高亮（text-label）、error/panic/fatal/failed 行 danger（ainotation 波2 #4-2/3）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs ToolLine 展开体'
+    source: 'kymido: crates/web-ui/src/components/message.rs:237（ToolLine 展开体，4146126 自 chat.rs 拆出）'
   - key: md-table-layout
     file: bin/web/assets/tailwind-input.css
     find: 'width: max-content;'
@@ -129,9 +139,9 @@ anchors:
     expect: '用户问题卡（plan-mode review）：composer 上方、dock 之下，r14 卡片 + 品牌蓝「计划评审」标签 + 选项钮 h28 r8；无问题时整卡不渲染。'
     source: 'kymido: crates/web-ui/src/components/chat.rs（P1 plan-mode 批次新增；dsh 无对应组件，官方 packages/plan/plan-mode 的 review 卡为参考形态）'
   - key: empty-state
-    find: '开始一个新的任务'
-    expect: '空会话态：26px semibold 标题 + 420px 限宽副文案 + 品牌光斑。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:96-99'
+    find: 'text-[26px] leading-8 font-semibold text-label'
+    expect: '空会话态：26px semibold 标题（文案取 shared const MSG_EMPTY_CHAT_TITLE）+ 420px 限宽副文案 + 品牌光斑。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs:236（标题 class；文案 crates/web-ui/src/shared.rs:54 MSG_EMPTY_CHAT_TITLE 随 4146126 抽为 const）'
 notes: |
   已知偏差（报告不改）：dsh 消息列 748px（ConversationRoot.module.css
   --dsh-chat-content-width），kymido 实现把消息列与 composer 统一为

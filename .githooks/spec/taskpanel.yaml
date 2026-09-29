@@ -31,9 +31,10 @@ anchors:
     expect: '进度填充为品牌蓝，宽度随完成百分比过渡。'
     source: 'kymido: crates/web-ui/src/components/taskpanel.rs:48'
   - key: filter-chip
+    file: crates/web-ui/src/components/filter_chip.rs
     find: 'h-[26px] px-[7px] rounded-[7px] text-[12px] leading-[18px]'
     expect: '过滤 chip h26、r7、12/18 文案，激活态 bg-ihover。'
-    source: 'kymido: crates/web-ui/src/components/taskpanel.rs:150-152（FilterChip）；dsh: compact chip h26 r7'
+    source: 'kymido: crates/web-ui/src/components/filter_chip.rs:12-15（FilterChip，4146126 自 taskpanel.rs 拆出）；dsh: compact chip h26 r7'
   - key: task-card
     find: 'rounded-[10px] border border-b1 bg-layer-1 px-3 py-2.5'
     expect: '任务卡 r10、layer-1 底，选中态 brand 边框并展开描述/验收标准。'
