@@ -18,7 +18,7 @@ use terminal::script::{
 /// run can never make a "nothing left behind" assertion vacuously pass.
 fn fresh_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("omenic-tui-t0c")
+        .join("kymido-tui-t0c")
         .join(format!("{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir

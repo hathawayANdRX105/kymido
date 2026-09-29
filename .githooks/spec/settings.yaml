@@ -1,5 +1,5 @@
 # 设置弹窗契约：dsh SettingsRoot 复刻（800px r24 面板 + 188px 内导航 + 关于页）。
-# find 关键字全部取自 omenic rsx 源码中的稳定 class/字面量，由
+# find 关键字全部取自 kymido rsx 源码中的稳定 class/字面量，由
 # bin/web/tests/ui_contract.rs 的「源码锚点抽查」测试自动核对。
 name: settings
 target: crates/web-ui/src/views/config.rs
@@ -8,56 +8,56 @@ anchors:
   - key: modal-width
     find: 'w-[800px]'
     expect: '弹窗卡片宽 800px（Modal width_class 传入）。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:32；dsh: SettingsRoot 面板宽度'
+    source: 'kymido: crates/web-ui/src/views/config.rs:32；dsh: SettingsRoot 面板宽度'
   - key: modal-radius
     file: crates/web-ui/src/components/ui.rs
     find: 'rounded-2xl border border-border bg-card shadow-xl'
     expect: 'Modal 卡片 r16（rounded-2xl，ui-kit token 系）、bg-card 底、shadow-xl + black/60 blur 遮罩（ui-kit MODAL_BACKDROP）。'
-    source: 'omenic: crates/web-ui/src/components/ui.rs:41（Modal，样式收敛自 ui-kit panel.rs MODAL_* 常量）；原 dsh Modal r24 规格已随 ui-kit 统一替换'
+    source: 'kymido: crates/web-ui/src/components/ui.rs:41（Modal，样式收敛自 ui-kit panel.rs MODAL_* 常量）；原 dsh Modal r24 规格已随 ui-kit 统一替换'
   - key: left-nav
     find: 'w-[188px] shrink-0 bg-sidebar p-3 flex flex-col gap-1'
     expect: '左导航栏宽 188px、bg-sidebar 底。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:35'
+    source: 'kymido: crates/web-ui/src/views/config.rs:35'
   - key: nav-cell
     find: 'h-10 px-3 rounded-xl flex items-center gap-2.5'
     expect: '导航单元 h40、r12，激活态 bg-[#434546]（bubble-highlight）。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:23-28（nav_cell）'
+    source: 'kymido: crates/web-ui/src/views/config.rs:23-28（nav_cell）'
   - key: section-header
     find: 'h-[54px] px-6 flex items-center justify-between border-b border-b1'
     expect: '右内容列头 54px：区标题 + 28px 圆形关闭钮。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:53'
+    source: 'kymido: crates/web-ui/src/views/config.rs:53'
   - key: form-input
     find: 'w-full h-9 rounded-[10px] bg-layer-2 border border-b2 px-3'
     expect: '表单输入统一 h36、r10、layer-2 底，focus 时 brand 边框。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:144（input_class）'
+    source: 'kymido: crates/web-ui/src/views/config.rs:144（input_class）'
   - key: model-cards
     find: 'grid grid-cols-2 gap-2.5'
     expect: '在线模型卡两列网格，当前默认卡 brand 边框 + success「默认」chip。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:324,330-339'
+    source: 'kymido: crates/web-ui/src/views/config.rs:324,330-339'
   - key: about-version
     find: 'env!("CARGO_PKG_VERSION")'
     expect: '「关于」页展示编译期版本号（v{CARGO_PKG_VERSION} chip）。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:365-370（AboutPane）'
+    source: 'kymido: crates/web-ui/src/views/config.rs:365-370（AboutPane）'
   - key: mcp-nav-unit
     find: 'MCP 服务器'
     expect: '左导航新增「MCP 服务器」单元：h40 r12，复用 nav_cell 激活态（bg-[#434546]），Terminal 图标。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:56（SettingsModal 导航第三项）；new, no dsh anchor'
+    source: 'kymido: crates/web-ui/src/views/config.rs:56（SettingsModal 导航第三项）；new, no dsh anchor'
   - key: mcp-server-card
     find: 'bg-layer-1 border border-b1 rounded-xl px-4 py-4 flex flex-col gap-3'
     expect: 'MCP 服务器卡容器：layer-1 底、r12 圆角、纵向 gap-3；卡头 name + stdio/http 摘要 + 删除钮，卡体两列字段网格。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:529（McpServerCard card_class）；new, no dsh anchor'
+    source: 'kymido: crates/web-ui/src/views/config.rs:529（McpServerCard card_class）；new, no dsh anchor'
   - key: mcp-add-server
     find: '添加 MCP 服务器'
     expect: '「添加 MCP 服务器」按钮：向表单追加一张空白服务器卡（Outline 变体）。'
-    source: 'omenic: crates/web-ui/src/views/config.rs:460（McpServersPane 页头行）；new, no dsh anchor'
+    source: 'kymido: crates/web-ui/src/views/config.rs:460（McpServersPane 页头行）；new, no dsh anchor'
   - key: fallback-route-row
     find: 'other-provider/model-id'
     expect: 'Fallback 路由行的路由输入（font-mono，placeholder other-provider/model-id）：每行一条「provider/model」路由文本 + 序号 + 删除钮（T6 providers 化后取代 4 字段 Fallback Provider 卡）。'
-    source: 'omenic: crates/web-ui/src/views/config.rs ConfigForm Fallback 路由卡（route 行 input placeholder）；providers.toml 的 [[providers.X]] fallbacks 键'
+    source: 'kymido: crates/web-ui/src/views/config.rs ConfigForm Fallback 路由卡（route 行 input placeholder）；providers.toml 的 [[providers.X]] fallbacks 键'
   - key: llm-fallback-add
     find: '添加 Fallback 路由'
     expect: '「添加 Fallback 路由」按钮（Outline 变体，卡在区头行右侧）：向表单追加一条空白路由行。'
-    source: 'omenic: crates/web-ui/src/views/config.rs ConfigForm Fallback 路由卡区头行；new, no dsh anchor'
+    source: 'kymido: crates/web-ui/src/views/config.rs ConfigForm Fallback 路由卡区头行；new, no dsh anchor'
 notes: |
   表单校验/保存逻辑（save_to_file、test_connection）不在本契约内；
   锚点只锁面板几何、导航结构与输入样式。

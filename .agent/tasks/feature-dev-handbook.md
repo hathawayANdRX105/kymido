@@ -146,7 +146,7 @@ cg changes origin/main         # 当前 diff 的影响面 + risk 分
 
 ```
 - [x] cargo fmt --check 无输出                        — 8e7fd6c
-- [x] cargo check -p omenic-composition 无 error       — 8e7fd6c
+- [x] cargo check -p kymido-composition 无 error       — 8e7fd6c
 - [x] CI(PR #NNN)全绿：build / test / fmt              — CI run 链接
 - [x] grep -rn 'assemble(' crates/ bin/ | grep -v 'fn assemble' 至少 1 个真实调用点 — 5050641
 - [x] cg changes origin/main risk 不为 critical         — 记录实际 risk 值

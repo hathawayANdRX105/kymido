@@ -11,7 +11,7 @@
 
 ### 1. 创建 worktree
 ```bash
-cd ~/projects/omenic
+cd ~/projects/kymido
 git fetch origin main
 git worktree add .wt/<issue编号>-<分支名> -b <分支名> origin/main
 ```
@@ -32,7 +32,7 @@ git push -u origin <分支名>
 
 ### 4. 完成后清理
 ```bash
-cd ~/projects/omenic
+cd ~/projects/kymido
 git worktree remove .wt/<issue编号>-<分支名>
 ```
 

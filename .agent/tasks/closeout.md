@@ -1,10 +1,10 @@
 <!-- canon: hathawayANdRX105/canon @ eb4bc4a (synced 2026-09-25) -->
-<!-- canon: tasks/closeout.md — 收尾任务书。来源: dotfiles deskctl snippets(tasks/closeout, closeout-pr, dev) + ferrite/omenic/kime/silverq 各仓 .agent 文档收录。 -->
+<!-- canon: tasks/closeout.md — 收尾任务书。来源: dotfiles deskctl snippets(tasks/closeout, closeout-pr, dev) + ferrite/kymido/kime/silverq 各仓 .agent 文档收录。 -->
 # 项目收尾任务书（closeout）
 
 > **什么时候读**：项目/PR 收尾阶段——功能开发完、要审查、修问题、合 PR、清场的时候。
 > **解决什么**：收尾不是"提个 PR 等 CI"。收尾 = **CRG + gate 全栈审查（含 jev 模型层）→ 修复 → 记录到 PR → 清理工作树/分支 → 释放资源 → 汇报**，一条完整链路。
-> **来源**：`dotfiles/config/deskctl/snippets/tasks/{dev,closeout,closeout-pr}`、ferrite `.agent/rules/{pr-workflow,gates,dev-env,conventions,testing-ci,web-lanes}.md`、omenic `.agent/task-templates-handbook.md`、kime/silverq `.agent/tasks/{version-stats,versioning}.md`。冲突时以本文件和项目 `.agent/` 本地文档为准。
+> **来源**：`dotfiles/config/deskctl/snippets/tasks/{dev,closeout,closeout-pr}`、ferrite `.agent/rules/{pr-workflow,gates,dev-env,conventions,testing-ci,web-lanes}.md`、kymido `.agent/task-templates-handbook.md`、kime/silverq `.agent/tasks/{version-stats,versioning}.md`。冲突时以本文件和项目 `.agent/` 本地文档为准。
 
 ---
 
@@ -96,7 +96,7 @@ ocr review --from <base_sha> --to HEAD          # 按文件/模块分批，不�
 
 - CRG/gate-jevs **FAIL** → 必须修（见阶段 B）。
 - WARN/INFO → 逐条给"采纳/不采纳+理由"，写进 PR comment，不静默。
-- omenic 任务模板口径：review 四面 = scope / CRG / code / simplicity，**P0/P1 未处置不能 done**（见 `.agent/task-templates-handbook.md` 的 `review` step）。
+- kymido 任务模板口径：review 四面 = scope / CRG / code / simplicity，**P0/P1 未处置不能 done**（见 `.agent/task-templates-handbook.md` 的 `review` step）。
 
 ---
 
@@ -226,5 +226,5 @@ git branch -d <branch>                     # 已合的分支；--delete-branch �
 | ferrite | `.agent/rules/gates.md` | gate 输出判读、PR 模板、占位符规范 |
 | ferrite | `.agent/rules/dev-env.md` | 进程/共享后端/缓存踩坑 |
 | ferrite | `.agent/rules/{conventions,testing-ci,web-lanes}.md` | UI 验证、CI 静默失效三模式 |
-| omenic | `.agent/task-templates-handbook.md` | Done when=phase、Construction plan=steps 选型；review/tidy/handoff step |
+| kymido | `.agent/task-templates-handbook.md` | Done when=phase、Construction plan=steps 选型；review/tidy/handoff step |
 | kime / silverq | `.agent/tasks/version-stats.md` / `versioning.md` | 版本三段口径与项目真相源 |

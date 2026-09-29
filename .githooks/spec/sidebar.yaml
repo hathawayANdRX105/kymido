@@ -1,5 +1,5 @@
 # 侧栏契约：dsh SidebarRoot 复刻（logo 行 / 新会话 / 项目会话树 / 底部行 / 折叠 rail）。
-# find 关键字全部取自 omenic rsx 源码中的稳定 class/字面量，由
+# find 关键字全部取自 kymido rsx 源码中的稳定 class/字面量，由
 # bin/web/tests/ui_contract.rs 的「源码锚点抽查」测试自动核对。
 name: sidebar
 target: crates/web-ui/src/components/sidebar.rs
@@ -8,99 +8,99 @@ anchors:
   - key: container
     find: 'relative h-full bg-sidebar border-r border-b1 flex flex-col shrink-0'
     expect: '侧栏容器 bg-sidebar（#1b1b1c）+ 右缘 1px 边框，纵向 flex 列。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:59；dsh: SidebarRoot.module.css（panel 底色/边）'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:59；dsh: SidebarRoot.module.css（panel 底色/边）'
   - key: logo-row
     find: 'h-[52px] flex items-center justify-between pl-1 pr-0'
-    expect: 'logo 行高 52px：omenic 字标 + 折叠钮两端对齐。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:76；dsh: SidebarRoot.module.css:90-101（logoRow）'
+    expect: 'logo 行高 52px：kymido 字标 + 折叠钮两端对齐。'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:76；dsh: SidebarRoot.module.css:90-101（logoRow）'
   - key: wordmark
     file: crates/web-ui/src/components/sidebar.rs
     find: 'text-[18px] leading-6 font-semibold tracking-[0.04em]'
-    expect: 'omenic 字标 18/24 semibold + 品牌色圆点。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:18（Wordmark，品牌字标属业务身份不进 ui-kit）；dsh: SidebarRoot.module.css:110-116（brand group）'
+    expect: 'kymido 字标 18/24 semibold + 品牌色圆点。'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:18（Wordmark，品牌字标属业务身份不进 ui-kit）；dsh: SidebarRoot.module.css:110-116（brand group）'
   - key: new-session-button
     find: 'h-[38px] mx-0.5 mb-2 px-4 rounded-xl border border-b2 bg-layer-2'
     expect: '新会话钮 h38、r12（rounded-xl）、layer-2 底 + 1px 边框，hover 提亮。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:91；dsh: SidebarRoot.module.css:227-235（38px bar, 12px radius）'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:91；dsh: SidebarRoot.module.css:227-235（38px bar, 12px radius）'
   - key: section-header
     find: 'h-9 flex items-center justify-between pl-1 pr-0.5'
     expect: '区头高 36px：「会话」caption 标题 + ⌘K 搜索钮。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:101；dsh: SidebarRoot 区头规格'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:101；dsh: SidebarRoot 区头规格'
   - key: cmdk-search
     find: 'nav-search-bar'
     expect: '搜索钮挂 nav-search-bar hook class，⌘K/Ctrl+K 全局触发快速切换。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:104 + bin/web/src/app.rs（keydown 处理）'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:104 + bin/web/src/app.rs（keydown 处理）'
   - key: project-row
     find: 'h-[34px] mx-0 px-2 rounded-lg flex items-center gap-2'
     expect: '项目行 h34、r8，folder 图标 + 名称 + 常显（默认 opacity-40，行 hover 满透明）新建/移除钮 + 计数。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:148'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:148'
   - key: session-row
     find: 'group h-8 px-2 rounded-lg flex items-center gap-2'
     expect: '会话行 h32、r8，激活态 bg-ihover 常亮；运行中会话左侧旋转指示；删除钮 hover 行才出现且排在行最右。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:288-290（SessionRow）'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:288-290（SessionRow）'
   - key: run-indicator
     find: 'Spinner { size: 12, class: "text-brand shrink-0" }'
     expect: '会话状态为 Active（事件流实时写入）时行左侧显示 ui-kit Spinner 旋转加载图标；非运行态不渲染。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs（SessionRow，status == SessionStatus::Active 条件渲染）；用户批注 2'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs（SessionRow，status == SessionStatus::Active 条件渲染）；用户批注 2'
   - key: hover-row-actions
     find: 'opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none'
     expect: '会话行/项目行删除（🗑）钮默认完全隐藏（opacity-0），hover 行才在行最右出现。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs（SessionRow 删除钮 + 项目行移除钮）；用户批注 1'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs（SessionRow 删除钮 + 项目行移除钮）；用户批注 1'
   - key: session-indent
     find: 'pl-[22px] flex flex-col gap-px pb-1'
     expect: '会话行相对项目行缩进 22px。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:164'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:164'
   - key: session-tree-group
     find: 'fn group_sessions(sessions: &[Session]) -> Vec<(&Session, usize)>'
     expect: '扁平列表按 parent_id 组渲染树：父在前、子紧随其后；父不在本列表当根，成环/超深由 visited 与深度上限截断。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:211（group_sessions）；omenic 自研——dsh 侧会话列表无谱系分组控件'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:211（group_sessions）；kymido 自研——dsh 侧会话列表无谱系分组控件'
   - key: child-indent
     find: 'pl-[18px]'
     expect: '子会话行相对父行再缩进 18px（层级 1；2/3 层 36/54px，再深封顶）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:264-271（depth_indent_class）；omenic 自研——dsh 侧无此层级语言'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:264-271（depth_indent_class）；kymido 自研——dsh 侧无此层级语言'
   - key: status-dot-active
     find: 'SessionStatus::Active => "bg-brand"'
     expect: '折叠 rail 会话图标的状态点为品牌蓝 bg-brand（展开会话行已移除状态点）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:26'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:26'
   - key: status-dot-idle
     find: 'SessionStatus::Idle => "bg-dim"'
     expect: '空闲会话状态点为暗色 bg-dim（仅折叠 rail）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:27'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:27'
   - key: status-dot-archived
     find: 'SessionStatus::Archived | SessionStatus::Aborted => "bg-danger/70"'
     expect: '归档与中断（半开 run）会话状态点同为 danger 70% 透明（仅折叠 rail）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:29'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:29'
   - key: footer-row
     find: 'h-[42px] px-2.5 rounded-xl flex items-center gap-2.5'
     expect: '底部「数据统计 / 设置」触发行 h42、r12。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:180-185'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:180-185'
   - key: collapsed-rail
     find: 'width:56px;min-width:56px;'
     expect: '折叠态侧栏固定 56px rail。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:53；dsh: SidebarRoot.module.css:25（56px rail）'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:53；dsh: SidebarRoot.module.css:25（56px rail）'
   - key: rail-footer-pinned
     find: 'shrink-0 flex flex-col items-center gap-1.5'
     expect: '折叠 rail 底部「数据统计 / 设置」钮组 shrink-0，窗口偏矮时完整显示在 rail 底部上方，不被会话图标列表挤裁。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:409；用户批注 13'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:409；用户批注 13'
   - key: resizer-thin
     find: 'absolute top-0 right-0 h-full w-0.5 cursor-col-resize hover:bg-brand/20'
     expect: '侧栏右缘拖拽条 w0.5（2px），hover 仅 20% 品牌蓝减淡提示。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:217；用户批注 6'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:217；用户批注 6'
   - key: hidden-scrollbar
     find: 'no-scrollbar'
     expect: '会话列表容器保留滚动但隐藏滚动条（scrollbar-width:none + ::-webkit-scrollbar 隐藏，见 bin/web/assets/tailwind-input.css）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:133/368 + bin/web/assets/tailwind-input.css:144；用户批注 12'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:133/368 + bin/web/assets/tailwind-input.css:144；用户批注 12'
   - key: rail-hover-panel
     find: 'w-52 rounded-xl border border-binv bg-menu px-3 py-2 shadow-lv3'
     expect: '折叠 rail 图标 hover 出纯 CSS 信息面板（标题 + 项目 + 时间）。'
-    source: 'omenic: crates/web-ui/src/components/sidebar.rs:381'
+    source: 'kymido: crates/web-ui/src/components/sidebar.rs:381'
 notes: |
   状态点三色锚点取自 status_dot_class 的 match 字面量，属于静态映射；
   状态点现在只用于折叠 rail 的会话图标（展开会话行已按用户反馈移除
   状态点、新建子会话 + 钮与时间戳 hover 隐藏）。会话标题等动态文本不作
   为锚点。
   树分组两个锚点（session-tree-group / child-indent）为 5.3/5.5 谱系分组
-  新增：dsh 侧会话列表是扁平的，无父子边，故 source 记 omenic 自研。折叠
+  新增：dsh 侧会话列表是扁平的，无父子边，故 source 记 kymido 自研。折叠
   rail 保持扁平迭代（图标列里层级无意义），不参与分组。
   批注 1/2/6/12/13：删除钮改回 hover 才出现且移到行最右；运行中会话
   （status == Active，页面在飞时由事件流实时写入）行左侧显示 ui-kit
