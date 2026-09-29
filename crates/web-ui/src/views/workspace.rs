@@ -33,6 +33,7 @@ use web_state::types::{
     ChatMessage, PendingAttachment, Session, SessionStatus, StatusLine, TaskItem, WorkspaceSpace,
 };
 use web_state::ui_state::{AgentEvent, UiState};
+use web_state::{is_placeholder_title, title_from_first_message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -55,20 +56,20 @@ pub fn Workspace(
     // 2s（`recv_timeout`）。daemon 卡住（socket 存在但 peer 不响应）时首帧
     // 不再冻死：超时退化为 Disconnected，空态先渲染，数据由事件订阅补。
     // 保留 JoinError 日志——socket 解析或 ping 里的真 panic 不能静默吞。
-    let backend = use_signal(probe_backend);
+    let mut backend = use_signal(probe_backend);
 
     // Worker subscription readiness gate (shared between worker_event_loop
     // and the background prompt thread).
     let readiness = use_signal(|| ReadinessGate::new());
 
     let data_dir = config.data_dir.clone();
-    let spaces = use_signal(move || match backend() {
+    let mut spaces = use_signal(move || match backend() {
         // Daemon 模式：项目行 = 单行真实项目（名字取 data_dir 文件名）
         DataBackend::Daemon(_) => vec![daemon_space(&data_dir)],
         // 无 daemon：无项目行（空态）
         DataBackend::Disconnected => Vec::new(),
     });
-    let active_space_path = use_signal(|| {
+    let mut active_space_path = use_signal(|| {
         spaces
             .read()
             .iter()
@@ -198,7 +199,15 @@ pub fn Workspace(
     // 兜底（订阅建立前已提交的问题推送不补发，只有快照看得到）。与 worker
     // 事件管线同构：读线程只拥有克隆与 channel，Signal 全在消费侧碰。
     let mut pending_question = use_signal(|| None::<QuestionItem>);
+    // 订阅管线一次性守卫（known-issue 1）：Disconnected 挂载时管线 effect
+    // 直接早退；重探成功切到 Daemon 后 backend 变化重跑 effect，守卫防止
+    // 多份读线程并存的重复建。
+    let mut q_pipeline_started = use_signal(|| false);
+    let mut w_pipeline_started = use_signal(|| false);
     use_effect(move || {
+        if (q_pipeline_started)() {
+            return;
+        }
         let DataBackend::Daemon(d) = backend() else {
             return;
         };
@@ -221,8 +230,12 @@ pub fn Workspace(
                 pending_question.set(Some(item));
             }
         });
+        q_pipeline_started.set(true);
     });
     use_effect(move || {
+        if (w_pipeline_started)() {
+            return;
+        }
         let DataBackend::Daemon(d) = backend() else {
             return;
         };
@@ -389,6 +402,107 @@ pub fn Workspace(
                         ui.apply(&ev);
                         map.insert(sid.clone(), ui.messages);
                     }
+                }
+            }
+        });
+        w_pipeline_started.set(true);
+    });
+    // known-issue 1：Disconnected 不是单向闸。挂载时探测只有 2s 有界预算，
+    // daemon 冷启动 / 重启窗口内一旦落锁为 Disconnected，之后所有发送都被
+    // 静默丢弃（本地回显 + 复位 Idle）。Disconnected 期间每 3s 重探一次：
+    // 探活成功切回 Daemon 并补拉项目 / 会话列表；订阅管线 effect 依赖
+    // backend()，切回时自动重建（一次性守卫保证不多建）。
+    let reprobe_data_dir = config.data_dir.clone();
+    use_effect(move || {
+        if matches!((backend)(), DataBackend::Daemon(_)) {
+            return;
+        }
+        let (re_tx, mut re_rx) = tokio::sync::mpsc::unbounded_channel::<DataBackend>();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                match probe_backend() {
+                    DataBackend::Daemon(d) => {
+                        let _ = re_tx.send(DataBackend::Daemon(d));
+                        return;
+                    }
+                    DataBackend::Disconnected => {}
+                }
+            }
+        });
+        let value = reprobe_data_dir.clone();
+        spawn(async move {
+            let data_dir = value;
+            while let Some(found) = re_rx.recv().await {
+                let DataBackend::Daemon(d) = found else {
+                    continue;
+                };
+                backend.set(DataBackend::Daemon(d.clone()));
+                let space = daemon_space(&data_dir);
+                spaces.set(vec![space.clone()]);
+                active_space_path.set(space.path.clone());
+                let list = std::thread::spawn(move || d.list_sessions(50).unwrap_or_default())
+                    .join()
+                    .unwrap_or_default();
+                space_sessions.set(HashMap::from([(space.path, list.clone())]));
+                active_session_id.set(list.first().map(|s| s.id.clone()).unwrap_or_default());
+                break;
+            }
+        });
+    });
+
+    // known-issue 2：刷新后标题补重试。pending_titles 仅内存态，页面刷新后
+    // 首条消息标题落库失败过的会话永远停在「会话 <ts>」占位。挂载（含重探
+    // 切回后的补拉）时对占位会话按首条用户消息重新派生并经 daemon 写回：
+    // 上限 5 个会话、每个两条 RPC 顺序执行；消息为空的会话无首条可派生，
+    // 保持占位（那是真实状态，不编造标题）。
+    use_effect(move || {
+        let DataBackend::Daemon(d) = backend() else {
+            return;
+        };
+        let sids: Vec<String> = space_sessions()
+            .values()
+            .flatten()
+            .filter(|s| is_placeholder_title(&s.title))
+            .map(|s| s.id.clone())
+            .take(5)
+            .collect();
+        if sids.is_empty() {
+            return;
+        }
+        let (rep_tx, mut rep_rx) = tokio::sync::mpsc::unbounded_channel::<(String, String)>();
+        std::thread::spawn(move || {
+            for sid in sids {
+                let Ok(msgs) = d.load_messages(&sid, 50) else {
+                    continue;
+                };
+                let Some(first) = msgs.iter().find(|m| m.role == "user") else {
+                    continue;
+                };
+                let title = title_from_first_message(&first.content);
+                if d.update_session_title(&sid, &title).is_err() {
+                    continue;
+                }
+                let _ = rep_tx.send((sid, title));
+            }
+        });
+        spawn(async move {
+            while let Some((sid, title)) = rep_rx.recv().await {
+                // 写回前重读：会话可能并行被删，孤儿 entry 不写回（同
+                // session_exists_in 的纪律）；本地标题已不再占位（如用户
+                // 期间改名）也不覆盖
+                let mut map = space_sessions.read().clone();
+                let mut patched = false;
+                for list in map.values_mut() {
+                    for s in list.iter_mut() {
+                        if s.id == sid && is_placeholder_title(&s.title) {
+                            s.title = title.clone();
+                            patched = true;
+                        }
+                    }
+                }
+                if patched {
+                    space_sessions.set(map);
                 }
             }
         });

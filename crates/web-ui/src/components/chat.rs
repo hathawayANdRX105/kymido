@@ -196,6 +196,13 @@ pub fn Chat(
     } else {
         format!(" · {elapsed}")
     };
+    // 发送失败提示段（known-issue 1）：last_error 非空时追加在耗时段之后，
+    // 空串不渲染（同 elapsed_seg 的「无真实来源不编造」纪律）。
+    let error_seg = if statusline.last_error.is_empty() {
+        String::new()
+    } else {
+        format!(" · {}", statusline.last_error)
+    };
 
     // 问题卡预提取 owned 数据：rsx 闭包要 'static，不能借 prop 的局部。
     // 按钮按 (qid 副本, index, label) 三元组迭代——每个闭包捕获自己那份
@@ -489,7 +496,7 @@ pub fn Chat(
                     }
                     // 状态行（dsh StatsLine：12/20 tertiary 居中）
                     div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
-                        "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}"
+                        "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}{error_seg}"
                     }
                 }
             }
