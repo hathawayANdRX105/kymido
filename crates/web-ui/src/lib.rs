@@ -10,6 +10,9 @@
 
 pub mod components;
 pub mod layouts;
+pub mod shared;
+pub mod state;
+pub mod styles;
 pub mod utils;
 pub mod views;
 

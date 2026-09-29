@@ -3,8 +3,12 @@
 use dioxus::prelude::*;
 use web_state::types::TaskItem;
 
+use crate::shared as sh;
+use crate::styles as st;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::IconX;
+
+use super::filter_chip::FilterChip;
 
 #[component]
 pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
@@ -42,13 +46,13 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
             // 头部
             div { class: "flex items-center justify-between pl-4 pr-2 py-1.5 border-b border-b1",
                 div { class: "flex items-center gap-2.5",
-                    span { class: "text-[14px] leading-5 font-medium text-label", "任务看板" }
+                    span { class: "text-[14px] leading-5 font-medium text-label", {sh::BTN_TASK_PANEL} }
                     span { class: "text-[12px] leading-5 text-label-3", "{done_count}/{total_count} 完成" }
                 }
                 Button {
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::IconSm,
-                    title: "关闭",
+                    title: sh::BTN_CLOSE,
                     onclick: move |_| on_close.call(()),
                     IconX { size: 14 }
                 }
@@ -93,10 +97,10 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
                     {
                         let is_selected = selected_task_id() == Some(task.id.clone());
                         let (status_label, status_chip) = match task.status.as_str() {
-                            "in_progress" => ("进行中", "bg-chip-brand text-brand-300"),
-                            "done" => ("已完成", "bg-chip-success text-success-2"),
-                            "blocked" => ("已阻塞", "bg-chip-danger text-danger"),
-                            _ => ("待办", "bg-layer-2 text-label-3"),
+                            "in_progress" => (sh::STATUS_IN_PROGRESS, st::S_CHIP_BRAND),
+                            "done" => (sh::STATUS_DONE, st::S_CHIP_SUCCESS),
+                            "blocked" => (sh::STATUS_BLOCKED, st::S_CHIP_DANGER),
+                            _ => (sh::STATUS_OPEN, st::S_RAISED),
                         };
                         let priority_class = match task.priority {
                             0 => "bg-chip-danger text-danger",
@@ -133,13 +137,13 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
                                     div { class: "mt-2 pt-2 border-t border-b1 flex flex-col gap-1.5",
                                         if !task.description.is_empty() {
                                             div { class: "flex flex-col gap-0.5",
-                                                span { class: "text-[10px] leading-4 uppercase tracking-wide text-caption font-semibold", "描述" }
+                                                span { class: "text-[10px] leading-4 uppercase tracking-wide text-caption font-semibold", {sh::LBL_DESCRIPTION} }
                                                 p { class: "text-[12px] leading-[18px] text-label-2", "{task.description}" }
                                             }
                                         }
                                         if !task.acceptance.is_empty() {
                                             div { class: "flex flex-col gap-0.5",
-                                                span { class: "text-[10px] leading-4 uppercase tracking-wide text-caption font-semibold", "验收标准" }
+                                                span { class: "text-[10px] leading-4 uppercase tracking-wide text-caption font-semibold", {sh::LBL_ACCEPTANCE} }
                                                 p { class: "text-[12px] leading-[18px] text-label-2", "{task.acceptance}" }
                                             }
                                         }
@@ -151,17 +155,5 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
                 }
             }
         }
-    }
-}
-
-#[component]
-fn FilterChip(label: String, active: bool, onclick: EventHandler<MouseEvent>) -> Element {
-    let class = if active {
-        "h-[26px] px-[7px] rounded-[7px] text-[12px] leading-[18px] bg-ihover text-label cursor-pointer transition-colors border-none"
-    } else {
-        "h-[26px] px-[7px] rounded-[7px] text-[12px] leading-[18px] text-label-3 hover:bg-ihover hover:text-label cursor-pointer transition-colors border-none bg-transparent"
-    };
-    rsx! {
-        button { r#type: "button", class: "{class}", onclick: onclick, "{label}" }
     }
 }

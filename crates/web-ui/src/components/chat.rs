@@ -3,16 +3,18 @@
 
 use dioxus::prelude::*;
 use web_client::{QuestionAnswer, QuestionItem};
-use web_state::types::{ChatMessage, MessagePart, PendingAttachment, StatusLine, ToolCall};
+use web_state::types::{ChatMessage, PendingAttachment, StatusLine};
 
+use crate::shared as sh;
+use ui_kit::Spinner;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    IconArrowUp, IconCheck, IconFolder, IconGear, IconMoon, IconPaperclip, IconPlus, IconSearch,
+    IconArrowUp, IconFolder, IconGear, IconMoon, IconPaperclip, IconPlus, IconSearch,
     IconSquareCheck, IconTerminal, IconTrash,
 };
-use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel, Spinner};
 
-use crate::utils::markdown::markdown_to_html;
+use super::menu_picker::MenuPicker;
+use super::message::MessageItem;
 
 /// 工具类型的配色（dsh 状态色 400 字级，ainotation #4：去掉 chip 底/边框，
 /// kind 只渲染为 mono 大写小字文本）。
@@ -20,7 +22,7 @@ use crate::utils::markdown::markdown_to_html;
 /// `job` / `terminal` 复用 brand 家族：它们和 `bash` 一样是"跑命令"，
 /// 换成另一种强调色会让同一类操作在气泡上显得互不相干。三者靠 kind 文字
 /// （`job` / `terminal` / `bash`，见下方渲染处）区分，不靠颜色。
-fn kind_chip(kind: &str) -> &'static str {
+pub(crate) fn kind_chip(kind: &str) -> &'static str {
     match kind {
         "bash" | "job" | "terminal" => "text-brand-300",
         "edit" | "write" => "text-success-2",
@@ -31,7 +33,7 @@ fn kind_chip(kind: &str) -> &'static str {
 }
 
 /// kind 显示名：首字母大写（bash→Bash）；match 键保持小写。
-fn kind_label(kind: &str) -> String {
+pub(crate) fn kind_label(kind: &str) -> String {
     let mut chars = kind.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
@@ -74,7 +76,7 @@ pub fn format_tool_output(_kind: &str, raw: &str) -> String {
 /// 终端观感的错误行判定（ainotation 波2 #4②）：含 error/panic/fatal/failed
 /// 的行着 danger 色。故意放宽到 contains——真实日志的错误行形态太多，误染
 /// 一行普通文本好过整屏无色。
-fn line_is_error(line: &str) -> bool {
+pub(crate) fn line_is_error(line: &str) -> bool {
     let l = line.to_lowercase();
     l.contains("error") || l.contains("panic") || l.contains("fatal") || l.contains("failed")
 }
@@ -87,7 +89,7 @@ fn line_is_error(line: &str) -> bool {
 /// - edit/write → IconPlus（dsh 用铅笔 IconEditOutline16；ui-kit 无铅笔/编辑字形，plus 是现有集里语义最接近「写/改」的）
 /// - delete → IconTrash；think → IconMoon；tool 及未知 → IconGear
 #[component]
-fn KindIcon(kind: String) -> Element {
+pub(crate) fn KindIcon(kind: String) -> Element {
     let class = "text-label-3 shrink-0";
     match kind.as_str() {
         "bash" | "terminal" | "job" => rsx! { IconTerminal { size: 12, class } },
@@ -109,10 +111,10 @@ const MODELS: &[&str] = &[
 ];
 
 const THINKING_OPTIONS: &[(&str, &str)] = &[
-    ("关闭", "off"),
-    ("轻量", "2k"),
-    ("标准", "8k"),
-    ("深度", "16k"),
+    (sh::OPT_THINKING_OFF, "off"),
+    (sh::OPT_THINKING_LIGHT, "2k"),
+    (sh::OPT_THINKING_STANDARD, "8k"),
+    (sh::OPT_THINKING_DEEP, "16k"),
 ];
 
 #[component]
@@ -231,7 +233,7 @@ pub fn Chat(
                     if display_messages.is_empty() && !is_streaming {
                         div { class: "flex-1 flex flex-col items-center justify-center gap-2.5 text-center py-10 select-none relative",
                             div { class: "absolute w-[520px] h-[220px] rounded-full bg-brand/10 blur-[110px] -z-10" }
-                            div { class: "text-[26px] leading-8 font-semibold text-label", "开始一个新的任务" }
+                            div { class: "text-[26px] leading-8 font-semibold text-label", {sh::MSG_EMPTY_CHAT_TITLE} }
                             div { class: "text-[14px] leading-[22px] text-label-3 max-w-[420px]",
                                 "在下方输入指令，Agent 将使用文件读写、bash 与代码编辑工具协助你完成。"
                             }
@@ -293,7 +295,7 @@ pub fn Chat(
                     if let Some((_, qsummary, _)) = &question_view {
                         div { class: "pointer-events-auto w-full question-card rounded-[14px] border border-b1 bg-layer-1 shadow-lv2 px-4 py-3 flex flex-col gap-2.5",
                             div { class: "flex items-baseline gap-2",
-                                span { class: "text-[12px] leading-4 font-medium text-brand-300 shrink-0", "计划评审" }
+                                span { class: "text-[12px] leading-4 font-medium text-brand-300 shrink-0", {sh::LBL_PLAN_REVIEW} }
                                 span { class: "text-[13px] leading-5 text-label-2", "{qsummary}" }
                             }
                             div { class: "flex items-center gap-2 flex-wrap",
@@ -347,7 +349,7 @@ pub fn Chat(
                                         button {
                                             r#type: "button",
                                             class: "border-none bg-transparent text-caption hover:text-label cursor-pointer p-0",
-                                            title: "移除",
+                                            title: sh::BTN_REMOVE,
                                             onclick: move |_| {
                                                 let mut cur = attachments.write();
                                                 cur.remove(idx);
@@ -401,7 +403,7 @@ pub fn Chat(
                                 if image_input {
                                     label {
                                         class: "flex items-center justify-center w-[26px] h-[26px] rounded-[8px] bg-selector hover:bg-iactive cursor-pointer",
-                                        title: "添加图片附件",
+                                        title: sh::BTN_ADD_IMAGE,
                                         input {
                                             id: "attachment-input",
                                             r#type: "file",
@@ -415,14 +417,14 @@ pub fn Chat(
                                 } else {
                                     span {
                                         class: "flex items-center justify-center w-[26px] h-[26px] rounded-[8px] bg-selector opacity-40 cursor-not-allowed",
-                                        title: "当前模型不支持图片输入",
+                                        title: sh::MSG_NO_IMAGE_INPUT,
                                         IconPaperclip { size: 15 }
                                     }
                                 }
                                 Button {
                                     variant: ButtonVariant::Ghost,
                                     size: ButtonSize::IconSm,
-                                    title: "任务看板",
+                                    title: sh::BTN_TASK_PANEL,
                                     // 点外关闭（ainnotation 波3）：开合钮保持纯 toggle 语义——
                                     // stop_propagation 挡住页面级 click 委托，开→关 / 关→开
                                     // 都由 on_toggle_tasks 自己完成
@@ -434,7 +436,7 @@ pub fn Chat(
                                 }
                                 MenuPicker {
                                     label: "{statusline.model}",
-                                    header: "选择模型",
+                                    header: sh::LBL_PICK_MODEL,
                                     items: model_items,
                                     active_value: statusline.model.clone(),
                                     mono: true,
@@ -442,7 +444,7 @@ pub fn Chat(
                                 }
                                 MenuPicker {
                                     label: "思考 {statusline.thinking}",
-                                    header: "思考强度",
+                                    header: sh::LBL_THINKING_STRENGTH,
                                     items: thinking_items,
                                     active_value: statusline.thinking.clone(),
                                     on_select: move |_| on_toggle_thinking.call(()),
@@ -460,7 +462,7 @@ pub fn Chat(
                                         // （animate-spin 描边环）替代旧的 34px 白方块——更小更精致，
                                         // 且动态表达"正在跑"
                                         class: "w-[28px] h-[28px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-colors border-none",
-                                        title: "停止",
+                                        title: sh::BTN_STOP,
                                         onclick: move |_| on_abort.call(()),
                                         Spinner { size: 14, class: "text-white" }
                                     }
@@ -468,7 +470,7 @@ pub fn Chat(
                                     button {
                                         r#type: "button",
                                         class: "w-[34px] h-[34px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-colors border-none",
-                                        title: "发送",
+                                        title: sh::BTN_SEND,
                                         onclick: move |_| {
                                             let text = draft();
                                             if !text.trim().is_empty() && !is_streaming {
@@ -488,286 +490,6 @@ pub fn Chat(
                     // 状态行（dsh StatsLine：12/20 tertiary 居中）
                     div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
                         "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}"
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// composer 下拉选择器：ui-kit DropdownMenu 的数据驱动封装（label + header +
-/// items + 选中高亮），自底部向上弹出。kit 菜单项不设「选中即关」，这里由
-/// `close_req` 请求收关——Dioxus signal 每次 set 都标脏，重复 set(true) 仍会
-/// 触发收关 effect，可反复选用。
-#[component]
-fn MenuPicker(
-    label: String,
-    header: String,
-    items: Vec<(String, String)>,
-    active_value: String,
-    #[props(default = false)] mono: bool,
-    on_select: EventHandler<String>,
-) -> Element {
-    let mut close_req = use_signal(|| false);
-    let mono_class = if mono { "font-mono" } else { "" };
-    rsx! {
-        // DropdownMenu 根是 display:contents（无定位上下文），absolute 面板需要
-        // 调用方提供 relative 锚点，否则会上浮到整个布局容器而漂位。
-        div { class: "relative",
-            DropdownMenu {
-            content_class: "bottom-full left-0 mb-1 min-w-[190px]",
-            close_signal: close_req,
-            trigger: rsx! {
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    class: "{mono_class}",
-                    span { "{label}" }
-                }
-            },
-            content: rsx! {
-                DropdownMenuLabel { "{header}" }
-                for (item_label, item_value) in items.iter() {
-                    {
-                        let item_label = item_label.clone();
-                        let item_value = item_value.clone();
-                        let is_active = item_value == active_value;
-                        rsx! {
-                            DropdownMenuItem {
-                                key: "{item_value}",
-                                onclick: move |_| {
-                                    on_select.call(item_value.clone());
-                                    close_req.set(true);
-                                },
-                                span { class: "truncate {mono_class}", "{item_label}" }
-                                if is_active {
-                                    IconCheck { size: 14, class: "shrink-0 text-foreground" }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            }
-        }
-    }
-}
-
-/// 单条消息：用户右侧气泡 / assistant 按发生顺序（过程折叠 + 最终回复）。
-#[component]
-fn MessageItem(
-    message: ChatMessage,
-    streaming_tail: bool,
-    /// 是否属于最后一个用户轮次（最后一个 user 之后的消息）。最后一轮的
-    /// Work Process 保持展开，更早轮次静止即折叠（ainotation #4-6）。
-    last_turn: bool,
-    id: Option<String>,
-) -> Element {
-    let is_user = message.role == "user";
-    let dom_id = id.unwrap_or_default();
-
-    if is_user {
-        rsx! {
-            div { class: "flex flex-col items-end gap-1 w-full group",
-                id: "{dom_id}",
-                // 用户带的图片：先图后气泡，与 freebuff 卡片顺序一致。
-                if !message.attachments.is_empty() {
-                    div { class: "flex flex-wrap justify-end gap-1.5 max-w-[525px]",
-                        for att in message.attachments.iter() {
-                            img {
-                                src: "data:{att.media_type};base64,{att.data}",
-                                alt: "{att.name}",
-                                title: "{att.name}",
-                                class: "max-h-[180px] rounded-[14px] border border-b1 object-cover",
-                            }
-                        }
-                    }
-                }
-                if !message.content.is_empty() {
-                    div { class: "markdown-sm bg-bubble rounded-[22px] px-4 py-2.5 max-w-[525px]",
-                        dangerous_inner_html: "{markdown_to_html(&message.content)}"
-                    }
-                }
-                span { class: "text-[12px] leading-5 text-label-3 pr-2 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
-                    "{message.timestamp}"
-                }
-            }
-        }
-    } else {
-        // 有序片段：为空时回退 content + tool_calls
-        let parts: Vec<MessagePart> = if !message.parts.is_empty() {
-            message.parts.clone()
-        } else {
-            let mut v = Vec::new();
-            for tc in &message.tool_calls {
-                v.push(MessagePart::Tool(tc.clone()));
-            }
-            if !message.content.is_empty() {
-                v.push(MessagePart::Text(message.content.clone()));
-            }
-            v
-        };
-
-        let final_idx = parts
-            .iter()
-            .rposition(|p| matches!(p, MessagePart::Text(_)));
-        let (final_text, process, has_final) = match final_idx {
-            Some(fi) => {
-                let ft = match &parts[fi] {
-                    MessagePart::Text(s) => s.clone(),
-                    _ => String::new(),
-                };
-                let has_final = !ft.is_empty();
-                (ft, parts[..fi].to_vec(), has_final)
-            }
-            None => (String::new(), parts.clone(), false),
-        };
-        let waiting = streaming_tail && !has_final && process.is_empty();
-
-        rsx! {
-            div { class: "flex flex-col gap-2 w-full group",
-                id: "{dom_id}",
-                // 思考过程（reasoning 增量）：details 原生折叠；流式中展开，
-                // 无图标、无 emoji——纯文本 label
-                if !message.reasoning.is_empty() {
-                    details {
-                        class: "select-none",
-                        open: streaming_tail,
-                        summary { class: "inline-flex items-center text-[12px] leading-5 text-label-3 cursor-pointer hover:text-label-2 transition-colors",
-                            "思考过程"
-                        }
-                        div { class: "mt-1 text-[13px] leading-6 text-label-2 whitespace-pre-wrap break-words border-l border-b1 pl-3",
-                            "{message.reasoning}"
-                        }
-                    }
-                }
-                if waiting {
-                    // dsh turn 状态行：26px 高 shimmer
-                    div { class: "h-[26px] flex items-center",
-                        span { class: "shimmer-text text-[14px] font-medium", "思考中" }
-                    }
-                } else {
-                    if !process.is_empty() {
-                        ProcessBlock {
-                            parts: process,
-                            active: last_turn || streaming_tail,
-                        }
-                    }
-                    if has_final {
-                        div { class: "markdown-body",
-                            dangerous_inner_html: "{markdown_to_html(&final_text)}"
-                        }
-                    }
-                    if streaming_tail {
-                        div { class: "flex items-center gap-2 h-[26px]",
-                            Spinner {}
-                            span { class: "text-[12px] leading-5 text-label-3", "正在生成回复..." }
-                        }
-                    }
-                    // hover 元信息（时间戳）
-                    span { class: "text-[12px] leading-5 text-label-3 -ml-1 h-5 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
-                        "{message.timestamp}"
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// 「Work Process」折叠块：最终回复之前的全部内容（文本 + 工具调用）。
-/// 默认状态跟随 `active`（最后一轮展开、更早轮折叠 + 流式展开；ainotation
-/// #4-6），用户点击头行可覆盖。chevron 已按 ainotation #2 删除。
-#[component]
-fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
-    // None = 跟随 active；Some = 用户点过之后的显式开关
-    let mut toggle = use_signal(|| None::<bool>);
-    let open = toggle().unwrap_or(active);
-    let count = parts.len();
-
-    rsx! {
-        div { class: "flex flex-col",
-            div { class: "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit text-[14px] leading-6 text-label-2 hover:text-label",
-                onclick: move |e: MouseEvent| {
-                    e.stop_propagation();
-                    toggle.set(Some(!open));
-                },
-                span { "Work Process" }
-                span { class: "text-caption", "· {count}" }
-            }
-            if open {
-                div { class: "pl-[22px] pt-1 flex flex-col gap-2",
-                    for (i, p) in parts.iter().enumerate() {
-                        match p {
-                            MessagePart::Text(s) => rsx! {
-                                div { key: "txt-{i}", class: "markdown-body",
-                                    dangerous_inner_html: "{markdown_to_html(s)}"
-                                }
-                            },
-                            MessagePart::Tool(tc) => rsx! {
-                                ToolLine { key: "{tc.id}-{i}", tool: tc.clone() }
-                            },
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// 单次工具调用折叠行（dsh DisclosureRow：24px 头 + 展开体）。
-/// 头行 = kind 图标 + 大写 kind 文本 + 「·」+ 命令标题（ainotation #4；
-/// chevron 已按 #2 删除）。
-#[component]
-fn ToolLine(tool: ToolCall) -> Element {
-    let mut open = use_signal(|| false);
-    let is_err = tool.status == "error";
-    let running = tool.status == "running";
-    let chip = kind_chip(&tool.kind);
-    let label = kind_label(&tool.kind);
-    let formatted = format_tool_output(&tool.kind, &tool.detail);
-
-    rsx! {
-        div { class: "flex flex-col",
-            div { class: "h-6 flex items-center gap-2 cursor-pointer select-none w-fit",
-                onclick: move |e: MouseEvent| {
-                    e.stop_propagation();
-                    open.set(!open());
-                },
-                KindIcon { kind: "{tool.kind}" }
-                span { class: "{chip} font-mono text-[10px] font-semibold uppercase shrink-0",
-                    "{label}"
-                }
-                span { class: "text-[12px] leading-5 text-label-3 shrink-0", "·" }
-                span { class: "font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0", "{tool.title}" }
-                if running {
-                    Spinner {}
-                }
-                if is_err {
-                    span { class: "text-[11px] leading-4 font-medium text-danger shrink-0", "失败" }
-                }
-            }
-            if open() {
-                div { class: "pl-[22px] pb-1 flex flex-col gap-1.5",
-                    if !tool.summary.is_empty() {
-                        div { class: "text-[13px] leading-5 text-label-3", "{tool.summary}" }
-                    }
-                    div { class: "tool-output bg-codeblock rounded-lg px-3 py-2 font-mono text-[12px] leading-[18px] text-label-2 whitespace-pre-wrap break-all",
-                        for line in formatted.lines() {
-                            if line.starts_with('+') && !line.starts_with("+++") {
-                                span { class: "text-success-2", "{line}\n" }
-                            } else if line.starts_with('-') && !line.starts_with("---") {
-                                span { class: "text-danger", "{line}\n" }
-                            } else if line.starts_with("@@") {
-                                span { class: "text-brand", "{line}\n" }
-                            } else if line.starts_with('$') {
-                                // 终端观感：命令行亮于输出行
-                                span { class: "text-label", "{line}\n" }
-                            } else if line_is_error(line) {
-                                span { class: "text-danger", "{line}\n" }
-                            } else {
-                                span { "{line}\n" }
-                            }
-                        }
                     }
                 }
             }

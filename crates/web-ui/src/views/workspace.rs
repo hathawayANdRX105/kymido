@@ -6,94 +6,36 @@
 //! 读线程 → channel → 消费 task）。
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
 
 use crate::components::chat::Chat;
 use crate::components::sidebar::Sidebar;
 use crate::components::taskpanel::TaskPanel;
 use crate::components::ui::Modal;
 use crate::layouts::app_frame::AppFrame;
+use crate::state::actions::{
+    WorkspaceSignals, abort_run, answer_question, change_model, create_session, delete_session,
+    delete_space, select_space, send_message, toggle_thinking,
+};
+use crate::state::backend::{DataBackend, daemon_space, probe_backend};
+use crate::state::readiness::ReadinessGate;
+use crate::state::session::{
+    active_session_running, apply_run_statuses, merge_run_statuses, now_ms, session_exists_in,
+};
+use crate::state::subscriptions::{question_event_loop, worker_event_loop};
 use crate::views::config::SettingsModal;
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
-use web_client::ClientError;
 use web_client::QuestionAnswer;
 use web_client::QuestionItem;
-use web_client::daemon::WebDaemon;
 use web_client::llm::LlmRuntimeConfig;
-use web_state::convert::{WireTranslator, infer_session_status};
-use web_state::title_from_first_message;
+use web_state::convert::infer_session_status;
 use web_state::types::{
     ChatMessage, PendingAttachment, Session, SessionStatus, StatusLine, TaskItem, WorkspaceSpace,
 };
 use web_state::ui_state::{AgentEvent, UiState};
 
-/// Worker 事件订阅就绪门。
-///
-/// `generation` 在断线时递增,使已经等待的发送立即失败；断线后才开始的
-/// 发送仍可等待下一次重连成功。
-#[derive(Clone)]
-pub struct ReadinessGate(Arc<(Mutex<ReadinessState>, Condvar)>);
-
-#[derive(Default)]
-struct ReadinessState {
-    ready: bool,
-    generation: u64,
-}
-
-impl ReadinessGate {
-    pub fn new() -> Self {
-        Self(Arc::new((
-            Mutex::new(ReadinessState::default()),
-            Condvar::new(),
-        )))
-    }
-
-    pub fn mark_ready(&self) {
-        let (state, cvar) = &*self.0;
-        let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
-        state.ready = true;
-        cvar.notify_all();
-    }
-
-    pub fn mark_not_ready(&self) {
-        let (state, cvar) = &*self.0;
-        let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
-        state.ready = false;
-        state.generation = state.generation.wrapping_add(1);
-        cvar.notify_all();
-    }
-
-    /// 等待订阅就绪后执行操作。超时或等待期间断线时不执行操作。
-    /// 就绪判断结束后释放锁，避免 prompt RPC 堵住断线复位。
-    pub fn run_when_ready<T>(
-        &self,
-        timeout: Duration,
-        action: impl FnOnce() -> T,
-    ) -> Result<T, ()> {
-        let ready = {
-            let (state, cvar) = &*self.0;
-            let state = state.lock().unwrap_or_else(|e| e.into_inner());
-            let generation = state.generation;
-            let (state, timed_out) = cvar
-                .wait_timeout_while(state, timeout, |state| {
-                    !state.ready && state.generation == generation
-                })
-                .unwrap_or_else(|e| e.into_inner());
-            if state.ready {
-                true
-            } else {
-                debug_assert!(timed_out.timed_out() || state.generation != generation);
-                false
-            }
-        };
-        if ready { Ok(action()) } else { Err(()) }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum View {
+pub enum View {
     Chat,
     Stats,
 }
@@ -102,221 +44,6 @@ const RUN_TASK_LIMIT: u32 = 50;
 /// 任务看板拉取的任务存储条数上限（daemon `task.list` 的缺省值一致：
 /// 按 `updated_at` 降序取最近若干条，跨会话的持久编排全在此列）。
 const TASK_BOARD_LIMIT: u32 = 50;
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-/// 数据后端：唯一真实来源是本机 kymido daemon。初始化连接失败
-/// （无 daemon / ping 不通）→ [`DataBackend::Disconnected`]，全部数据源
-/// 返回空集合（空态），不回退假数据、不 panic。
-#[derive(Debug, Clone)]
-enum DataBackend {
-    Daemon(WebDaemon),
-    /// daemon 不可达：项目/会话/消息/任务一律空态。
-    Disconnected,
-}
-
-/// Daemon 模式下的唯一真实项目行：名字取 data_dir 的文件名。
-fn daemon_space(data_dir: &str) -> WorkspaceSpace {
-    let name = std::path::Path::new(data_dir)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "kymido".into());
-    WorkspaceSpace {
-        id: data_dir.to_string(),
-        name,
-        path: data_dir.to_string(),
-        branch: String::new(),
-        is_active: true,
-    }
-}
-
-/// 新建会话（内存版；Daemon 模式下调用方再追加 daemon 持久化）。
-/// 独立成自由函数：Signal 是 Copy，任意闭包都可以直接调用，避免处理器
-/// 闭包被多处 move。返回 (会话 id, 标题) 供 daemon 侧 create 使用。
-/// 标题是 `会话 <ts>` 时间戳占位——侧栏新建瞬间先占位，首条用户消息
-/// 发出后由 `on_send` 换成 [`title_from_first_message`] 的截词标题。
-#[allow(clippy::too_many_arguments)]
-fn create_session_in(
-    space_path: String,
-    model: String,
-    mut space_sessions: Signal<HashMap<String, Vec<Session>>>,
-    mut session_messages: Signal<HashMap<String, Vec<ChatMessage>>>,
-    mut active_space_path: Signal<String>,
-    mut active_session_id: Signal<String>,
-) -> (String, String) {
-    let ts = now_ms();
-    let new_id = format!("s-{}", ts);
-    let title = format!("会话 {}", ts % 1_000_000);
-    let new_session = Session {
-        id: new_id.clone(),
-        title: title.clone(),
-        last_active: "刚刚".into(),
-        model,
-        status: SessionStatus::Idle,
-        last_active_epoch: ts,
-        parent_id: None,
-    };
-    let mut map = space_sessions.read().clone();
-    let mut list = map.get(&space_path).cloned().unwrap_or_default();
-    list.insert(0, new_session);
-    map.insert(space_path.clone(), list);
-    space_sessions.set(map);
-    session_messages.write().insert(new_id.clone(), Vec::new());
-    active_space_path.set(space_path);
-    active_session_id.set(new_id.clone());
-    (new_id, title)
-}
-
-/// 会话是否仍存在于任一 space。流式期间会话可能被用户删除
-/// （`on_delete_session` 会同时清掉消息），孤儿 entry 不能写回。
-fn session_exists_in(space_sessions: Signal<HashMap<String, Vec<Session>>>, sid: &str) -> bool {
-    space_sessions
-        .read()
-        .values()
-        .flatten()
-        .any(|s| s.id == sid)
-}
-/// 标题更新最多尝试两次；仅 `database_missing` 可重试。
-pub fn retry_update<F>(mut update: F) -> Result<(), ClientError>
-where
-    F: FnMut() -> Result<(), ClientError>,
-{
-    for attempt in 0..2 {
-        match update() {
-            Ok(()) => return Ok(()),
-            Err(ClientError::Server { code, message: _ })
-                if code == "database_missing" && attempt == 0 =>
-            {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    unreachable!("two-attempt retry loop always returns")
-}
-
-/// 返回仍需落库的标题。首条消息使用本次派生标题；此前落库失败时，
-/// 只要本地标题仍是那次派生结果就继续重试。本地标题已变则不覆盖。
-pub fn title_to_persist(
-    pending_title: Option<&str>,
-    current_title: &str,
-    derived_title: &str,
-    is_first_message: bool,
-) -> Option<String> {
-    if is_first_message {
-        return Some(derived_title.to_string());
-    }
-    match pending_title {
-        Some(pending) if pending == current_title => Some(pending.to_string()),
-        _ => None,
-    }
-}
-/// 订阅读线程：阻塞消费 `event.subscribe` 推送帧，断线退避重连
-/// （1s/2s/4s/5s 封顶）。只拥有 `WebDaemon` 克隆、`Subscription`、
-/// `WireTranslator` 与 `tx`——不碰任何 Signal（use_signal 底层
-/// UnsyncStorage 非 Send，不能进 std::thread）。退出条件：`tx.send`
-/// 失败（消费端随组件卸载而亡）或 keepalive tick 感知 `tx.is_closed`。
-/// 在成功 `subscribe_worker` 后标记就绪，断线/退出时复位。
-fn worker_event_loop(
-    d: WebDaemon,
-    tx: tokio::sync::mpsc::UnboundedSender<AgentEvent>,
-    ready: ReadinessGate,
-) {
-    use std::time::Duration;
-    const BACKOFF: [u64; 4] = [1, 2, 4, 5];
-    let mut attempt = 0usize;
-    loop {
-        if let Ok(mut sub) = d.subscribe_worker() {
-            // 订阅成功：标记就绪，允许背景提示线程继续
-            ready.mark_ready();
-            attempt = 0;
-            let mut translator = WireTranslator::new();
-            loop {
-                // 5s keepalive：None 空转 tick 顺带感知消费端死亡，把组件
-                // 卸载后读线程的残留窗口从 30s 压到 5s（空转只是一次
-                // syscall，开销可忽略）
-                match sub.next_event(Duration::from_secs(5)) {
-                    Ok(Some(frame)) => {
-                        if let Some(ev) = translator.translate(&frame.event)
-                            && tx.send(ev).is_err()
-                        {
-                            // 消费端已亡：复位就绪并退出
-                            ready.mark_not_ready();
-                            return;
-                        }
-                    }
-                    Ok(None) => {
-                        if tx.is_closed() {
-                            // 消费端已亡：复位就绪并退出
-                            ready.mark_not_ready();
-                            return;
-                        }
-                    }
-                    Err(_) => {
-                        // 断线：复位就绪并走重连
-                        ready.mark_not_ready();
-                        break;
-                    }
-                }
-            }
-        }
-        if tx.is_closed() {
-            ready.mark_not_ready();
-            return;
-        }
-        eprintln!("retry in {}s", BACKOFF[attempt.min(BACKOFF.len() - 1)]);
-        std::thread::sleep(Duration::from_secs(BACKOFF[attempt.min(BACKOFF.len() - 1)]));
-        attempt += 1;
-    }
-}
-
-/// 订阅读线程：阻塞消费 `user.question` 推送帧，断线退避重连（策略同
-/// [`worker_event_loop`]）。帧的 `event` 字段是序列化的 [`QuestionItem`]；
-/// 解析失败的帧跳过并留痕（协议演进的前向兼容），不中断订阅。
-fn question_event_loop(d: WebDaemon, tx: tokio::sync::mpsc::UnboundedSender<QuestionItem>) {
-    use std::time::Duration;
-    const BACKOFF: [u64; 4] = [1, 2, 4, 5];
-    let mut attempt = 0usize;
-    loop {
-        if let Ok(mut sub) = d.subscribe_user_questions() {
-            attempt = 0;
-            loop {
-                match sub.next_event(Duration::from_secs(5)) {
-                    Ok(Some(frame)) => {
-                        match serde_json::from_value::<QuestionItem>(frame.event) {
-                            Ok(item) => {
-                                if tx.send(item).is_err() {
-                                    return; // 消费端已亡
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("[web] malformed user.question frame: {e}");
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        if tx.is_closed() {
-                            return; // 消费端已亡：keepalive tick 时感知
-                        }
-                    }
-                    Err(_) => break, // 断线 → 走重连
-                }
-            }
-        }
-        if tx.is_closed() {
-            return;
-        }
-        eprintln!("retry in {}s", BACKOFF[attempt.min(BACKOFF.len() - 1)]);
-        std::thread::sleep(Duration::from_secs(BACKOFF[attempt.min(BACKOFF.len() - 1)]));
-        attempt += 1;
-    }
-}
 
 #[component]
 pub fn Workspace(
@@ -328,45 +55,20 @@ pub fn Workspace(
     // 2s（`recv_timeout`）。daemon 卡住（socket 存在但 peer 不响应）时首帧
     // 不再冻死：超时退化为 Disconnected，空态先渲染，数据由事件订阅补。
     // 保留 JoinError 日志——socket 解析或 ping 里的真 panic 不能静默吞。
-    let backend = use_signal(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            // 内层 spawn + join：保留 JoinError 的 panic 检测语义；外层 2s
-            // 有界等待：daemon 卡住时不阻塞首帧。代价是有界的：`use_signal`
-            // 初始化只在挂载时跑一次，超时路径会滞留「探测线程 + relay 线程」
-            // 一对，卡住的 ping 一断（daemon 恢复 / socket 关闭）二者自然退出，
-            // 非永久泄漏。
-            let _ = tx.send(
-                std::thread::spawn(|| WebDaemon::from_env_or_default().filter(|d| d.ping())).join(),
-            );
-        });
-        match rx.recv_timeout(std::time::Duration::from_secs(2)) {
-            Ok(Ok(Some(d))) => DataBackend::Daemon(d),
-            Ok(Ok(None)) => DataBackend::Disconnected,
-            Ok(Err(e)) => {
-                eprintln!("[web] workspace daemon probe thread panicked: {e:?}");
-                DataBackend::Disconnected
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                eprintln!("[web] daemon probe timed out (>2s); rendering disconnected state");
-                DataBackend::Disconnected
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => DataBackend::Disconnected,
-        }
-    });
+    let backend = use_signal(probe_backend);
 
     // Worker subscription readiness gate (shared between worker_event_loop
     // and the background prompt thread).
     let readiness = use_signal(|| ReadinessGate::new());
 
     let data_dir = config.data_dir.clone();
-    let mut spaces = use_signal(move || match backend() {
+    let spaces = use_signal(move || match backend() {
         // Daemon 模式：项目行 = 单行真实项目（名字取 data_dir 文件名）
         DataBackend::Daemon(_) => vec![daemon_space(&data_dir)],
         // 无 daemon：无项目行（空态）
         DataBackend::Disconnected => Vec::new(),
     });
-    let mut active_space_path = use_signal(|| {
+    let active_space_path = use_signal(|| {
         spaces
             .read()
             .iter()
@@ -397,7 +99,7 @@ pub fn Workspace(
             .unwrap_or_default()
     });
     let mut session_messages: Signal<HashMap<String, Vec<ChatMessage>>> = use_signal(HashMap::new);
-    let mut pending_titles: Signal<HashMap<String, String>> = use_signal(HashMap::new);
+    let pending_titles: Signal<HashMap<String, String>> = use_signal(HashMap::new);
     // 选中会话 → 填充消息：Daemon 线程内 load_messages(100)（线程 + join，
     // 仿旧 db_load_sessions 模式）；已缓存的会话不重复拉取。无 daemon 时
     // 不可能有选中会话（会话列表本身是空的），空态直接返回
@@ -476,7 +178,7 @@ pub fn Workspace(
     // drop → 读线程 send 失败自行退出。订阅事件不带会话归属，统一写给
     // on_send 时记录的 run_target_sid；effect 只依赖 backend（初始化后
     // 不再变化），管线整个生命周期只建一次。
-    let mut run_target_sid = use_signal(String::new);
+    let run_target_sid = use_signal(String::new);
     // WP-C：当前在飞 run 的 id（on_send 生成，随 worker.prompt 一起带给
     // daemon 记进 run ledger）。列表状态推断用它区分「正在跑」与「半开孤儿」；
     // TurnEnd / 中断时清空。空串 = 无在飞 run。
@@ -906,381 +608,75 @@ pub fn Workspace(
     // 归一不变。
     apply_run_statuses(&mut quick_switcher_list, &run_status_cache());
 
-    // 各 move 闭包各自的 config 克隆（LlmRuntimeConfig 非 Copy）
+    // 各 move 闭包各自的 config 克隆（LlmRuntimeConfig 非 Copy；render 侧
+    // 仍读 config.image_input，闭包不能把它 move 走）。
     let config_create = config.clone();
     let config_model = config.clone();
     let config_send = config.clone();
 
+    // 共享信号集（R3：动作层具名 fn 一次收齐 Signal，闭包不再逐捕获）。
+    let sig = WorkspaceSignals {
+        spaces,
+        active_space_path,
+        space_sessions,
+        active_session_id,
+        session_messages,
+        pending_titles,
+        statusline,
+        pending_question,
+        show_quick_switcher,
+        show_settings,
+        show_tasks,
+        view,
+        backend,
+        readiness,
+        run_target_sid,
+        live_run_id,
+        board_version,
+    };
+
     // ── 数据操作（内存即时生效；Daemon 模式再追加 daemon 持久化）──────────
 
     let on_select_space = move |path: String| {
-        active_space_path.set(path);
+        select_space(sig, path);
     };
 
     let on_create_session = move |space_path: String| {
-        let (new_id, title) = create_session_in(
-            space_path,
-            config_create.model.clone(),
-            space_sessions,
-            session_messages,
-            active_space_path,
-            active_session_id,
-        );
-        // Daemon 模式：内存建会话的同时持久化到 daemon（线程内）
-        if let DataBackend::Daemon(d) = backend() {
-            std::thread::spawn(move || {
-                let _ = d.create_session(&new_id, &title);
-            });
-        }
-        view.set(View::Chat);
+        create_session(sig, config_create.model.clone(), space_path);
     };
 
     let on_delete_session = move |id: String| {
-        // Daemon 模式：daemon 侧删除（线程内，连带消息），内存清理照旧
-        if let DataBackend::Daemon(d) = backend() {
-            let id_daemon = id.clone();
-            std::thread::spawn(move || {
-                let _ = d.delete_session(&id_daemon);
-            });
-        }
-        let mut map = space_sessions.read().clone();
-        for list in map.values_mut() {
-            list.retain(|s| s.id != id);
-        }
-        space_sessions.set(map);
-        session_messages.write().remove(&id);
-        if active_session_id() == id {
-            let next = space_sessions
-                .read()
-                .get(&active_space_path())
-                .and_then(|list| list.first().map(|s| s.id.clone()))
-                .unwrap_or_default();
-            active_session_id.set(next);
-        }
+        delete_session(sig, id);
     };
 
     let on_delete_space = move |space_path: String| {
-        let mut sp = spaces();
-        sp.retain(|s| s.path != space_path);
-        spaces.set(sp);
-        space_sessions.write().remove(&space_path);
-        if active_space_path() == space_path {
-            if let Some(first) = spaces().first() {
-                active_space_path.set(first.path.clone());
-            } else {
-                active_space_path.set(String::new());
-                active_session_id.set(String::new());
-            }
-        }
+        delete_space(sig, space_path);
     };
 
     let on_model_change = move |m: String| {
-        let mut st = statusline();
-        st.model = m.clone();
-        statusline.set(st);
-        let mut cfg = config_model.clone();
-        cfg.model = m;
-        on_update_config.call(cfg);
+        change_model(sig, config_model.clone(), m, on_update_config);
     };
 
-    let on_abort = {
-        let backend_abort = backend;
-        let mut space_sessions_abort = space_sessions;
-        let mut live_run_id_abort = live_run_id;
-        let mut statusline_abort = statusline;
-        let sid_abort = active_session_id;
-        move |()| {
-            if let DataBackend::Daemon(d) = backend_abort() {
-                let sid = sid_abort();
-                std::thread::spawn(move || {
-                    let _ = d.abort_worker(&sid);
-                });
-            }
-            // 内存即时复位：会话回 Idle；事件流里的残余事件由孤儿守卫兜底。
-            // 在飞 run id 也清空：中断后列表状态以 run ledger 的持久记录
-            // 为准（WP-C）
-            live_run_id_abort.set(String::new());
-            // 计时结算（5.6）：中断后不会再有 TurnEnd，此处不结算耗时会一直
-            // 按「在飞」实时增长。中断点即该 run 的终点。
-            let mut st = statusline_abort();
-            st.finish_run(now_ms());
-            statusline_abort.set(st);
-            let sid = sid_abort();
-            let mut map = space_sessions_abort.read().clone();
-            for list in map.values_mut() {
-                for s in list.iter_mut() {
-                    if s.id == sid {
-                        s.status = SessionStatus::Idle;
-                    }
-                }
-            }
-            space_sessions_abort.set(map);
-        }
+    let on_abort = move |()| {
+        abort_run(sig);
     };
 
     // 回答问题（plan-mode review 卡片）：RPC 在线程里跑，结果经 channel 回
     // 消费侧清卡片（Signal 非 Send，不能进 std::thread——同 worker 管线）。
     // 终局错误（question_not_found / question_already_answered：问题已从
     // broker 消失，重试永远失败）也清卡片；只有传输类错误保留等重试。
-    let on_answer = {
-        let backend_answer = backend;
-        move |(qid, answer): (String, QuestionAnswer)| {
-            if let DataBackend::Daemon(d) = backend_answer() {
-                let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<bool>>();
-                std::thread::spawn(move || {
-                    let outcome = match d.answer_question(&qid, &answer) {
-                        Ok(()) => Some(true),
-                        Err(ClientError::Server { code, .. })
-                            if code == "question_not_found"
-                                || code == "question_already_answered" =>
-                        {
-                            // 问题已没了（别处答过 / 已清理）：卡片是 stale 的
-                            eprintln!("[web] question {qid} gone ({code}); dropping card");
-                            Some(false)
-                        }
-                        Err(e) => {
-                            // 传输类错误：保留卡片等重试
-                            eprintln!("[web] user.answer failed (question stays pending): {e}");
-                            None
-                        }
-                    };
-                    let _ = tx.send(outcome);
-                });
-                spawn(async move {
-                    match rx.recv().await {
-                        Some(Some(true)) => pending_question.set(None), // 答成功
-                        Some(Some(false)) => pending_question.set(None), // 问题已消失
-                        _ => {}                                         // 传输错误：保留
-                    }
-                });
-            }
-        }
+    let on_answer = move |(qid, answer): (String, QuestionAnswer)| {
+        answer_question(sig, qid, answer);
     };
 
     let on_toggle_thinking = move |()| {
-        let mut st = statusline();
-        st.thinking = if st.thinking == "off" {
-            "8k".into()
-        } else {
-            "off".into()
-        };
-        statusline.set(st);
+        toggle_thinking(sig);
     };
 
     // ── 发送：内存即时上屏 + mock 模拟流；Daemon 模式追加持久化 ───────────
 
     let on_send = move |(text, attachments): (String, Vec<PendingAttachment>)| {
-        // 无会话时先建一个；发送线程会再次幂等确保 daemon 行存在。
-        if active_session_id().is_empty()
-            || !space_sessions
-                .read()
-                .values()
-                .any(|list| list.iter().any(|s| s.id == active_session_id()))
-        {
-            create_session_in(
-                active_space_path(),
-                config_send.model.clone(),
-                space_sessions,
-                session_messages,
-                active_space_path,
-                active_session_id,
-            );
-        }
-        let sid = active_session_id();
-
-        // 首条消息把时间戳占位换成确定性截词标题。落库失败后，后续发送
-        // 继续重试同一标题；本地标题若已改变则不覆盖。
-        let is_first_message = session_messages.read().get(&sid).is_none_or(Vec::is_empty);
-        let derived_title = title_from_first_message(&text);
-        let session = space_sessions
-            .read()
-            .values()
-            .flatten()
-            .find(|session| session.id == sid)
-            .cloned();
-        let persisted_title = session.as_ref().and_then(|session| {
-            title_to_persist(
-                pending_titles.read().get(&sid).map(String::as_str),
-                &session.title,
-                &derived_title,
-                is_first_message,
-            )
-        });
-        if persisted_title.is_some() {
-            pending_titles
-                .write()
-                .insert(sid.clone(), persisted_title.clone().unwrap_or_default());
-        } else {
-            pending_titles.write().remove(&sid);
-        }
-        let parent_id = session.and_then(|session| session.parent_id);
-
-        // Daemon 模式：真运行。用户消息持久化（线程内，刚自建的会话在同
-        // 一线程先 create 再 append 保证顺序）；assistant 事件全走订阅
-        // 管线（见上方 effect），prompt 返回值（worker 原始 rpc 响应）
-        // 忽略。run_target_sid 在 spawn 前落定，消费端据此写回本会话。
-        // run_id 一并带给 daemon 记进 run ledger，刷新后列表据此组装
-        // aborted/active（WP-C）。
-        if let DataBackend::Daemon(d) = backend() {
-            let sid_daemon = sid.clone();
-            let text_daemon = text.clone();
-            let attachments_daemon = attachments.clone();
-            let d_prompt = d.clone();
-            // 订阅事件不带会话归属：消费端以 run_target_sid 为写回目标，
-            // 必须在 prompt 发出前落定
-            run_target_sid.set(sid.clone());
-            let run_id = format!("r-{}", now_ms());
-            live_run_id.set(run_id.clone());
-            // 5.6 计时起点：run 开始时落定 started_at，状态行的耗时段在飞
-            // 期间随流式事件重渲染实时算，TurnEnd 时结算成总耗时。
-            // 对位 dsh packages/client/runtime/.../assistant-timing.ts。
-            let mut st_start = statusline();
-            st_start.start_run(now_ms());
-            statusline.set(st_start);
-            eprintln!("[web] send sid={} len={}", sid, text.len());
-            let (fail_tx, fail_rx) = tokio::sync::oneshot::channel::<()>();
-            let run_id_prompt = run_id.clone();
-            let title_for_daemon = persisted_title.clone();
-            let (title_tx, title_rx) = tokio::sync::oneshot::channel::<bool>();
-            let ready = readiness();
-            std::thread::spawn(move || {
-                if ready
-                    .run_when_ready(Duration::from_secs(5), || {
-                        // 与侧栏创建线程并发时，在同一发送线程再次幂等确保会话存在。
-                        // 子会话必须携带 parent_id，避免竞态下退化为根会话。
-                        let ensured = if let Some(parent_id) = parent_id.as_deref() {
-                            d.create_session_with_parent(
-                                &sid_daemon,
-                                &derived_title,
-                                Some(parent_id),
-                            )
-                        } else {
-                            d.create_session(&sid_daemon, &derived_title)
-                        };
-                        if let Err(e) = ensured {
-                            eprintln!("[web] session ensure failed: {e}");
-                        }
-                        let _ = d.append_message(
-                            &sid_daemon,
-                            true,
-                            &text_daemon,
-                            &attachments_daemon,
-                            &[],
-                        );
-                        if let Some(title) = title_for_daemon {
-                            let persisted =
-                                retry_update(|| d.update_session_title(&sid_daemon, &title));
-                            if let Err(e) = &persisted {
-                                eprintln!("[web] session title update failed after retries: {e}");
-                            }
-                            let _ = title_tx.send(persisted.is_ok());
-                        }
-                        d_prompt.worker_prompt_run(
-                            &sid_daemon,
-                            &run_id_prompt,
-                            &text_daemon,
-                            &attachments_daemon,
-                        )
-                    })
-                    .and_then(|result| result.map_err(|_| ()))
-                    .is_err()
-                {
-                    eprintln!("[web] worker subscription unavailable or prompt failed");
-                    let _ = fail_tx.send(());
-                }
-            });
-            let sid_title = sid.clone();
-            spawn(async move {
-                if title_rx.await == Ok(true) {
-                    pending_titles.write().remove(&sid_title);
-                }
-            });
-            let sid_fail = sid.clone();
-            let run_id_fail = run_id.clone();
-            spawn(async move {
-                if fail_rx.await.is_ok() {
-                    {
-                        let mut map = space_sessions.write();
-                        for list in map.values_mut() {
-                            for s in list.iter_mut() {
-                                if s.id == sid_fail {
-                                    s.status = SessionStatus::Idle;
-                                }
-                            }
-                        }
-                    }
-                    if live_run_id() == run_id_fail {
-                        live_run_id.set(String::new());
-                        run_target_sid.set(String::new());
-                    }
-                    // 计时结算（5.6）：prompt 直接失败时事件路径不会有
-                    // TurnEnd，不结算耗时会一直按「在飞」实时增长
-                    let mut st = statusline();
-                    st.finish_run(now_ms());
-                    statusline.set(st);
-                }
-            });
-        }
-
-        let now = now_ms();
-        let user_msg = ChatMessage {
-            id: format!("{}-user-{}", sid, now),
-            role: "user".into(),
-            content: text.clone(),
-            reasoning: String::new(),
-            tool_calls: vec![],
-            parts: vec![],
-            timestamp: "刚刚".into(),
-            ts_epoch_ms: now,
-            // The picked images ride the message itself, so a refresh (which
-            // rebuilds the transcript from `session.messages`) still shows
-            // them instead of a text-only ghost of the turn.
-            attachments,
-        };
-        session_messages
-            .write()
-            .entry(sid.clone())
-            .or_default()
-            .push(user_msg);
-
-        // 会话进入运行态
-        let mut map = space_sessions.read().clone();
-        for list in map.values_mut() {
-            for s in list.iter_mut() {
-                if s.id == sid {
-                    s.status = SessionStatus::Active;
-                    s.last_active = "刚刚".into();
-                    s.last_active_epoch = now;
-                    if is_first_message {
-                        s.title = title_from_first_message(&text);
-                    }
-                }
-            }
-        }
-        space_sessions.set(map);
-
-        match backend() {
-            DataBackend::Disconnected => {
-                // 无 daemon = 无 agent 可跑：用户消息已上屏（本地即时反馈），
-                // 但不产生任何 assistant 回复——旧的 mock 模拟流已删除，这里
-                // 绝不编造回复。只把会话从上文刚置的 Active 复位回 Idle，
-                // 否则 composer 会永久卡在「运行中」（停止钮亮、输入被门禁）。
-                // 无 run 发起，statusline 计时也不启动（保持上一轮结算值）。
-                let mut map = space_sessions.read().clone();
-                for list in map.values_mut() {
-                    for s in list.iter_mut() {
-                        if s.id == sid {
-                            s.status = SessionStatus::Idle;
-                        }
-                    }
-                }
-                space_sessions.set(map);
-            }
-            DataBackend::Daemon(_) => {
-                // 事件由订阅管线（见上方 effect）驱动，TurnEnd 收尾在订阅
-                // 消费端完成；prompt 失败兜底已在上文挂接。
-            }
-        }
+        send_message(sig, config_send.clone(), text, attachments);
     };
 
     // ── 渲染 ────────────────────────────────────────────────────────────────
@@ -1481,49 +877,5 @@ pub fn Workspace(
             }
             },
         }
-    }
-}
-
-/// 当前会话是否在运行（会话级状态：composer 的停止钮/运行中标识/
-/// 输入门禁都由此驱动，切会话自然切换）。
-fn active_session_running(
-    space_sessions: Signal<HashMap<String, Vec<Session>>>,
-    active_session_id: Signal<String>,
-) -> bool {
-    let sid = active_session_id();
-    !sid.is_empty()
-        && space_sessions
-            .read()
-            .values()
-            .flatten()
-            .any(|s| s.id == sid && s.status == SessionStatus::Active)
-}
-
-/// 会话列表侧的有效状态：页面在飞（Active，由事件流实时写）优先于
-/// run 记录推断出的缓存状态（WP-C），缓存缺失时保持会话自身状态。
-fn effective_status(current: &SessionStatus, inferred: Option<&SessionStatus>) -> SessionStatus {
-    match (current, inferred) {
-        // 页面正在跑：以实时态为准（推断缓存是加载时的快照，会滞后）
-        (SessionStatus::Active, _) => SessionStatus::Active,
-        (_, Some(inferred)) => inferred.clone(),
-        (other, None) => other.clone(),
-    }
-}
-
-/// 把推断状态就地合并进侧栏用的 space → 会话列表映射。
-fn merge_run_statuses(
-    mut map: HashMap<String, Vec<Session>>,
-    cache: &HashMap<String, SessionStatus>,
-) -> HashMap<String, Vec<Session>> {
-    for list in map.values_mut() {
-        apply_run_statuses(list, cache);
-    }
-    map
-}
-
-/// 把推断状态就地合并进一个会话列表（⌘K 快速切换用）。
-fn apply_run_statuses(list: &mut [Session], cache: &HashMap<String, SessionStatus>) {
-    for s in list.iter_mut() {
-        s.status = effective_status(&s.status, cache.get(&s.id));
     }
 }

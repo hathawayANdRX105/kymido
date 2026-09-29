@@ -3,6 +3,11 @@
 //! kit 尚无的 Modal 壳（ui.rs）。
 
 pub mod chat;
+pub mod collapsed_rail;
+pub mod filter_chip;
+pub mod menu_picker;
+pub mod message;
+pub mod session_row;
 pub mod sidebar;
 pub mod taskpanel;
 pub mod ui;
