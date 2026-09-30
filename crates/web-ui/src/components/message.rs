@@ -75,9 +75,23 @@ pub(crate) fn MessageItem(
                     _ => String::new(),
                 };
                 let has_final = !ft.is_empty();
-                (ft, parts[..fi].to_vec(), has_final)
+                // 中间文本段不进过程（L2 只留思考段与工具行；最终答案单独成块）
+                let process: Vec<MessagePart> = parts[..fi]
+                    .iter()
+                    .filter(|p| !matches!(p, MessagePart::Text(_)))
+                    .cloned()
+                    .collect();
+                (ft, process, has_final)
             }
-            None => (String::new(), parts.clone(), false),
+            None => (
+                String::new(),
+                parts
+                    .iter()
+                    .filter(|p| !matches!(p, MessagePart::Text(_)))
+                    .cloned()
+                    .collect(),
+                false,
+            ),
         };
         // reasoning 在流式时由各段 ReasoningBlock 自己的 shimmer 承担指示；
         // 「思考中」状态行只兜底「还没收到任何 reasoning/过程」的空窗期
@@ -103,7 +117,7 @@ pub(crate) fn MessageItem(
                     if !process.is_empty() {
                         ProcessBlock {
                             parts: process,
-                            active: streaming_tail && !has_final,
+                            active: streaming_tail,
                             streaming: streaming_tail,
                         }
                     }
@@ -141,12 +155,11 @@ pub(crate) fn MessageItem(
         }
     }
 }
-/// 「Work Process」折叠块：最终回复之前的全部内容，按真实发生顺序原位
-/// 渲染（aui parts 模型）：思考段（ReasoningBlock）/ 工具行 / 中间文本
-/// 交替出现，不再全局堆积。头行按状态换词（ainotation 波4 #1）：正在
-/// 工作 = 动词形 `Progressing`（shimmer），结束 = 名词形 `Progress`。
-/// 默认状态跟随 `active`（过程流式中且最终输出未出现时展开；最终文本
-/// 一到即自动折叠，ainotation 波4 #3），用户点击头行可覆盖。
+/// 「Work Process」折叠块：最终回复之前的过程项（思考段 / 工具行），按
+/// 真实发生顺序原位渲染（aui parts 模型；中间文本段不进过程，上游已滤）。
+/// 头行按状态换词（ainotation 波4 #1）：正在工作 = 动词形 `Progressing`
+/// （shimmer），结束 = 名词形 `Progress`。默认状态跟随 `active`（运行中
+/// 展开、跑完折叠，用户标注 2026-09-30 #2），用户点击头行可覆盖。
 #[component]
 fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Element {
     // None = 跟随 active；Some = 用户点过之后的显式开关
@@ -171,13 +184,12 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Eleme
                 div { class: "pl-[22px] pt-1 flex flex-col gap-2",
                     for (i, p) in parts.iter().enumerate() {
                         match p {
-                            MessagePart::Text(s) => rsx! {
-                                div { key: "txt-{i}", class: "markdown-body",
-                                    dangerous_inner_html: "{markdown_to_html(s)}"
-                                }
-                            },
                             MessagePart::Tool(tc) => rsx! {
                                 ToolLine { key: "{tc.id}-{i}", tool: tc.clone() }
+                            },
+                            // 上游已滤除（中间文本不进过程）；占位保持 match 穷尽
+                            MessagePart::Text(_) => rsx! {
+                                div { key: "txt-{i}", class: "hidden" }
                             },
                             MessagePart::Reasoning { text, duration_ms, .. } => {
                                 let running = streaming && duration_ms.is_none();
