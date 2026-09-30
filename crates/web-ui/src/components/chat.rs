@@ -9,8 +9,8 @@ use crate::shared as sh;
 use ui_kit::Spinner;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    IconArrowUp, IconFolder, IconGear, IconMoon, IconPaperclip, IconPlus, IconSearch,
-    IconSquareCheck, IconTerminal, IconTrash,
+    IconArrowUp, IconFolder, IconMoon, IconPaperclip, IconPlus, IconSearch, IconSquareCheck,
+    IconTerminal, IconTrash, IconWrench,
 };
 
 use super::menu_picker::MenuPicker;
@@ -87,7 +87,7 @@ pub(crate) fn line_is_error(line: &str) -> bool {
 /// - grep → IconSearch，glob → IconFolder（dsh：magnifier 族留 grep，folder 留 glob）
 /// - read → IconFolder 复用（dsh 用 IconBrowseOutline16 眼/浏览器形；ui-kit 无对应字形，留在文件族，kind 文字区分）
 /// - edit/write → IconPlus（dsh 用铅笔 IconEditOutline16；ui-kit 无铅笔/编辑字形，plus 是现有集里语义最接近「写/改」的）
-/// - delete → IconTrash；think → IconMoon；tool 及未知 → IconGear
+/// - delete → IconTrash；think → IconMoon；tool 及未知 → IconWrench
 #[component]
 pub(crate) fn KindIcon(kind: String) -> Element {
     let class = "text-label-3 shrink-0";
@@ -98,7 +98,7 @@ pub(crate) fn KindIcon(kind: String) -> Element {
         "edit" | "write" => rsx! { IconPlus { size: 12, class } },
         "delete" => rsx! { IconTrash { size: 12, class } },
         "think" => rsx! { IconMoon { size: 12, class } },
-        _ => rsx! { IconGear { size: 12, class } },
+        _ => rsx! { IconWrench { size: 12, class } },
     }
 }
 
