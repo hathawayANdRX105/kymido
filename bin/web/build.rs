@@ -128,6 +128,9 @@ fn main() {
     let _ = std::fs::write(&gen_input, &body);
 
     let local_bin = manifest.join("node_modules/.bin/tailwindcss");
+    // 删掉上一次构建的陈旧产物：工具链本次没跑成时，护栏的体积检查必须
+    // 看到的是「本次没产出」（0 字节），而不是上一轮的好文件。
+    let _ = std::fs::remove_file(&output);
 
     // Run Tailwind from the crate root so `@import "tailwindcss"` resolves via the
     // crate's node_modules (the generated input lives in OUT_DIR, whose ancestors
@@ -162,10 +165,24 @@ fn main() {
             .status();
     }
 
-    // Guarantee the include target exists so compilation never breaks even if
-    // the Tailwind toolchain is unavailable (UI would simply be unstyled).
-    if !output.exists() {
-        let _ = std::fs::write(&output, "");
+    // 护栏：Tailwind 没跑成（node_modules 缺失 / npx 失败 / 无网络）时产物
+    // 为空或只有残片——嵌进二进制的后果是「编译通过但页面裸 HTML」，
+    // 这种静默降级在 worktree 重建（node_modules 不跟 git）后必现，改成
+    // 构建期硬失败 + 修复命令，把发现成本从「上线后肉眼」压到编译时。
+    // 正常产物 = 完整设计系统（100KB+）；5KB 下限 = 连 Tailwind 自身
+    // preflight（~12KB）都不到的残片，必是坏的。
+    let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+    if size < 5_000 {
+        let repo_root = manifest
+            .ancestors()
+            .nth(2)
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        eprintln!(
+            "tailwindcss 没有产出可用样式表（{output:?} 仅 {size} 字节）。\
+              继续编译会得到零样式的 web UI。修复：cd {repo_root}/bin/web && bun install 后重试。"
+        );
+        std::process::exit(1);
     }
 
     println!("cargo:rerun-if-changed=assets/tailwind-input.css");
