@@ -233,162 +233,205 @@ pub fn Workspace(
         std::thread::spawn(move || worker_event_loop(d, tx, ready_for_worker));
         spawn(async move {
             let mut total_out: u64 = 0;
-            while let Some(ev) = rx.recv().await {
+            // 高频 delta（AssistantText/Reasoning/ToolCall/ToolStart）按 80ms
+            // 窗口收集，窗尾一次性写回会话、只触发一次信号（LiveView 重渲
+            // 上限 ~12 次/秒——aui 平滑对位：思考块不再逐 delta 重解析闪
+            // 跳）。结构性事件（TurnStart/TurnEnd/ToolResult）仍按原顺序逐条
+            // 处理：先把其前挂起的高频 delta 落库，再处理自身——它的读写看
+            // 到完整状态（窗内 TurnEnd 不会漏掉最后一段正文）。
+            while let Some(first) = rx.recv().await {
+                let mut batch = vec![first];
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(80);
+                loop {
+                    let rem = deadline.saturating_duration_since(std::time::Instant::now());
+                    if rem.is_zero() {
+                        break;
+                    }
+                    match tokio::time::timeout(rem, rx.recv()).await {
+                        Ok(Some(ev)) => batch.push(ev),
+                        _ => break,
+                    }
+                }
                 let sid = run_target_sid();
                 if sid.is_empty() {
                     continue;
                 }
-                //  scrutinee 取引用：新增的 ToolResult 臂只按名 bump，不
-                //  移出字段，后续 `ui.apply(&ev)` 仍可整体借用
-                match &ev {
-                    AgentEvent::TurnStart => {
-                        // 会话进入运行态（孤儿会话不写回）
-                        if session_exists_in(space_sessions, &sid) {
-                            let mut map = space_sessions.read().clone();
-                            for list in map.values_mut() {
-                                for s in list.iter_mut() {
-                                    if s.id == sid {
-                                        s.status = SessionStatus::Active;
-                                        s.last_active = "刚刚".into();
+                let mut pending: Vec<&AgentEvent> = vec![];
+                // move：信号句柄按值捕获（Copy），与结构事件臂对同名句柄的
+                // 直接读写不撞借用；sid 传参（批内局部，不进闭包）。
+                let mut flush_pending = move |pending: &[&AgentEvent], sid: &str| {
+                    // 流式期间会话可能已被删除：事件照常消费，但消息不写
+                    // 回，避免孤儿 entry
+                    if !session_exists_in(space_sessions, sid) {
+                        return;
+                    }
+                    // 读取与写回在同一把写锁内完成，避免跨锁的读后写窗口
+                    let mut map = session_messages.write();
+                    let mut ui = UiState {
+                        messages: map.get(sid).cloned().unwrap_or_default(),
+                    };
+                    for ev in pending {
+                        ui.apply(ev);
+                    }
+                    map.insert(sid.to_string(), ui.messages);
+                };
+                for ev in &batch {
+                    if matches!(ev, AgentEvent::AssistantText { .. }) {
+                        total_out += 1;
+                    }
+                    match ev {
+                        AgentEvent::TurnStart
+                        | AgentEvent::TurnEnd { .. }
+                        | AgentEvent::ToolResult { .. } => {
+                            // 先结算其前的高频 delta，再处理结构事件
+                            if !pending.is_empty() {
+                                flush_pending(&pending, &sid);
+                                pending.clear();
+                            }
+                            match ev {
+                                AgentEvent::TurnStart => {
+                                    // 会话进入运行态（孤儿会话不写回）
+                                    if session_exists_in(space_sessions, &sid) {
+                                        let mut map = space_sessions.read().clone();
+                                        for list in map.values_mut() {
+                                            for s in list.iter_mut() {
+                                                if s.id == sid {
+                                                    s.status = SessionStatus::Active;
+                                                    s.last_active = "刚刚".into();
+                                                }
+                                            }
+                                        }
+                                        space_sessions.set(map);
                                     }
                                 }
-                            }
-                            space_sessions.set(map);
-                        }
-                    }
-                    AgentEvent::TurnEnd { .. } => {
-                        // TurnEnd：占位文案 + 最终文本持久化 + 状态收尾。
-                        // 会话已删除则跳过消息写回与会话状态更新（写回去
-                        // 等于复活已删会话），但 statusline 结算与
-                        // 会话回 Idle 必须照常执行。
-                        let deleted = !session_exists_in(space_sessions, &sid);
-                        if !deleted {
-                            let mut map = session_messages.write();
-                            let mut ui = UiState {
-                                messages: map.get(&sid).cloned().unwrap_or_default(),
-                            };
-                            ui.apply(&ev);
-                            // 最后一条 assistant 消息即最终回复文本，连同其
-                            // 工具调用卡持久化到 daemon（线程内；空文本跳过，
-                            // 存储侧拒绝空消息）。tool_calls 一并落库，历史
-                            // 重载才能重建「工作过程」折叠区。
-                            let final_msg = ui
-                                .messages
-                                .iter()
-                                .rev()
-                                .find(|m| m.role == "assistant")
-                                .cloned();
-                            let final_text = final_msg
-                                .as_ref()
-                                .map(|m| m.content.clone())
-                                .unwrap_or_default();
-                            let final_tool_calls: Vec<serde_json::Value> = final_msg
-                                .map(|m| {
-                                    m.tool_calls
-                                        .iter()
-                                        .filter_map(|tc| serde_json::to_value(tc).ok())
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            if !final_text.is_empty() {
-                                let sid_daemon = sid.clone();
-                                let d_turn = d_consumer.clone();
-                                std::thread::spawn(move || {
-                                    let _ = d_turn.append_message(
-                                        &sid_daemon,
-                                        false,
-                                        &final_text,
-                                        &[],
-                                        &final_tool_calls,
-                                    );
-                                });
-                            }
-                            map.insert(sid.clone(), ui.messages);
-                        }
-
-                        let mut st = statusline();
-                        st.tokens_out += total_out;
-                        st.tokens_in = (session_messages
-                            .read()
-                            .get(&sid)
-                            .map(|list| list.iter().map(|m| m.content.len()).sum::<usize>())
-                            .unwrap_or(0)
-                            / 4) as u64;
-                        st.cost_usd += total_out as f64 * 0.000002;
-                        st.context_pct =
-                            ((st.tokens_in + st.tokens_out) as f64 / st.context_max as f64 * 100.0)
-                                .min(100.0);
-                        // WP-C（ROADMAP 5.6）：turn 计时结算——on_send 起的
-                        // 计时在这里落成总耗时，状态行改显示已结束耗时。
-                        // 无在飞 run 时 finish_run 是 no-op，不会清掉上一轮。
-                        st.finish_run(now_ms());
-                        statusline.set(st);
-                        total_out = 0;
-
-                        if !deleted {
-                            let mut map = space_sessions.read().clone();
-                            for list in map.values_mut() {
-                                for s in list.iter_mut() {
-                                    if s.id == sid {
-                                        s.status = SessionStatus::Idle;
+                                AgentEvent::TurnEnd { .. } => {
+                                    // TurnEnd：占位文案 + 最终文本持久化 + 状态收尾。
+                                    // 会话已删除则跳过消息写回与会话状态更新（写回去
+                                    // 等于复活已删会话），但 statusline 结算与
+                                    // 会话回 Idle 必须照常执行。
+                                    let deleted = !session_exists_in(space_sessions, &sid);
+                                    if !deleted {
+                                        let mut map = session_messages.write();
+                                        let mut ui = UiState {
+                                            messages: map.get(&sid).cloned().unwrap_or_default(),
+                                        };
+                                        ui.apply(ev);
+                                        // 最后一条 assistant 消息即最终回复文本，连同其
+                                        // 工具调用卡持久化到 daemon（线程内；空文本跳过，
+                                        // 存储侧拒绝空消息）。tool_calls 一并落库，历史
+                                        // 重载才能重建「工作过程」折叠区。
+                                        let final_msg = ui
+                                            .messages
+                                            .iter()
+                                            .rev()
+                                            .find(|m| m.role == "assistant")
+                                            .cloned();
+                                        let final_text = final_msg
+                                            .as_ref()
+                                            .map(|m| m.content.clone())
+                                            .unwrap_or_default();
+                                        let final_tool_calls: Vec<serde_json::Value> = final_msg
+                                            .map(|m| {
+                                                m.tool_calls
+                                                    .iter()
+                                                    .filter_map(|tc| serde_json::to_value(tc).ok())
+                                                    .collect()
+                                            })
+                                            .unwrap_or_default();
+                                        if !final_text.is_empty() {
+                                            let sid_daemon = sid.clone();
+                                            let d_turn = d_consumer.clone();
+                                            std::thread::spawn(move || {
+                                                let _ = d_turn.append_message(
+                                                    &sid_daemon,
+                                                    false,
+                                                    &final_text,
+                                                    &[],
+                                                    &final_tool_calls,
+                                                );
+                                            });
+                                        }
+                                        map.insert(sid.clone(), ui.messages);
                                     }
+
+                                    let mut st = statusline();
+                                    st.tokens_out += total_out;
+                                    st.tokens_in = (session_messages
+                                        .read()
+                                        .get(&sid)
+                                        .map(|list| {
+                                            list.iter().map(|m| m.content.len()).sum::<usize>()
+                                        })
+                                        .unwrap_or(0)
+                                        / 4)
+                                        as u64;
+                                    st.cost_usd += total_out as f64 * 0.000002;
+                                    st.context_pct = ((st.tokens_in + st.tokens_out) as f64
+                                        / st.context_max as f64
+                                        * 100.0)
+                                        .min(100.0);
+                                    // WP-C（ROADMAP 5.6）：turn 计时结算——on_send 起的
+                                    // 计时在这里落成总耗时，状态行改显示已结束耗时。
+                                    // 无在飞 run 时 finish_run 是 no-op，不会清掉上一轮。
+                                    st.finish_run(now_ms());
+                                    statusline.set(st);
+                                    total_out = 0;
+
+                                    if !deleted {
+                                        let mut map = space_sessions.read().clone();
+                                        for list in map.values_mut() {
+                                            for s in list.iter_mut() {
+                                                if s.id == sid {
+                                                    s.status = SessionStatus::Idle;
+                                                }
+                                            }
+                                        }
+                                        space_sessions.set(map);
+                                    }
+                                    // run 收尾，在飞 run id 清空（WP-C：之后列表状态
+                                    // 以 run_status_cache 的持久记录为准）
+                                    live_run_id.set(String::new());
+                                    // 看板刷新兜底：ToolResult 臂已按工具名 bump，这里
+                                    // 对每个 turn 收尾再 bump 一次——WireTranslator 的
+                                    // LIFO 配对会丢未配对 end（convert.rs），只挂
+                                    // ToolResult 会漏刷新，双触发防漏
+                                    board_version.set(board_version() + 1);
                                 }
+                                AgentEvent::ToolResult { name, .. } => {
+                                    // 看板刷新：todo/goal 的唯一写入口是模型工具（看板
+                                    // 无编辑 RPC），命中这五个工具名即 todos.jsonl /
+                                    // goals.jsonl 可能已变 → bump 版本号，WP-C 看板
+                                    // effect 依赖表读它即重查。未命中的工具名不 bump，
+                                    // 无关工具每跑一次都重查看板只是空耗 UDS 往返。
+                                    if matches!(
+                                        name.as_str(),
+                                        "todo_add"
+                                            | "todo_update"
+                                            | "todo_list"
+                                            | "goal_add"
+                                            | "goal_link"
+                                    ) {
+                                        board_version.set(board_version() + 1);
+                                    }
+                                    if !session_exists_in(space_sessions, &sid) {
+                                        continue;
+                                    }
+                                    let mut map = session_messages.write();
+                                    let mut ui = UiState {
+                                        messages: map.get(&sid).cloned().unwrap_or_default(),
+                                    };
+                                    ui.apply(ev);
+                                    map.insert(sid.clone(), ui.messages);
+                                }
+                                _ => unreachable!("structural arm matched non-structural"),
                             }
-                            space_sessions.set(map);
                         }
-                        // run 收尾，在飞 run id 清空（WP-C：之后列表状态
-                        // 以 run_status_cache 的持久记录为准）
-                        live_run_id.set(String::new());
-                        // 看板刷新兜底：ToolResult 臂已按工具名 bump，这里
-                        // 对每个 turn 收尾再 bump 一次——WireTranslator 的
-                        // LIFO 配对会丢未配对 end（convert.rs），只挂
-                        // ToolResult 会漏刷新，双触发防漏
-                        board_version.set(board_version() + 1);
+                        // 高频 delta：挂起攒窗，窗尾一次性落库
+                        _ => pending.push(ev),
                     }
-                    AgentEvent::ToolResult { name, .. } => {
-                        // 看板刷新：todo/goal 的唯一写入口是模型工具（看板
-                        // 无编辑 RPC），命中这五个工具名即 todos.jsonl /
-                        // goals.jsonl 可能已变 → bump 版本号，WP-C 看板
-                        // effect 依赖表读它即重查。未命中的工具名不 bump，
-                        // 无关工具每跑一次都重查看板只是空耗 UDS 往返。
-                        if matches!(
-                            name.as_str(),
-                            "todo_add" | "todo_update" | "todo_list" | "goal_add" | "goal_link"
-                        ) {
-                            board_version.set(board_version() + 1);
-                        }
-                        // 工具结果仍要落进聊天记录。Rust match 无
-                        // fallthrough，这段与 `_` 臂的写回路径相同（去掉
-                        // 了那里对 AssistantText 的计数——ToolResult 不可
-                        // 能是 AssistantText）；改一处记得改另一处。
-                        if !session_exists_in(space_sessions, &sid) {
-                            continue;
-                        }
-                        let mut map = session_messages.write();
-                        let mut ui = UiState {
-                            messages: map.get(&sid).cloned().unwrap_or_default(),
-                        };
-                        ui.apply(&ev);
-                        map.insert(sid.clone(), ui.messages);
-                    }
-                    _ => {
-                        if matches!(ev, AgentEvent::AssistantText { .. }) {
-                            total_out += 1;
-                        }
-                        // 流式期间会话可能已被删除：事件照常消费，但消息
-                        // 不写回，避免孤儿 entry
-                        if !session_exists_in(space_sessions, &sid) {
-                            continue;
-                        }
-                        // 读取与写回在同一把写锁内完成，避免跨锁的读后写
-                        // 窗口
-                        let mut map = session_messages.write();
-                        let mut ui = UiState {
-                            messages: map.get(&sid).cloned().unwrap_or_default(),
-                        };
-                        ui.apply(&ev);
-                        map.insert(sid.clone(), ui.messages);
-                    }
+                }
+                if !pending.is_empty() {
+                    flush_pending(&pending, &sid);
                 }
             }
         });

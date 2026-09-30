@@ -82,10 +82,9 @@ pub(crate) fn MessageItem(
             }
             None => (String::new(), parts.clone(), false),
         };
-        // reasoning 在流式时由 ReasoningBlock 自己的 shimmer 承担指示；
+        // reasoning 在流式时由各段 ReasoningBlock 自己的 shimmer 承担指示；
         // 「思考中」状态行只兜底「还没收到任何 reasoning/过程」的空窗期
-        let waiting =
-            streaming_tail && !has_final && process.is_empty() && message.reasoning.is_empty();
+        let waiting = streaming_tail && !has_final && process.is_empty();
         // aui ActionBar 复制源：最终正文优先，缺省回退整条 content
         let copy_src = if !final_text.is_empty() {
             final_text.clone()
@@ -96,25 +95,19 @@ pub(crate) fn MessageItem(
         rsx! {
             div { class: "flex flex-col gap-2 w-full group",
                 id: "{dom_id}",
-                // 思考过程（aui reasoning part）：受控折叠块；流式中 shimmer
-                // 「思考中」+ 默认展开，完成后「思考过程」label + 默认折叠
-                if !message.reasoning.is_empty() {
-                    ReasoningBlock {
-                        text: message.reasoning.clone(),
-                        running: streaming_tail,
-                        duration: message.reasoning_ms,
-                    }
-                }
                 if waiting {
                     // dsh turn 状态行：26px 高 shimmer
                     div { class: "h-[26px] flex items-center",
                         span { class: "shimmer-text text-[14px] font-medium", {sh::MSG_THINKING} }
                     }
                 } else {
+                    // aui parts 模型：思考 / 工具 / 文本按真实发生顺序原位交替
+                    // （ProcessBlock 内按序渲染 Reasoning 段 + ToolLine + 中间文本）
                     if !process.is_empty() {
                         ProcessBlock {
                             parts: process,
                             active: last_turn || streaming_tail,
+                            streaming: streaming_tail,
                         }
                     }
                     if has_final {
@@ -128,7 +121,9 @@ pub(crate) fn MessageItem(
                             span { class: "text-[12px] leading-5 text-label-3", {sh::MSG_GENERATING} }
                         }
                     }
-                    // aui ActionBar：hover 显现 复制 + 时间戳
+                }
+                // aui ActionBar（hideWhenRunning 对位）：生成全部结束后才出现
+                if !streaming_tail {
                     div {
                         class: "flex items-center gap-2 -ml-1 h-5 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
                         button {
@@ -150,11 +145,13 @@ pub(crate) fn MessageItem(
     }
 }
 
-/// 「Work Process」折叠块：最终回复之前的全部内容（文本 + 工具调用）。
-/// 默认状态跟随 `active`（最后一轮展开、更早轮折叠 + 流式展开；ainotation
-/// #4-6），用户点击头行可覆盖。chevron 已按 ainotation #2 删除。
+/// 「Work Process」折叠块：最终回复之前的全部内容，按真实发生顺序原位
+/// 渲染（aui parts 模型）：思考段（ReasoningBlock）/ 工具行 / 中间文本
+/// 交替出现，不再全局堆积。默认状态跟随 `active`（最后一轮展开、更早轮
+/// 折叠 + 流式展开；ainotation #4-6），用户点击头行可覆盖。chevron 已按
+/// ainotation #2 删除。
 #[component]
-fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
+fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Element {
     // None = 跟随 active；Some = 用户点过之后的显式开关
     let mut toggle = use_signal(|| None::<bool>);
     let open = toggle().unwrap_or(active);
@@ -182,6 +179,17 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool) -> Element {
                             MessagePart::Tool(tc) => rsx! {
                                 ToolLine { key: "{tc.id}-{i}", tool: tc.clone() }
                             },
+                            MessagePart::Reasoning { text, duration_ms, .. } => {
+                                let running = streaming && duration_ms.is_none();
+                                rsx! {
+                                    ReasoningBlock {
+                                        key: "rsn-{i}",
+                                        text: text.clone(),
+                                        running,
+                                        duration: *duration_ms,
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -210,7 +218,7 @@ fn ToolLine(tool: ToolCall) -> Element {
 
     rsx! {
         div { class: "flex flex-col",
-            div { class: "h-6 flex items-center gap-2 cursor-pointer select-none w-fit",
+            div { class: "h-6 flex items-center gap-2 cursor-pointer select-none w-full min-w-0",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
                     open.set(!open());
@@ -262,12 +270,13 @@ fn ToolLine(tool: ToolCall) -> Element {
     }
 }
 
-/// aui `Reasoning` part：受控折叠思考块（替换旧的原生 `details`）。
-/// 流式中：shimmer 「思考中」+ 默认展开；完成：「已思考 Ns」（aui 对位
-/// "Thought for Ns"；无真实耗时时回退「思考过程」）+ 默认折叠；点击可覆盖
-/// 默认。无 chevron（沿用 ainotation #2 决策：折叠靠点击整行）。
-/// 思考正文走 markdown 渲染（保留 omenic 的 markdown 样式），左侧边框保留
-/// 「过程显示」观感。
+/// aui `Reasoning` part：受控折叠思考块，按发生顺序原位插在过程流里
+/// （aui 分段语义：一段思考 = 一个块，工具/文本边界切段；流式中该段
+/// shimmer「思考中」+ 默认展开，结算后「已思考 Ns」（对位 "Thought for
+/// Ns"；无真实耗时时回退「思考过程」）+ 默认折叠；点击可覆盖默认。
+/// 无 chevron（沿用 ainotation #2 决策：折叠靠点击整行）。思考正文走
+/// markdown 渲染（保留 omenic 的 markdown 样式），左侧边框保留「过程
+/// 显示」观感。
 #[component]
 fn ReasoningBlock(text: String, running: bool, duration: Option<u64>) -> Element {
     // None = 跟随 running；Some = 用户点过之后的显式开关

@@ -1867,6 +1867,8 @@ fn visible_text(msg: &ChatMessage) -> String {
         .filter_map(|part| match part {
             MessagePart::Text(text) => Some(text.as_str()),
             MessagePart::Tool(_) => None,
+            // 思考段是界面物（同 tool 卡片）：不进复制/重发口径。
+            MessagePart::Reasoning { .. } => None,
         })
         .collect();
     if texts.is_empty() {

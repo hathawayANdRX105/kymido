@@ -89,6 +89,114 @@ fn streamed_sequence_builds_chronological_parts() {
 }
 
 #[test]
+fn reasoning_segments_interleave_in_stream_order() {
+    let mut ui = UiState::default();
+    ui.push_message(web_state::types::ChatMessage {
+        id: "m1".into(),
+        role: "user".into(),
+        content: "证明 1+1=2".into(),
+        reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
+        tool_calls: vec![],
+        parts: vec![],
+        timestamp: "刚刚".into(),
+        ts_epoch_ms: 0,
+        attachments: vec![],
+    });
+
+    for ev in [
+        // 第一段思考：相邻 delta 归同一段
+        AgentEvent::Reasoning {
+            delta: "先想公理。".into(),
+        },
+        AgentEvent::Reasoning {
+            delta: "再加结合律。".into(),
+        },
+        // 工具边界切段
+        AgentEvent::ToolCall {
+            id: "tc-1".into(),
+            name: "run_bash".into(),
+            args: json!({ "command": "echo qed" }),
+        },
+        AgentEvent::ToolResult {
+            id: "tc-1".into(),
+            name: "run_bash".into(),
+            result: "qed".into(),
+        },
+        // 第二段思考（同一轮内再次思考）
+        AgentEvent::Reasoning {
+            delta: "收尾检查。".into(),
+        },
+        // 文本边界再切段
+        AgentEvent::AssistantText {
+            delta: "得证。".into(),
+        },
+        AgentEvent::TurnEnd {
+            stop_reason: "end_turn".into(),
+        },
+    ] {
+        ui.apply(&ev);
+    }
+
+    let asst = &ui.messages[1];
+    // 消息级思考累积（TUI 兼容口径）不被 parts 化影响
+    assert_eq!(asst.reasoning, "先想公理。再加结合律。收尾检查。");
+    // 发生顺序：思考段 → 工具 → 思考段 → 文本段
+    assert_eq!(asst.parts.len(), 4);
+    let MessagePart::Reasoning {
+        text,
+        duration_ms: d1,
+        ..
+    } = &asst.parts[0]
+    else {
+        panic!("parts[0]: expected reasoning segment");
+    };
+    assert_eq!(text, "先想公理。再加结合律。");
+    assert!(d1.is_some(), "closed segment must carry a duration");
+    assert!(matches!(asst.parts[1], MessagePart::Tool(_)));
+    let MessagePart::Reasoning {
+        text,
+        duration_ms: d2,
+        ..
+    } = &asst.parts[2]
+    else {
+        panic!("parts[2]: expected second reasoning segment");
+    };
+    assert_eq!(text, "收尾检查。");
+    assert!(matches!(&asst.parts[3], MessagePart::Text(t) if t == "得证。"));
+}
+
+#[test]
+fn active_reasoning_segment_stays_open_until_boundary() {
+    let mut ui = UiState::default();
+    ui.apply(&AgentEvent::Reasoning {
+        delta: "思考中…".into(),
+    });
+    let asst = &ui.messages[0];
+    let MessagePart::Reasoning {
+        started_ms,
+        duration_ms,
+        ..
+    } = &asst.parts[0]
+    else {
+        panic!("expected reasoning part");
+    };
+    assert!(started_ms.is_some(), "first delta stamps segment start");
+    assert!(duration_ms.is_none(), "active segment unsettled");
+
+    // 文本边界结算
+    ui.apply(&AgentEvent::AssistantText {
+        delta: "作答".into(),
+    });
+    let asst = &ui.messages[0];
+    let MessagePart::Reasoning { duration_ms, .. } = &asst.parts[0] else {
+        panic!("expected reasoning part");
+    };
+    assert!(duration_ms.is_some(), "boundary event settles the segment");
+}
+
+#[test]
 fn tool_call_extracts_title_and_kind() {
     let mut ui = UiState::default();
     ui.apply(&AgentEvent::ToolCall {

@@ -62,10 +62,17 @@ pub async fn launch() {
     {glue}
     <script>
     (function() {{
-        function scrollToBottom() {{
+        function scrollToBottom(smooth) {{
             const chatEl = document.getElementById("chat-scroll");
             if (chatEl) {{
-                chatEl.scrollTop = chatEl.scrollHeight;
+                if (smooth === false) {{
+                    // 显式硬跳：页面加载 / 用户提交（新内容必须立刻可见）
+                    chatEl.scrollTop = chatEl.scrollHeight;
+                }} else {{
+                    // 丝滑跟随：aui Viewport 的 auto-follow 对位——流式内容
+                    // 增长时平滑滚到底（浏览器对同向 smooth 目标可中断重定标）
+                    chatEl.scrollTo({{ top: chatEl.scrollHeight, behavior: "smooth" }});
+                }}
             }}
         }}
 
@@ -266,7 +273,7 @@ pub async fn launch() {
                     setTimeout(function() {{
                         e.target.value = "";
                     }}, 0);
-                    setTimeout(scrollToBottom, 40);
+                    setTimeout(function() {{ scrollToBottom(false); }}, 40);
                 }}
             }}
         }}, true);
@@ -284,7 +291,7 @@ pub async fn launch() {
                             ta.value = "";
                         }}, 0);
                     }}
-                    setTimeout(scrollToBottom, 40);
+                    setTimeout(function() {{ scrollToBottom(false); }}, 40);
                 }}
             }}
         }}, true);
@@ -329,11 +336,11 @@ pub async fn launch() {
             setUpPin();
             if (pinned.value) {{
                 clearTimeout(scrollTimeout);
-                scrollTimeout = setTimeout(scrollToBottom, 30);
+                scrollTimeout = setTimeout(function() {{ scrollToBottom(true); }}, 30);
             }}
         }});
         setUpPin();
-        setTimeout(scrollToBottom, 150);
+        setTimeout(function() {{ scrollToBottom(false); }}, 150);
         observer.observe(document.body, {{ childList: true, subtree: true }});
         setupMinimap();
 

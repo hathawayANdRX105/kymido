@@ -57,6 +57,7 @@ impl UiState {
             AgentEvent::TurnStart => {}
             AgentEvent::AssistantText { delta } => {
                 let msg = self.last_assistant_or_placeholder();
+                Self::close_active_reasoning(msg);
                 msg.content.push_str(delta);
                 match msg.parts.last_mut() {
                     Some(MessagePart::Text(existing)) => existing.push_str(delta),
@@ -70,10 +71,27 @@ impl UiState {
                     msg.reasoning_started_ms = Some(now_epoch_ms());
                 }
                 msg.reasoning.push_str(delta);
+                // aui parts 模型：相邻 delta 归同一段；新段在边界后开（原位交替）
+                match msg.parts.last_mut() {
+                    Some(MessagePart::Reasoning {
+                        text, started_ms, ..
+                    }) => {
+                        if started_ms.is_none() {
+                            *started_ms = Some(now_epoch_ms());
+                        }
+                        text.push_str(delta);
+                    }
+                    _ => msg.parts.push(MessagePart::Reasoning {
+                        text: delta.clone(),
+                        started_ms: Some(now_epoch_ms()),
+                        duration_ms: None,
+                    }),
+                }
             }
             AgentEvent::ToolCall { id, name, args } => {
                 let tc = tool_call_from_rpc(id, name, args);
                 let msg = self.last_assistant_or_placeholder();
+                Self::close_active_reasoning(msg);
                 msg.tool_calls.push(tc.clone());
                 msg.parts.push(MessagePart::Tool(tc));
             }
@@ -105,6 +123,7 @@ impl UiState {
             }
             AgentEvent::TurnEnd { stop_reason } => {
                 let msg = self.last_assistant_or_placeholder();
+                Self::close_active_reasoning(msg);
                 // 思考耗时结算：有真实起点（首个 reasoning delta）才结算，
                 // 模型没思考（reasoning 空）或中途读回（起点丢失）保持 None。
                 if let Some(start) = msg.reasoning_started_ms
@@ -123,6 +142,25 @@ impl UiState {
         }
     }
 
+    /// 结算活动思考段：最后一段 Reasoning 仍未计时（`duration_ms` None）时
+    /// 在边界事件（文本/工具/收尾）落地。空段（无 delta）不结算。
+    /// 静态方法（不借 self）：调用点同时持有 `self.last_assistant_or_placeholder()`
+    /// 的可变借用，`&mut self` 版会撞二阶段借用。
+    fn close_active_reasoning(msg: &mut ChatMessage) {
+        let Some(MessagePart::Reasoning {
+            text,
+            started_ms,
+            duration_ms,
+        }) = msg.parts.last_mut()
+        else {
+            return;
+        };
+        if !text.is_empty() && duration_ms.is_none() {
+            if let Some(start) = *started_ms {
+                *duration_ms = Some(now_epoch_ms().saturating_sub(start));
+            }
+        }
+    }
     fn last_assistant_or_placeholder(&mut self) -> &mut ChatMessage {
         if !self.messages.last().is_some_and(|m| m.role == "assistant") {
             let now_ms = std::time::SystemTime::now()

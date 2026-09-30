@@ -19,12 +19,18 @@ pub struct ToolCall {
     pub status: String, // "success", "running", "error"
 }
 
-/// 消息体内的有序片段：文本段或一次工具调用。
-/// 用于按真实发生顺序渲染 agent 的工作过程（文本与工具调用交叉）。
+/// 消息体内的有序片段：文本段、一次工具调用、一段思考。
+/// 按真实发生顺序渲染 agent 的工作过程（aui parts 模型：思考 → 工具 →
+/// 文本 → 思考……原位交替，不再全局堆积）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MessagePart {
     Text(String),
     Tool(ToolCall),
+    Reasoning {
+        text: String,
+        started_ms: Option<u64>,
+        duration_ms: Option<u64>,
+    },
 }
 
 /// An image the user picked in the composer and has not sent yet.
