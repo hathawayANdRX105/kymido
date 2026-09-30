@@ -12,7 +12,7 @@ web-state = { path = "../web-state" }
 # ferrite 家族共享设计系统（shadcn token 桥 + Dioxus 基元）。dioxus 版本与 kit
 # 的 =0.7.10 钉齐，双版本会导致 Element 类型不通。
 # 私仓：https 会 401，必须走 ssh（CI 需要 deploy key——接入 PR 时是有意为之的前置）
-ui-kit = { git = "ssh://git@github.com/hathawayANdRX105/ui-kit.git" }
+ui-kit = { git = "ssh://git@github.com/hathawayANdRX105/ui-kit.git", rev = "33869f1bc5b39803e1d554ea8b6d41c70c72d19f" }
 dioxus = { version = "0.7" }
 pulldown-cmark = { workspace = true }
 ammonia = { workspace = true }
