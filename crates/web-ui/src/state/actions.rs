@@ -162,14 +162,13 @@ pub fn change_model(
     on_update_config.call(cfg);
 }
 
-/// 切换思考强度（off ↔ 8k）。
-pub fn toggle_thinking(mut sig: WorkspaceSignals) {
+/// 设思考强度为菜单选中的档位（`THINKING_OPTIONS` 的 value：off / 2k / 8k / 16k）。
+///
+/// 菜单 4 档而旧的 `toggle_thinking` 只做 off ↔ 8k 二元轮转：选「关闭」会落到 8k，
+/// 选「轻量/深度」无效果。菜单给什么值就设什么值。
+pub fn set_thinking(mut sig: WorkspaceSignals, level: String) {
     let mut st = (sig.statusline)();
-    st.thinking = if st.thinking == "off" {
-        "8k".into()
-    } else {
-        "off".into()
-    };
+    st.thinking = level;
     (sig.statusline).set(st);
 }
 

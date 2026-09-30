@@ -14,7 +14,7 @@ use crate::components::ui::Modal;
 use crate::layouts::app_frame::AppFrame;
 use crate::state::actions::{
     WorkspaceSignals, abort_run, answer_question, change_model, create_session, delete_session,
-    delete_space, select_space, send_message, toggle_thinking,
+    delete_space, select_space, send_message, set_thinking,
 };
 use crate::state::backend::{DataBackend, daemon_space, probe_backend};
 use crate::state::readiness::ReadinessGate;
@@ -826,8 +826,8 @@ pub fn Workspace(
         answer_question(sig, qid, answer);
     };
 
-    let on_toggle_thinking = move |()| {
-        toggle_thinking(sig);
+    let on_thinking_change = move |level: String| {
+        set_thinking(sig, level);
     };
 
     // ── 发送：内存即时上屏 + mock 模拟流；Daemon 模式追加持久化 ───────────
@@ -937,7 +937,7 @@ pub fn Workspace(
                             is_streaming: active_session_running(space_sessions, active_session_id),
                             on_send: on_send,
                             on_model_change: on_model_change,
-                            on_toggle_thinking: on_toggle_thinking,
+                            on_thinking_change: on_thinking_change,
                             on_abort: on_abort,
                             question: pending_question(),
                             on_answer: on_answer,

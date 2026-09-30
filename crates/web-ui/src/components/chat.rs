@@ -130,7 +130,8 @@ pub fn Chat(
     /// Send: (text, images picked in the composer and not sent yet).
     on_send: EventHandler<(String, Vec<PendingAttachment>)>,
     on_model_change: EventHandler<String>,
-    on_toggle_thinking: EventHandler<()>,
+    /// 思考强度：(档位 value，`THINKING_OPTIONS` 的 value)。
+    on_thinking_change: EventHandler<String>,
     on_toggle_tasks: EventHandler<()>,
     /// 任务 dock「点外关闭」：chat 列内（滚动区 / minimap / 座位空白等非
     /// 面板区域）点击时触发。面板内部（TaskPanel 根）自行 stop_propagation
@@ -451,7 +452,7 @@ pub fn Chat(
                                     header: sh::LBL_THINKING_STRENGTH,
                                     items: thinking_items,
                                     active_value: statusline.thinking.clone(),
-                                    on_select: move |_| on_toggle_thinking.call(()),
+                                    on_select: move |level: String| on_thinking_change.call(level),
                                 }
                             }
                                 // aui ComposerSend 三态：idle（输入空置灰）/ ready（可发）/
