@@ -490,11 +490,11 @@ pub fn Chat(
                                     }
                                 }
                     }
-                    // 状态行（dsh StatsLine：12/20 tertiary 居中）
+                }
+                    // 状态行（dsh StatsLine：12/20 tertiary 居中）——在输入卡外下方
                     div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
                         "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}{error_seg}"
                     }
-                }
             }
         }
     }
