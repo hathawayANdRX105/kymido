@@ -18,9 +18,6 @@ use super::chat::{KindIcon, format_tool_output, kind_chip, kind_label, line_is_e
 pub(crate) fn MessageItem(
     message: ChatMessage,
     streaming_tail: bool,
-    /// 是否属于最后一个用户轮次（最后一个 user 之后的消息）。最后一轮的
-    /// Work Process 保持展开，更早轮次静止即折叠（ainotation #4-6）。
-    last_turn: bool,
     id: Option<String>,
 ) -> Element {
     let is_user = message.role == "user";
@@ -106,7 +103,7 @@ pub(crate) fn MessageItem(
                     if !process.is_empty() {
                         ProcessBlock {
                             parts: process,
-                            active: last_turn || streaming_tail,
+                            active: streaming_tail && !has_final,
                             streaming: streaming_tail,
                         }
                     }
@@ -144,19 +141,18 @@ pub(crate) fn MessageItem(
         }
     }
 }
-
 /// 「Work Process」折叠块：最终回复之前的全部内容，按真实发生顺序原位
 /// 渲染（aui parts 模型）：思考段（ReasoningBlock）/ 工具行 / 中间文本
-/// 交替出现，不再全局堆积。默认状态跟随 `active`（最后一轮展开、更早轮
-/// 折叠 + 流式展开；ainotation #4-6），用户点击头行可覆盖。chevron 已按
-/// ainotation #2 删除。
+/// 交替出现，不再全局堆积。头行按状态换词（ainotation 波4 #1）：正在
+/// 工作 = 动词形 `Progressing`（shimmer），结束 = 名词形 `Progress`。
+/// 默认状态跟随 `active`（过程流式中且最终输出未出现时展开；最终文本
+/// 一到即自动折叠，ainotation 波4 #3），用户点击头行可覆盖。
 #[component]
 fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Element {
     // None = 跟随 active；Some = 用户点过之后的显式开关
     let mut toggle = use_signal(|| None::<bool>);
     let open = toggle().unwrap_or(active);
     let count = parts.len();
-
     rsx! {
         div { class: "flex flex-col",
             div { class: "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit text-[14px] leading-6 text-label-2 hover:text-label",
@@ -164,7 +160,11 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Eleme
                     e.stop_propagation();
                     toggle.set(Some(!open));
                 },
-                span { "Work Process" }
+                span { class: "shrink-0", if streaming {
+                    span { class: "shimmer-text", {sh::LBL_WORK_PROGRESSING} }
+                } else {
+                    {sh::LBL_WORK_PROGRESS}
+                } }
                 span { class: "text-caption", "· {count}" }
             }
             if open {
@@ -271,33 +271,61 @@ fn ToolLine(tool: ToolCall) -> Element {
 }
 
 /// aui `Reasoning` part：受控折叠思考块，按发生顺序原位插在过程流里
-/// （aui 分段语义：一段思考 = 一个块，工具/文本边界切段；流式中该段
-/// shimmer「思考中」+ 默认展开，结算后「已思考 Ns」（对位 "Thought for
-/// Ns"；无真实耗时时回退「思考过程」）+ 默认折叠；点击可覆盖默认。
-/// 无 chevron（沿用 ainotation #2 决策：折叠靠点击整行）。思考正文走
-/// markdown 渲染（保留 omenic 的 markdown 样式），左侧边框保留「过程
+/// （aui 分段语义：一段思考 = 一个块，工具/文本边界切段）。
+///
+/// 头行三态（ainotation 波4 #2）：
+/// - 运行中：`Thinking · <思考正文最后完成行>` + Spinner。行随流推进不断
+///   变化：换 `key` 触发节点重建，CSS `think-line` 动画每次换行播一次
+///   （淡入 + 轻微上移）。
+/// - 结算后：`Thought · Ns`（aui "Thought for Ns" 词族；无真实耗时回退
+///   `Thought`）。
+/// 默认**始终折叠**（运行时不自动展开，用户点击整行打开；
+/// #2 的无 chevron 决策）。思考正文走 markdown 渲染，左侧边框保留「过程
 /// 显示」观感。
+///
+/// 「最后完成行」口径：只有到达换行符的行才算完成（当前未收尾的行仍在
+/// 生长，不进头行）；取最后一段非空行，截断到 80 字符（`truncate` 双保险）。
+fn last_completed_line(text: &str) -> Option<String> {
+    let pos = text.rfind('\n')?;
+    text[..pos].lines().rev().find_map(|l| {
+        let t = l.trim();
+        (!t.is_empty()).then(|| {
+            let s: String = t.chars().take(80).collect();
+            if t.chars().count() > 80 {
+                format!("{s}…")
+            } else {
+                s
+            }
+        })
+    })
+}
+
 #[component]
 fn ReasoningBlock(text: String, running: bool, duration: Option<u64>) -> Element {
-    // None = 跟随 running；Some = 用户点过之后的显式开关
+    // 默认折叠（运行时也不自动展开）；Some = 用户点过之后的显式开关
     let mut toggle = use_signal(|| None::<bool>);
-    let open = toggle().unwrap_or(running);
-    // 完成态标题：有真实耗时 →「已思考 Ns」；没有（历史读回/未结算）→「思考过程」
+    let open = toggle().unwrap_or_default();
     let done_label: String = match duration {
-        Some(ms) if ms > 0 => format!("{} {}", sh::LBL_THOUGHT_FOR, format_duration_ms(ms)),
-        _ => sh::LBL_REASONING.to_string(),
+        Some(ms) if ms > 0 => format!("{} · {}", sh::LBL_THOUGHT, format_duration_ms(ms)),
+        _ => sh::LBL_THOUGHT.to_string(),
     };
+    let line = last_completed_line(&text);
     rsx! {
         div { class: "select-none",
             div {
-                class: "h-5 flex items-center cursor-pointer w-fit",
+                class: "h-5 flex items-center gap-1.5 cursor-pointer w-full min-w-0",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
                     toggle.set(Some(!open));
                 },
                 if running {
-                    span { class: "shimmer-text text-[13px] font-medium", {sh::MSG_THINKING} }
-                    span { class: "ml-1.5", Spinner {} }
+                    span { class: "shimmer-text text-[12px] font-medium shrink-0", {sh::LBL_THINKING_EN} }
+                    if let Some(l) = &line {
+                        // key 随「最后完成行」内容变 → 节点重建 → think-line
+                        // 换行动画每次播一次
+                        span { key: "{l}", class: "think-line text-[12px] leading-5 text-label-3 flex-1 min-w-0 truncate", "· {l}" }
+                    }
+                    span { class: "ml-1 shrink-0", Spinner {} }
                 } else {
                     span { class: "text-[12px] leading-5 text-label-3 hover:text-label-2 transition-colors", "{done_label}" }
                 }

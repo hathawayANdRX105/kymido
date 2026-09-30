@@ -177,15 +177,6 @@ pub fn Chat(
         .map(|m| (format!("prompt-{}", m.id), m.content.clone()))
         .collect();
 
-    // 最后一条 user 消息之后的所有 assistant 消息 = 最后一轮（ainotation #4-6）。
-    // 该轮的 Work Process 保持展开，更早轮次静止即折叠。无 user 消息时整段都
-    // 算最后一轮（起点取 0）。
-    let last_turn_start = display_messages
-        .iter()
-        .rposition(|m| m.role == "user")
-        .map(|i| i + 1)
-        .unwrap_or(0);
-
     // 状态行耗时段（G5/5.6）：在飞 run 显示「当前时刻 - 开始时刻」，已结束
     // run 显示结算好的总耗时，两者都没有则为空串——空串时整段（含前导
     // 分隔符）不渲染，避免状态行出现 " · " 空档。rsx! 内禁止 let，故在
@@ -253,7 +244,6 @@ pub fn Chat(
                                     message: msg.clone(),
                                     // 流式指示只挂在最后一条 assistant 上
                                     streaming_tail: is_streaming && is_last && msg.role == "assistant",
-                                    last_turn: idx >= last_turn_start,
                                     id: anchor,
                                 }
                             }
