@@ -1823,6 +1823,8 @@ fn user_message(text: &str) -> ChatMessage {
         role: "user".to_string(),
         content: text.to_string(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![MessagePart::Text(text.to_string())],
         timestamp: String::new(),
@@ -1840,6 +1842,8 @@ fn local_message(text: &str) -> ChatMessage {
         role: "system".to_string(),
         content: text.to_string(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![MessagePart::Text(text.to_string())],
         timestamp: String::new(),
@@ -1863,6 +1867,8 @@ fn visible_text(msg: &ChatMessage) -> String {
         .filter_map(|part| match part {
             MessagePart::Text(text) => Some(text.as_str()),
             MessagePart::Tool(_) => None,
+            // 思考段是界面物（同 tool 卡片）：不进复制/重发口径。
+            MessagePart::Reasoning { .. } => None,
         })
         .collect();
     if texts.is_empty() {

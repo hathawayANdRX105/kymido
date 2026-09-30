@@ -327,4 +327,20 @@
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }
   }
+
+  /* thinking 头行「最后完成行」换行动画：key 变化 → 节点重建 → 每次换行
+     播一次（淡入 + 轻微上移），行内文字不打断、不闪跳 */
+  .think-line {
+    animation: think-line-in 0.22s ease-out;
+  }
+  @keyframes think-line-in {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }

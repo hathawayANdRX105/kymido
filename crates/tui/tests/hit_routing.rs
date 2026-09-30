@@ -21,6 +21,8 @@ fn tool_msg(idx: usize, detail: &str) -> ChatMessage {
         role: "assistant".to_string(),
         content: String::new(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![MessagePart::Tool(ToolCall {
             id: format!("t-{idx}"),
@@ -42,6 +44,8 @@ fn thinking_msg(idx: usize) -> ChatMessage {
         role: "assistant".to_string(),
         content: String::new(),
         reasoning: "step a\nstep b\nstep c".to_string(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![MessagePart::Text("answer".to_string())],
         timestamp: String::new(),

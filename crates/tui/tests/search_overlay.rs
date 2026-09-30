@@ -88,6 +88,8 @@ fn mk_msg(id: String, role: &str, content: String) -> ChatMessage {
         role: role.to_string(),
         content,
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![],
         attachments: vec![],

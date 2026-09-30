@@ -43,8 +43,14 @@ pub const LBL_THINKING: &str = "思考";
 pub const LBL_PICK_MODEL: &str = "选择模型";
 pub const LBL_PICK_SESSION: &str = "选择会话快速切换";
 pub const LBL_PLAN_REVIEW: &str = "计划评审";
-pub const LBL_WORK_PROCESS: &str = "Work Process";
-pub const LBL_REASONING: &str = "思考过程";
+/// Work Process 块头行：进行中动词形 / 结束后名词形（ainotation 波4 #1）
+pub const LBL_WORK_PROGRESSING: &str = "Progressing";
+pub const LBL_WORK_PROGRESS: &str = "Progress";
+/// 思考块头行：运行中「Thinking · 思考正文最后完成行」（行随流更新带
+/// 换行动画，ainotation 波4 #2.3）；结束「Thought · Ns」（aui "Thought
+/// for Ns" 词族对位，耗时由 `format_duration_ms` 现算）
+pub const LBL_THINKING_EN: &str = "Thinking";
+pub const LBL_THOUGHT: &str = "Thought";
 pub const LBL_DESCRIPTION: &str = "描述";
 pub const LBL_ACCEPTANCE: &str = "验收标准";
 pub const LBL_RUNNING: &str = "运行中";

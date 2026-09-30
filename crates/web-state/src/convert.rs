@@ -93,6 +93,8 @@ pub fn message_to_chat(m: &SessionMessage) -> ChatMessage {
         role: role.into(),
         content: m.text.clone(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls,
         parts: vec![],
         attachments: m

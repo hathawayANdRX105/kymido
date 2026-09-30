@@ -14,6 +14,8 @@ fn tool_detail(detail: &str) -> ChatMessage {
         role: "assistant".to_string(),
         content: String::new(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![MessagePart::Tool(web_state::types::ToolCall {
             id: "t-1".to_string(),

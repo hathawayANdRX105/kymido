@@ -405,6 +405,8 @@ pub fn send_message(
         role: "user".into(),
         content: text.clone(),
         reasoning: String::new(),
+        reasoning_started_ms: None,
+        reasoning_ms: None,
         tool_calls: vec![],
         parts: vec![],
         timestamp: "刚刚".into(),

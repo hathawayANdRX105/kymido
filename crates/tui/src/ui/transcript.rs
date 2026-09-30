@@ -113,6 +113,9 @@ pub(super) fn message_rows(app: &App, msg: &ChatMessage, msg_idx: usize, width: 
             MessagePart::Tool(tc) => {
                 super::tool_card::rows(tc, app.fold_for(msg_idx, part_idx), width)
             }
+            // 思考段：TUI 的思考块走消息级 `msg.reasoning`（上方 thinking::rows
+            // 已计数）；part 形态只出现在 web 流式投影，TUI 不重复出。
+            MessagePart::Reasoning { .. } => 0,
         })
         .sum::<usize>();
     rows
@@ -214,6 +217,8 @@ fn push_message(out: &mut MessageOut, app: &App, msg: &ChatMessage, msg_idx: usi
                     width,
                 ));
             }
+            // 同 message_rows：思考段不出现在 TUI parts 渲染（零虚构契约）。
+            MessagePart::Reasoning { .. } => {}
         }
     }
 }
