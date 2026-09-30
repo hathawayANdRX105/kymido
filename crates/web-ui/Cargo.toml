@@ -17,4 +17,4 @@ dioxus = { version = "0.7" }
 pulldown-cmark = { workspace = true }
 ammonia = { workspace = true }
 serde_json = { workspace = true }
-tokio = { version = "1", default-features = false, features = ["sync"] }
+tokio = { version = "1", default-features = false, features = ["sync", "time"] }
