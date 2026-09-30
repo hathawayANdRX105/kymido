@@ -157,6 +157,12 @@ pub fn Chat(
         .iter()
         .map(|(l, v)| (l.to_string(), v.to_string()))
         .collect();
+    // 模型未选择时胶囊显「选择模型」而不是空
+    let model_label = if statusline.model.is_empty() {
+        sh::LBL_PICK_MODEL.to_string()
+    } else {
+        statusline.model.clone()
+    };
 
     let display_messages: Vec<ChatMessage> = messages
         .iter()
@@ -433,7 +439,7 @@ pub fn Chat(
                                     IconSquareCheck { size: 15 }
                                 }
                                 MenuPicker {
-                                    label: "{statusline.model}",
+                                    label: model_label,
                                     header: sh::LBL_PICK_MODEL,
                                     items: model_items,
                                     active_value: statusline.model.clone(),

@@ -3,7 +3,7 @@
 
 use dioxus::prelude::*;
 
-use ui_kit::icons::{IconCheck, IconChevronDown};
+use ui_kit::icons::IconCheck;
 use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel};
 
 /// composer 下拉选择器：ui-kit DropdownMenu 的数据驱动封装（label + header +
@@ -33,7 +33,6 @@ pub(crate) fn MenuPicker(
                     r#type: "button",
                     class: "flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] text-label-2 hover:bg-selector transition-colors cursor-pointer border-none bg-transparent",
                     span { class: "{mono_class}", "{label}" }
-                    IconChevronDown { size: 12, class: "opacity-60 shrink-0" }
                 }
             },
             content: rsx! {
