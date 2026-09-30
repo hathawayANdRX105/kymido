@@ -324,46 +324,57 @@ pub fn send_message(
         st_start.start_run(now_ms());
         statusline.set(st_start);
         eprintln!("[web] send sid={} len={}", sid, text.len());
-        let (fail_tx, fail_rx) = tokio::sync::oneshot::channel::<()>();
+        // known-issue 1：失败分两类回传——订阅就绪门超时（daemon 冷启动 /
+        // 重启窗口，订阅还没活）与 prompt RPC 错误。两类都要在状态行
+        // 可见（last_error），不再只落 eprintln 让用户对着空 turn 猜。
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum SendFailure {
+            NotReady,
+            Prompt,
+        }
+        let (fail_tx, fail_rx) = tokio::sync::oneshot::channel::<SendFailure>();
         let run_id_prompt = run_id.clone();
         let title_for_daemon = persisted_title.clone();
         let (title_tx, title_rx) = tokio::sync::oneshot::channel::<bool>();
         let ready = (sig.readiness)();
         std::thread::spawn(move || {
-            if ready
-                .run_when_ready(Duration::from_secs(5), || {
-                    // 与侧栏创建线程并发时，在同一发送线程再次幂等确保会话存在。
-                    // 子会话必须携带 parent_id，避免竞态下退化为根会话。
-                    let ensured = if let Some(parent_id) = parent_id.as_deref() {
-                        d.create_session_with_parent(&sid_daemon, &derived_title, Some(parent_id))
-                    } else {
-                        d.create_session(&sid_daemon, &derived_title)
-                    };
-                    if let Err(e) = ensured {
-                        eprintln!("[web] session ensure failed: {e}");
+            // 15s 门：订阅重连退避最坏 1+2+4+5s 一轮（BACKOFF 封顶 5s），
+            // 门比最坏一轮留足余量，daemon 重启窗口内的首条消息不用手动预热。
+            match ready.run_when_ready(Duration::from_secs(15), || {
+                // 与侧栏创建线程并发时，在同一发送线程再次幂等确保会话存在。
+                // 子会话必须携带 parent_id，避免竞态下退化为根会话。
+                let ensured = if let Some(parent_id) = parent_id.as_deref() {
+                    d.create_session_with_parent(&sid_daemon, &derived_title, Some(parent_id))
+                } else {
+                    d.create_session(&sid_daemon, &derived_title)
+                };
+                if let Err(e) = ensured {
+                    eprintln!("[web] session ensure failed: {e}");
+                }
+                let _ = d.append_message(&sid_daemon, true, &text_daemon, &attachments_daemon, &[]);
+                if let Some(title) = title_for_daemon {
+                    let persisted = retry_update(|| d.update_session_title(&sid_daemon, &title));
+                    if let Err(e) = &persisted {
+                        eprintln!("[web] session title update failed after retries: {e}");
                     }
-                    let _ =
-                        d.append_message(&sid_daemon, true, &text_daemon, &attachments_daemon, &[]);
-                    if let Some(title) = title_for_daemon {
-                        let persisted =
-                            retry_update(|| d.update_session_title(&sid_daemon, &title));
-                        if let Err(e) = &persisted {
-                            eprintln!("[web] session title update failed after retries: {e}");
-                        }
-                        let _ = title_tx.send(persisted.is_ok());
-                    }
-                    d_prompt.worker_prompt_run(
-                        &sid_daemon,
-                        &run_id_prompt,
-                        &text_daemon,
-                        &attachments_daemon,
-                    )
-                })
-                .and_then(|result| result.map_err(|_| ()))
-                .is_err()
-            {
-                eprintln!("[web] worker subscription unavailable or prompt failed");
-                let _ = fail_tx.send(());
+                    let _ = title_tx.send(persisted.is_ok());
+                }
+                d_prompt.worker_prompt_run(
+                    &sid_daemon,
+                    &run_id_prompt,
+                    &text_daemon,
+                    &attachments_daemon,
+                )
+            }) {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    eprintln!("[web] worker prompt failed: {e}");
+                    let _ = fail_tx.send(SendFailure::Prompt);
+                }
+                Err(()) => {
+                    eprintln!("[web] worker subscription not ready in 15s, prompt dropped");
+                    let _ = fail_tx.send(SendFailure::NotReady);
+                }
             }
         });
         let sid_title = sid.clone();
@@ -375,26 +386,35 @@ pub fn send_message(
         let sid_fail = sid.clone();
         let run_id_fail = run_id.clone();
         spawn(async move {
-            if fail_rx.await.is_ok() {
-                {
-                    let mut map = space_sessions.write();
-                    for list in map.values_mut() {
-                        for s in list.iter_mut() {
-                            if s.id == sid_fail {
-                                s.status = SessionStatus::Idle;
+            match fail_rx.await {
+                Ok(kind) => {
+                    {
+                        let mut map = space_sessions.write();
+                        for list in map.values_mut() {
+                            for s in list.iter_mut() {
+                                if s.id == sid_fail {
+                                    s.status = SessionStatus::Idle;
+                                }
                             }
                         }
                     }
+                    if live_run_id() == run_id_fail {
+                        live_run_id.set(String::new());
+                        run_target_sid.set(String::new());
+                    }
+                    // 计时结算（5.6）：prompt 直接失败时事件路径不会有
+                    // TurnEnd，不结算耗时会一直按「在飞」实时增长
+                    let mut st = statusline();
+                    st.finish_run(now_ms());
+                    // known-issue 1：失败在状态行可见（此前只有 eprintln，
+                    // 用户看到 32ms 空 turn 却无从知晓原因）
+                    st.last_error = match kind {
+                        SendFailure::NotReady => "daemon 未就绪，消息未发送".into(),
+                        SendFailure::Prompt => "run 启动失败，请重发".into(),
+                    };
+                    statusline.set(st);
                 }
-                if live_run_id() == run_id_fail {
-                    live_run_id.set(String::new());
-                    run_target_sid.set(String::new());
-                }
-                // 计时结算（5.6）：prompt 直接失败时事件路径不会有
-                // TurnEnd，不结算耗时会一直按「在飞」实时增长
-                let mut st = statusline();
-                st.finish_run(now_ms());
-                statusline.set(st);
+                Err(_) => {}
             }
         });
     }
@@ -442,6 +462,11 @@ pub fn send_message(
             // 但不产生任何 assistant 回复——旧的 mock 模拟流已删除，这里
             // 绝不编造回复。只把会话从上文刚置的 Active 复位回 Idle，
             // 否则 composer 会永久卡在「运行中」（停止钮亮、输入被门禁）。
+            // known-issue 1：无 daemon 时消息只有本地回显、不产生 run——
+            // 状态行给出可见提示（此前静默丢弃）。
+            let mut st = statusline();
+            st.last_error = "daemon 不可用，消息未发送".into();
+            statusline.set(st);
             let mut map = space_sessions.read().clone();
             for list in map.values_mut() {
                 for s in list.iter_mut() {

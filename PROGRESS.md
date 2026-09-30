@@ -87,7 +87,7 @@ session telemetry+OTel（~2–3 天）/ token-meter（~1 天，C8 裁定不做�
 
 以下路线修改面独立，可分别在 `.wt/<branch>` 推进：
 
-1. **Web 稳定性**：修复 daemon 重启后首条消息空 turn，以及首条消息标题**跨页面刷新**的重试缺口（会话内重试已有，见 known-issue 2）。两项集中在 daemon/web 边界，优先消除当前使用阻塞。
+1. ~~**Web 稳定性**：修复 daemon 重启后首条消息空 turn，以及首条消息标题**跨页面刷新**的重试缺口（会话内重试已有，见 known-issue 2）~~ **已落地（2026-09-30 P0）**：known-issue 1 三处——Disconnected 后端不再是单向闸（Disconnected 期间 3s 重探，探活成功切回 Daemon 并补拉项目/会话列表；订阅管线一次性守卫保证不多建）、发送失败在状态行可见（`last_error`：daemon 未就绪 / run 启动失败 / daemon 不可用 三类文案）、就绪门 5s→15s（覆盖订阅重连退避最坏一轮 12s）；known-issue 2 两处——占位判定收敛为 `web_state::is_placeholder_title`（`会话 <纯数字>`，兼容旧全量 ts 变体）、挂载/重探补拉后对占位会话按首条用户消息重新派生并经 daemon 写回（上限 5 会话、消息为空保持占位）。ui-kit 未动。遗留：daemon 侧 ping 被全局 worker 锁排队（#569，569 分支已有修复未合）与 liveview 无自动重连（#569 同分支）。
 2. **Leptos 资源基线**：保持现有 Dioxus 路径不动，在独立应用中完成空载、单会话和流式消息场景的 CPU/内存对照。数据不足前不启动迁移。
 3. **代码结构治理**：扩展 `.githooks/spec/quality/` 的结构规则，优先覆盖超大文件、重复实现、模块聚合和无效包装。Gate 只消费规则，不重新承载项目策略。
 4. **Agent 能力缺口**：本批 Q1/Q2/Q7/Q8 已合（见上表）。下一批从队列里独立实现 MCP tool-level filter、session resume checkpoint flush、Q3 telemetry，或 jobs/terminal 的 pwsh 后端。每条路线限制在一个能力域。
@@ -95,12 +95,12 @@ session telemetry+OTel（~2–3 天）/ token-meter（~1 天，C8 裁定不做�
 
 整合顺序：先合 Web 稳定性；Leptos 只产出基准结论；结构治理和 Agent 能力可并行，避免同时修改共享 composition/daemon 入口。
 
-## 未修 known-issues（实测确认，未排期）
+## 未修 known-issues（实测确认）
 
-| # | 现象 | 根因位置 | 规避 / 前置 |
+| # | 现象 | 根因位置 | 状态 |
 |---|---|---|---|
-| 1 | 冷启动 daemon **首个 prompt 静默丢 run**：32ms 空 turn（`↑0 ↓0`）、UI 无错误提示，第二条起正常 | daemon worker 懒拉起与首 prompt 竞态 | daemon 重启后先发一条预热消息 |
-| 2 | 首条消息标题更新失败：会话内重试已落地（#452 `pending_titles`：落库失败后后续发送继续重试同一标题；本地标题已改则不覆盖），剩余缺口是**跨页面刷新无重试**（`pending_titles` 仅内存态，刷新后占位 `会话 <ts>` 重新派生） | page-workspace `on_send` + `pending_titles` | 占位加可识别前缀 + 刷新后从 daemon 侧补重试 |
+| 1 | 冷启动 daemon 首个 prompt 静默丢 run（Disconnected 落锁 / 就绪门超时 / prompt 错误三类静默丢弃） | page-workspace `probe_backend` 单向闸 + 就绪门 + `last_error` 缺位 | **已修（2026-09-30 P0）**：重探循环 + 状态行可见失败 + 15s 门，见路线 1 |
+| 2 | 首条消息标题跨页面刷新无重试（`pending_titles` 仅内存态，占位 `会话 <ts>` 不再派生） | page-workspace `on_send` + `pending_titles` | **已修（2026-09-30 P0）**：`is_placeholder_title` 判定 + 挂载/补拉后补派生写回，见路线 1 |
 
 ## 工作约定
 

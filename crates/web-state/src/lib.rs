@@ -48,3 +48,13 @@ pub fn title_from_first_message(text: &str) -> String {
         stripped.to_string()
     }
 }
+
+/// 会话占位标题判定（known-issue 2 的刷新修复用）：`会话 <纯数字>` 是
+/// 侧栏新建瞬间的时间戳占位（`create_session_in` 的 `会话 {ts % 1e6}`，
+/// 旧数据里有全量 ts 变体）。首条消息标题落库失败后会话长期停在占位——
+/// 页面挂载时据此识别并补派生。用户把标题改成「会话 xxx」字样但尾段
+/// 非纯数字时判 false，不触发误修。
+pub fn is_placeholder_title(title: &str) -> bool {
+    let rest = title.strip_prefix("会话 ").unwrap_or("");
+    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+}
