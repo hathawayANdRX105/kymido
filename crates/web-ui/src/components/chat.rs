@@ -448,13 +448,8 @@ pub fn Chat(
                                     on_select: move |_| on_toggle_thinking.call(()),
                                 }
                             }
-                            // aui ComposerActions 右列：token 计数（aui mono 11px）+ 发送
-                            div { class: "flex items-center gap-2.5",
-                                span { class: "text-[11px] font-mono tracking-tight text-label-3",
-                                    "↑{statusline.tokens_in} ↓{statusline.tokens_out}"
-                                }
                                 // aui ComposerSend 三态：idle（输入空置灰）/ ready（可发）/
-                                // streaming（停止钮，ui-kit Spinner）
+                                // streaming（停止钮，ui-kit Spinner）；token 计数只在卡下状态行
                                 if is_streaming {
                                     button {
                                         r#type: "button",
@@ -488,8 +483,6 @@ pub fn Chat(
                                         IconArrowUp { size: 16 }
                                     }
                                 }
-                            }
-                        }
                     }
                     // 状态行（dsh StatsLine：12/20 tertiary 居中）
                     div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
@@ -498,5 +491,6 @@ pub fn Chat(
                 }
             }
         }
+    }
     }
 }
