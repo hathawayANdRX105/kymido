@@ -1,5 +1,6 @@
 //! title_from_first_message 的纯函数测试：截词 / 去标记 / 占位 / 字符计数。
 
+use web_state::is_placeholder_title;
 use web_state::title_from_first_message;
 
 #[test]
@@ -84,4 +85,34 @@ fn smoke_real_inputs_from_task_text() {
     );
     assert_eq!(title.chars().count(), 41);
     assert!(title.ends_with('…'));
+}
+
+/// known-issue 2 的刷新修复依赖占位判定：误判会把用户改过的标题修回
+/// 占位；漏判会让落库失败的占位永远停在侧栏。
+#[test]
+fn timestamp_placeholders_are_detected() {
+    // 现行生成器：`会话 {ts % 1_000_000}`（create_session_in）
+    assert!(is_placeholder_title("会话 730745"));
+    // 旧数据里的全量 ts 变体（实测存在于生产库）
+    assert!(is_placeholder_title("会话 1790621198391"));
+}
+
+#[test]
+fn user_titles_are_not_placeholders() {
+    // 用户把标题改成「会话 xxx」字样但尾段非纯数字：不触发误修
+    assert!(!is_placeholder_title("会话 abc"));
+    assert!(!is_placeholder_title("会话 123abc"));
+    assert!(!is_placeholder_title("会话 模式讨论"));
+    // 无数字尾段 / 非占位前缀
+    assert!(!is_placeholder_title("会话"));
+    assert!(!is_placeholder_title("新会话"));
+    assert!(!is_placeholder_title(""));
+    assert!(!is_placeholder_title("我的会话 42"));
+}
+
+#[test]
+fn derived_title_from_plain_text_is_not_a_placeholder() {
+    // 首条消息派生出的普通标题不会再被下一轮修复误判为占位
+    let derived = title_from_first_message("帮我把这段 Rust 代码重构一下");
+    assert!(!is_placeholder_title(&derived));
 }

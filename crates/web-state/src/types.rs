@@ -148,6 +148,10 @@ pub struct StatusLine {
     /// dsh 对位实现：`assistant-timing.ts` 的 turn 计时。
     #[serde(default)]
     pub elapsed_ms: u64,
+    /// 最近一次发送失败的可见提示（known-issue 1：失败不再只落 eprintln）。
+    /// 空串 = 无错误（默认态）；发送成功开始新 run / run 正常收尾时清空。
+    #[serde(default)]
+    pub last_error: String,
 }
 
 impl Default for StatusLine {
@@ -175,13 +179,16 @@ impl StatusLine {
             context_max: DEFAULT_CONTEXT_MAX,
             run_started_at_ms: None,
             elapsed_ms: 0,
+            last_error: String::new(),
         }
     }
 
-    /// run 开始：记开始时刻并清掉上一轮的总耗时。
+    /// run 开始：记开始时刻并清掉上一轮的总耗时。run 真正进入执行，
+    /// 上一条发送失败提示也随本轮清空。
     pub fn start_run(&mut self, now_ms: u64) {
         self.run_started_at_ms = Some(now_ms);
         self.elapsed_ms = 0;
+        self.last_error.clear();
     }
 
     /// run 结束：把开始时刻结算成总耗时。无在飞 run（重复结算 / 中断后
