@@ -1353,7 +1353,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3341,7 +3341,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3937,7 +3937,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4412,15 +4412,18 @@ checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
 
 [[package]]
 name = "ui-kit"
-version = "0.1.0"
-source = "git+ssh://git@github.com/hathawayANdRX105/ui-kit.git#cc9c50362a52551c88ab581e42a4e19e629d77fb"
+version = "0.12.15"
+source = "git+ssh://git@github.com/hathawayANdRX105/ui-kit.git#4cfd78e8e3b604fd42d2ca8dcded087e7eeb6cea"
 dependencies = [
  "dioxus",
  "gloo-net",
  "gloo-timers",
+ "js-sys",
+ "pulldown-cmark",
  "serde",
  "serde_json",
  "tw_merge",
+ "wasm-bindgen",
  "web-sys",
 ]
 
@@ -4896,7 +4899,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

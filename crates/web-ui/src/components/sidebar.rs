@@ -8,7 +8,7 @@ use web_state::types::{Session, SessionStatus, WorkspaceSpace};
 use crate::shared as sh;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    IconChartBar, IconFolder, IconGear, IconPanelLeft, IconPlus, IconSearch, IconTrash,
+    IconChartBar, IconFolder, IconPanelLeft, IconPlus, IconSearch, IconSettings, IconTrash,
 };
 
 use super::collapsed_rail::CollapsedRail;
@@ -205,14 +205,14 @@ pub fn Sidebar(
                 }
                 // 底部：数据统计 / 设置
                 div { class: "px-3 pb-2 flex flex-col gap-0.5",
-                    div { class: "h-[42px] px-2.5 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors",
+                    div { class: "h-[42px] px-2.5 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors {ui_kit::icons::ANIM_SCOPE}",
                         onclick: move |_| on_open_stats.call(()),
                         IconChartBar { size: 16, class: "text-label-3" }
                         span { {sh::TTL_STATS} }
                     }
-                    div { class: "h-[42px] px-2.5 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors",
+                    div { class: "h-[42px] px-2.5 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors {ui_kit::icons::ANIM_SCOPE}",
                         onclick: move |_| on_open_settings.call(()),
-                        IconGear { size: 16, class: "text-label-3" }
+                        IconSettings { size: 16, class: "text-label-3" }
                         span { {sh::LBL_SETTINGS} }
                     }
                 }

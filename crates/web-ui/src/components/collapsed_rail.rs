@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use web_state::types::{Session, WorkspaceSpace};
 
 use crate::shared as sh;
-use ui_kit::icons::{IconChartBar, IconGear, IconPanelLeft, IconPlus};
+use ui_kit::icons::{IconChartBar, IconPanelLeft, IconPlus, IconSettings};
 
 use std::collections::HashMap;
 
@@ -95,7 +95,7 @@ pub(crate) fn CollapsedRail(
                     class: "w-9 h-9 flex items-center justify-center rounded-full text-label-3 hover:bg-ihover hover:text-label-2 transition-colors cursor-pointer bg-transparent",
                     title: sh::LBL_SETTINGS,
                     onclick: move |_| on_open_settings.call(()),
-                    IconGear { size: 16 }
+                    IconSettings { size: 16 }
                 }
             }
         }

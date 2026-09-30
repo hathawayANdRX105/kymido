@@ -5,7 +5,7 @@
 use crate::components::ui::Modal;
 use dioxus::prelude::*;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
-use ui_kit::icons::{IconGear, IconTerminal, IconTrash, IconX};
+use ui_kit::icons::{IconSettings, IconTerminal, IconTrash, IconX};
 use web_client::llm::{LlmRuntimeConfig, McpServerForm};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,14 +54,14 @@ pub fn SettingsModal(
                 nav { class: "w-[188px] shrink-0 bg-sidebar p-3 flex flex-col gap-1",
                     button {
                         r#type: "button",
-                        class: "{nav_cell(section() == Section::Models)}",
+                        class: "{nav_cell(section() == Section::Models)} {ui_kit::icons::ANIM_SCOPE}",
                         onclick: move |_| section.set(Section::Models),
-                        IconGear { size: 16, class: "text-label-3" }
+                        IconSettings { size: 16, class: "text-label-3" }
                         span { "模型与渠道" }
                     }
                     button {
                         r#type: "button",
-                        class: "{nav_cell(section() == Section::Mcp)}",
+                        class: "{nav_cell(section() == Section::Mcp)} {ui_kit::icons::ANIM_SCOPE}",
                         onclick: move |_| section.set(Section::Mcp),
                         IconTerminal { size: 16, class: "text-label-3" }
                         span { "MCP 服务器" }
