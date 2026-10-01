@@ -6,7 +6,7 @@ use web_state::types::{Session, SessionStatus};
 use crate::shared as sh;
 use ui_kit::icons::IconTrash;
 
-use super::sidebar::depth_indent_class;
+use super::dual_sidebar::depth_indent_class;
 
 #[component]
 pub(crate) fn SessionRow(

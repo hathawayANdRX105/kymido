@@ -30,7 +30,6 @@ pub struct WorkspaceSignals {
     pub statusline: Signal<StatusLine>,
     pub pending_question: Signal<Option<web_client::QuestionItem>>,
     pub show_quick_switcher: Signal<bool>,
-    pub show_settings: Signal<bool>,
     pub show_tasks: Signal<bool>,
     pub view: Signal<super::super::views::workspace::View>,
     pub backend: Signal<DataBackend>,

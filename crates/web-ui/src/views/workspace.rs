@@ -8,10 +8,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::components::chat::Chat;
-use crate::components::sidebar::Sidebar;
+use crate::components::dual_sidebar::DualSidebar;
 use crate::components::taskpanel::TaskPanel;
 use crate::components::ui::Modal;
 use crate::layouts::app_frame::AppFrame;
+use crate::shared as sh;
 use crate::state::actions::{
     WorkspaceSignals, abort_run, answer_question, change_model, create_session, delete_session,
     delete_space, select_space, send_message, set_thinking,
@@ -22,9 +23,11 @@ use crate::state::session::{
     active_session_running, apply_run_statuses, merge_run_statuses, now_ms, session_exists_in,
 };
 use crate::state::subscriptions::{question_event_loop, worker_event_loop};
-use crate::views::config::SettingsModal;
+use crate::views::config::{SettingsPage, SettingsSection};
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
+use ui_kit::button::{Button, ButtonSize, ButtonVariant};
+use ui_kit::icons::IconPanelLeft;
 use web_client::QuestionAnswer;
 use web_client::QuestionItem;
 use web_client::llm::LlmRuntimeConfig;
@@ -37,8 +40,12 @@ use web_state::{is_placeholder_title, title_from_first_message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
+    /// 会话页（chat 对话）
     Chat,
+    /// 统计页（时间范围走 stats_range 信号）
     Stats,
+    /// 设置页（分区走 settings_section 信号；弹窗形态已退役）
+    Settings,
 }
 const RUN_TASK_LIMIT: u32 = 50;
 
@@ -148,7 +155,9 @@ pub fn Workspace(
     });
     let mut view = use_signal(|| View::Chat);
     let mut show_quick_switcher = use_signal(|| false);
-    let mut show_settings = use_signal(|| false);
+    // 统计/设置二级菜单选项写入的页内定位信号（侧栏菜单与页面胶囊单一事实源）
+    let stats_range = use_signal(|| String::from("24h"));
+    let settings_section = use_signal(|| SettingsSection::Models);
     let mut show_tasks = use_signal(|| false);
     let mut search_query = use_signal(String::new);
 
@@ -680,55 +689,10 @@ pub fn Workspace(
         });
     });
 
-    // 侧栏宽度/折叠：全局信号，切视图后仍保持
+    // 双栏侧栏折叠态：全局信号，切视图后仍保持。宽度固定为 kit 双栏几何
+    // （展开 270 / 折叠 80，见 app_frame grid_cols），拖拽调宽已退役。
     let mut sidebar_collapsed = GlobalSignal::<bool>::new(|| false).signal();
-    let mut sidebar_width = GlobalSignal::<usize>::new(|| 280).signal();
-    let mut dragging = use_signal(|| false);
-    let mut drag_start_x = use_signal(|| 0i32);
-    let mut drag_start_width = use_signal(|| 280usize);
-    let on_resize_start = move |x: i32| {
-        dragging.set(true);
-        drag_start_x.set(x);
-        drag_start_width.set(sidebar_width());
-    };
-    let mut on_resize_move = move |e: MouseEvent| {
-        // 自愈：拖拽中鼠标键已全部松开（mouseup 在窗口外被吞）→ 直接结束
-        if e.held_buttons().is_empty() {
-            dragging.set(false);
-            return;
-        }
-        if dragging() {
-            let raw =
-                drag_start_width() as i32 + (e.client_coordinates().x as i32 - drag_start_x());
-            sidebar_collapsed.set(raw < 100);
-            sidebar_width.set((raw.max(100) as usize).min(420));
-        }
-    };
     let on_toggle_sidebar = move |_| sidebar_collapsed.set(!sidebar_collapsed());
-    let on_expand_sidebar = move |_| {
-        sidebar_width.set(280);
-        sidebar_collapsed.set(false);
-    };
-    let mut preset_dragging = use_signal(|| false);
-    let mut on_preset_move = move |e: MouseEvent| {
-        if e.held_buttons().is_empty() {
-            preset_dragging.set(false);
-            return;
-        }
-        if preset_dragging() {
-            let target = 56_i32 + e.client_coordinates().x as i32;
-            sidebar_width.set(target.clamp(264, 420) as usize);
-            sidebar_collapsed.set(false);
-        }
-    };
-    let on_root_mousemove = move |e: MouseEvent| {
-        on_resize_move(e.clone());
-        on_preset_move(e);
-    };
-    let on_root_mouseup = move |_e: MouseEvent| {
-        dragging.set(false);
-        preset_dragging.set(false);
-    };
 
     let active_space = spaces()
         .iter()
@@ -782,7 +746,6 @@ pub fn Workspace(
         statusline,
         pending_question,
         show_quick_switcher,
-        show_settings,
         show_tasks,
         view,
         backend,
@@ -838,12 +801,6 @@ pub fn Workspace(
 
     // ── 渲染 ────────────────────────────────────────────────────────────────
 
-    let header_title = if view() == View::Stats {
-        "数据统计".to_string()
-    } else {
-        active_title
-    };
-
     // WP-C：侧栏会话列表喂入推断出的状态（在飞 Active 优先，其次 run 记录
     // 推断的缓存状态，最后会话自身状态）。Mock 无缓存，合并后与原样一致。
     let sidebar_sessions = merge_run_statuses(space_sessions.read().clone(), &run_status_cache());
@@ -852,9 +809,6 @@ pub fn Workspace(
         // 三列框架壳在 layouts/app_frame.rs：这里只喂侧栏、中栏头与正文。
         AppFrame {
             collapsed: sidebar_collapsed(),
-            width: sidebar_width(),
-            on_resize: Callback::new(on_root_mousemove),
-            on_resize_end: Callback::new(on_root_mouseup),
             sidebar: rsx! {
             // 侧栏点击也视为「面板外」→ 关闭任务看板（ainnotation 波3 #5）。
             // display:contents 不生成盒子，aside 仍是 AppFrame grid 直属
@@ -865,7 +819,7 @@ pub fn Workspace(
                         show_tasks.set(false);
                     }
                 },
-                Sidebar {
+                DualSidebar {
                     spaces: spaces(),
                     space_sessions: sidebar_sessions,
                     active_id: active_session_id(),
@@ -877,18 +831,11 @@ pub fn Workspace(
                     on_create: on_create_session,
                     on_delete_session: on_delete_session,
                     on_delete_space: on_delete_space,
-                    collapsed: sidebar_collapsed(),
-                    on_toggle: on_toggle_sidebar,
-                    on_expand: on_expand_sidebar,
-                    width: sidebar_width(),
-                    on_resize_start: on_resize_start,
-                    on_preset_start: move |x: i32| {
-                        preset_dragging.set(true);
-                        let _ = x;
-                    },
                     on_open_search: move |_| show_quick_switcher.set(true),
-                    on_open_stats: move |_| view.set(View::Stats),
-                    on_open_settings: move |_| show_settings.set(true),
+                    view: view,
+                    stats_range: stats_range,
+                    settings_section: settings_section,
+                    expanded: !sidebar_collapsed(),
                 }
             }
             },
@@ -903,13 +850,27 @@ pub fn Workspace(
                             show_tasks.set(false);
                         }
                     },
+                    // 最左折叠钮（取代旧侧栏 logo 行折叠钮）
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::IconSm,
+                        title: if sidebar_collapsed() {
+                            sh::BTN_EXPAND_SIDEBAR
+                        } else {
+                            sh::BTN_COLLAPSE_SIDEBAR
+                        },
+                        onclick: on_toggle_sidebar,
+                        IconPanelLeft { size: 16 }
+                    }
                     if view() == View::Stats {
                         span { class: "text-[14px] leading-5 font-medium text-label", "数据统计" }
+                    } else if view() == View::Settings {
+                        span { class: "text-[14px] leading-5 font-medium text-label", "设置" }
                     } else {
                         span { class: "text-[14px] leading-5 font-medium text-label", "{active_space.name}" }
                         if !active_space.branch.is_empty() {
                             span { class: "text-caption", "/" }
-                            span { class: "text-[14px] leading-5 text-label-2 truncate max-w-[360px]", "{header_title}" }
+                            span { class: "text-[14px] leading-5 text-label-2 truncate max-w-[360px]", "{active_title}" }
                             span { class: "font-mono text-[11px] leading-4 px-2 py-0.5 rounded-full bg-chip-brand text-brand-300 border border-b1 shrink-0",
                                 "{active_space.branch}"
                             }
@@ -927,7 +888,14 @@ pub fn Workspace(
             // 中栏正文：统计页 / 会话页
             children: rsx! {
                 match view() {
-                    View::Stats => rsx! { StatsView {} },
+                    View::Stats => rsx! { StatsView { range: stats_range } },
+                    View::Settings => rsx! {
+                        SettingsPage {
+                            section: settings_section,
+                            config: config.clone(),
+                            on_update_config: on_update_config,
+                        }
+                    },
                     View::Chat => rsx! {
                         Chat {
                             messages: current_messages,
@@ -1021,15 +989,6 @@ pub fn Workspace(
                             }
                         }
                     }
-                }
-            }
-
-            // 设置弹窗
-            if show_settings() {
-                SettingsModal {
-                    config: config.clone(),
-                    on_update_config: on_update_config,
-                    on_close: move |_| show_settings.set(false),
                 }
             }
             },

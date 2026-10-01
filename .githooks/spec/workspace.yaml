@@ -1,41 +1,51 @@
-# 工作区页契约：dsh AppFrame 三列布局（无顶栏）。
+# 工作区页契约：dsh AppFrame 两列布局（双栏侧栏 270/80 + 中栏，无顶栏）。
 # find 关键字全部取自 kymido rsx 源码中的稳定 class/字面量，由
 # bin/web/tests/ui_contract.rs 的「源码锚点抽查」测试自动核对。
 name: workspace
 target: crates/web-ui/src/views/workspace.rs
-description: 工作区页（Workspace）——三列 grid 根容器、侧栏宽度约束、面包屑头（无顶栏）。根容器壳在 layouts/app_frame.rs。
+description: 工作区页（Workspace）——两列 grid 根容器（双栏侧栏 270/折叠 80 + 中栏）、中栏面包屑头（含最左折叠钮，无顶栏）。侧栏为 ui-kit DualPaneNav 双栏（会话/设置/统计）。根容器壳在 layouts/app_frame.rs。
 anchors:
   - key: root-grid
     file: crates/web-ui/src/layouts/app_frame.rs
     find: 'grid h-screen w-screen bg-base overflow-hidden relative select-none grid-rows-[minmax(0,1fr)]'
-    expect: '根容器为占满全屏的 grid，bg-base（#151517）暗底，overflow-hidden 防滚动穿透；grid-rows-[minmax(0,1fr)] 锁行高为视口（内容超高时各列内部滚动，不再撑破 h-screen，批注 13）。'
-    source: 'kymido: crates/web-ui/src/layouts/app_frame.rs:33（AppFrame 壳）；dsh: packages/client/ui-layout/src/client/AppFrame.tsx:87（AppFrame 根框架）'
+    expect: '根容器为占满全屏的 grid，bg-base（#151517）暗底，overflow-hidden 防滚动穿透；grid-rows-[minmax(0,1fr)] 锁行高为视口（内容超高时各列内部滚动，不再撑破 h-screen）。'
+    source: 'kymido: crates/web-ui/src/layouts/app_frame.rs（AppFrame 壳）；dsh: AppFrame 根框架'
   - key: grid-columns
     file: crates/web-ui/src/layouts/app_frame.rs
     find: 'minmax(0,1fr)'
     expect: '列模板为「侧栏宽 + minmax(0,1fr) 中栏」两列，中栏可收缩到 0，无顶栏行。'
-    source: 'kymido: crates/web-ui/src/layouts/app_frame.rs:13（grid_cols）；dsh: AppFrame 中栏 flex/grid 自适应列'
-  - key: sidebar-default-280
-    find: 'GlobalSignal::<usize>::new(|| 280)'
-    expect: '侧栏默认宽 280px（全局信号，切视图保持）。'
-    source: 'kymido: crates/web-ui/src/views/workspace.rs:845；dsh: SidebarRoot 接收 width prop，280 为 kymido 默认约束'
-  - key: sidebar-collapse-56
+    source: 'kymido: crates/web-ui/src/layouts/app_frame.rs（grid_cols）'
+  - key: dual-pane-expanded-270
     file: crates/web-ui/src/layouts/app_frame.rs
-    find: '56px minmax(0,1fr)'
-    expect: '折叠时列模板切换为 56px rail + 中栏。'
-    source: 'kymido: crates/web-ui/src/layouts/app_frame.rs:11（grid_cols）；dsh: SidebarRoot.module.css:25（56px rail geometry）'
-  - key: sidebar-width-clamp
-    find: 'clamp(264, 420)'
-    expect: '拖拽调宽夹取在 264–420px 区间（min 264 / max 420）。'
-    source: 'kymido: crates/web-ui/src/views/workspace.rs:880；dsh: 宽度由外部传入，264/420 为 kymido 约束'
+    find: '270px minmax(0,1fr)'
+    expect: '展开时列模板 270px（kit DualPaneNav 展开几何）+ 中栏。'
+    source: 'kymido: app_frame.rs（grid_cols，对齐 ui-kit DualPaneNav 展开宽 270）'
+  - key: dual-pane-collapsed-80
+    file: crates/web-ui/src/layouts/app_frame.rs
+    find: '80px minmax(0,1fr)'
+    expect: '折叠时列模板 80px（kit 双栏折叠 rail 几何）+ 中栏；宽度由 kit 自管，拖拽调宽已退役。'
+    source: 'kymido: app_frame.rs（grid_cols，对齐 ui-kit DualPaneNav 折叠宽 80）'
+  - key: dual-pane-sidebar
+    find: 'DualSidebar {'
+    expect: '左侧列装 ui-kit 双栏侧栏（DualSidebar → DualPaneNav，一级 会话/设置/统计 + 二级菜单映射中栏页）。'
+    source: 'kymido: workspace.rs（sidebar 槽）+ components/dual_sidebar.rs（DualSidebar）'
+  - key: sidebar-collapse-signal
+    find: 'GlobalSignal::<bool>::new(|| false)'
+    expect: '双栏折叠态为全局信号（切视图保持）；展开 270 / 折叠 80 由该信号驱动。'
+    source: 'kymido: workspace.rs（sidebar_collapsed，取代旧宽度/折叠双信号）'
+  - key: collapse-toggle
+    find: 'IconPanelLeft { size: 16 }'
+    expect: '中栏面包屑头最左放折叠钮（Ghost IconSm + IconPanelLeft），点击切 sidebar_collapsed；取代旧侧栏 logo 行折叠钮。'
+    source: 'kymido: workspace.rs（header 槽折叠钮，BTN_EXPAND/COLLAPSE_SIDEBAR 标题）'
   - key: breadcrumb-header
     find: 'min-h-[44px] pl-7 pr-5 pt-3 pb-2 border-b border-b1'
-    expect: '中栏顶部是 44px 面包屑头（项目名 / 会话名 / 分支 chip），非独立顶栏。'
-    source: 'kymido: crates/web-ui/src/views/workspace.rs:1368；dsh: 无 topbar，标题区随中栏'
+    expect: '中栏顶部是 44px 面包屑头（折叠钮 + 项目名/会话名/分支 chip 或 统计/设置 页标题），非独立顶栏。'
+    source: 'kymido: workspace.rs（header 槽）'
   - key: branch-chip
     find: 'bg-chip-brand text-brand-300 border border-b1'
     expect: '分支以 mono chip 呈现（chip-brand 底 + brand-300 字 + 1px 边）。'
-    source: 'kymido: crates/web-ui/src/views/workspace.rs:1376；dsh: 状态 chip 900 底 + 400 字惯例'
+    source: 'kymido: workspace.rs（会话页面包屑分支 chip）'
 notes: |
-  数据接线（mock store、流式转译层）不在本契约内——并行分支可能改
-  views/workspace.rs 的逻辑段，锚点只锁布局 class 与静态结构。
+  数据接线（daemon 探测、流式转译层）不在本契约内——锚点只锁布局 class
+  与静态结构。侧栏拖拽调宽 / 280 默认宽 / 56px 折叠 rail / 264–420 夹取
+  随单栏侧栏退役，宽度固定为 kit 双栏几何（270/80）。

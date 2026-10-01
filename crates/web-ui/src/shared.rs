@@ -67,14 +67,20 @@ pub const MSG_NO_IMAGE_INPUT: &str = "当前模型不支持图片输入";
 pub const MSG_SEARCH_SESSION: &str = "搜索会话 (⌘K)";
 pub const MSG_SEARCH_PLACEHOLDER: &str = "搜索会话名称或编号...";
 pub const MSG_INPUT_PLACEHOLDER: &str = "输入指令，Enter 发送，Shift+Enter 换行...";
-pub const MSG_SIDEBAR_WIDTH_PRESET: &str = "拖拽设定默认宽度";
 pub const MSG_TOOL_FAILED: &str = "失败";
 
-// ---- OPT_ : 下拉/选项文案（思考强度四档）----
+// ---- OPT_ : 下拉/选项文案（思考强度四档 + 统计时间范围档）----
 pub const OPT_THINKING_OFF: &str = "关闭";
 pub const OPT_THINKING_LIGHT: &str = "轻量";
 pub const OPT_THINKING_STANDARD: &str = "标准";
 pub const OPT_THINKING_DEEP: &str = "深度";
+/// 双栏侧栏「统计」二级菜单的 6 档时间范围文案（id = daemon 范围 token）。
+pub const OPT_STATS_RANGE_1H: &str = "最近 1 小时";
+pub const OPT_STATS_RANGE_24H: &str = "最近 24 小时";
+pub const OPT_STATS_RANGE_7D: &str = "最近 7 天";
+pub const OPT_STATS_RANGE_30D: &str = "最近 30 天";
+pub const OPT_STATS_RANGE_90D: &str = "最近 90 天";
+pub const OPT_STATS_RANGE_ALL: &str = "全部";
 
 // ---- STATUS_ : 状态徽标（任务看板 / 统计）----
 pub const STATUS_ALL: &str = "全部";
