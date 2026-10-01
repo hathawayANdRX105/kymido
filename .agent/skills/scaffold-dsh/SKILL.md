@@ -166,7 +166,7 @@ systemd-run --user --scope -p CPUQuota=70% -- cargo check -p <downstream_crate> 
 - ❌ 占位不带 issue 号（违反 `rust_todo_needs_issue` gate 检查）
 - ❌ 占位不带参考出处（子代理无法定位参考代码，会自由发挥）
 - ❌ 测试放 `src/` 的 `#[cfg(test)]`（项目约定：测试放同层 `tests/`；简单单测也在 PR CI 上跑，不在本地）
-- ❌ 本地裸跑 `cargo test`（必须套 `cpulimit -l 70 -i --`；重型/集成测试推给 CI 动态选包跑，本地只 `cargo check -p <crate>`）
+- ❌ 本地裸跑 `cargo test`（必须套 cgroup CPU 配额；重型/集成测试推给 CI 动态选包跑，本地只 `cargo check -p <crate>`）
 - ❌ 跨域 crate 直接 import（违反依赖铁律，跨域只能走 `crates/contract` DTO）
 
 > 说明：cargo 命令必须带 `-p` 指定目标 crate，禁止无 `-p` 的全仓 check。
