@@ -30,10 +30,10 @@ anchors:
     expect: '底部提示行「选择会话快速切换 + ESC 退出」，kbd 样式键帽。'
     source: 'kymido: crates/web-ui/src/views/workspace.rs:533-538'
   - key: cmdk-search
-    file: crates/web-ui/src/components/sidebar.rs
+    file: crates/web-ui/src/components/dual_sidebar.rs
     find: 'nav-search-bar'
     expect: '入口为侧栏区头搜索钮（nav-search-bar hook），⌘K/Ctrl+K 全局触发。'
-    source: 'kymido: crates/web-ui/src/components/sidebar.rs:104 + bin/web/src/app.rs keydown'
+    source: 'kymido: crates/web-ui/src/components/dual_sidebar.rs:57（nav-search-bar）+ bin/web/src/app.rs keydown'
 notes: |
   过滤逻辑（search_query contains 匹配）不在本契约内；锚点只锁面板
   几何与行结构。

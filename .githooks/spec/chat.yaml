@@ -31,12 +31,12 @@ anchors:
     source: 'kymido: crates/web-ui/src/components/message.rs:161（ProcessBlock，4146126 自 chat.rs 拆出）；dsh: DisclosureRow.module.css:15（头高 24px）'
   - key: process-title
     file: crates/web-ui/src/components/message.rs
-    find: '"Work Process"'
-    expect: '折叠块标题为英文「Work Process」（ainotation #4-7，原「工作过程」改为英文名）。'
-    source: 'kymido: crates/web-ui/src/components/message.rs:166；ainotation #4 第 7 条'
+    find: 'sh::LBL_WORK_PROGRESSING'
+    expect: '折叠块头行：进行中动词形 Progressing（shimmer-text）/ 结束后名词形 Progress（sh::LBL_WORK_PROGRESSING / LBL_WORK_PROGRESS，ainnotation 波4 #1；旧「Work Process」字面量已删）。'
+    source: 'kymido: message.rs（ProcessBlock 头行）+ shared.rs（LBL_WORK_PROGRESSING/LBL_WORK_PROGRESS）；ainnotation 波4 #1'
   - key: tool-row-header
     file: crates/web-ui/src/components/message.rs
-    find: 'h-6 flex items-center gap-2 cursor-pointer select-none w-fit'
+    find: 'h-6 flex items-center gap-2 cursor-pointer select-none w-full'
     expect: '单条工具调用行（ToolLine）头高 24px，与工作过程行同构；头行 = kind 图标 + 大写 kind 文本 + 「·」+ 命令标题，无 chevron（ainotation #2/#4）。'
     source: 'kymido: crates/web-ui/src/components/message.rs:209（ToolLine，4146126 自 chat.rs 拆出）；dsh: DisclosureRow.module.css:15（24px 头）'
   - key: tool-chip
@@ -75,16 +75,16 @@ anchors:
     expect: 'StatsLine 状态行 12/20 tertiary 居中：model · ↑in ↓out · $cost · context %；单行 12px 居中，置于输入卡下方一行（ainnotation 波3 #4 由卡上方移到下方）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs:151；dsh: StatsLine.module.css:8-16（center 12px/20px tertiary）'
   - key: composer-card
-    find: 'rounded-[22px] border border-b1 bg-input-bg shadow-lv2'
-    expect: 'composer 输入卡 r22 胶囊（max-w 780 随消息列），focus-within 提亮边框。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:159；dsh: InputBar.module.css:56,85（border-radius: 22px）'
+    find: 'rounded-[24px] border border-b1 bg-input-bg shadow-lv2'
+    expect: 'composer 输入卡 r24 胶囊（max-w 780 随消息列），focus-within 提亮边框。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 输入卡段；dsh: InputBar.module.css（胶囊卡）'
   - key: send-button
-    find: 'w-[34px] h-[34px] rounded-full bg-brand'
-    expect: '静止态发送钮 34px 圆形 bg-brand（#679efe）；流式时同位换 28px 停止钮（stop-button / stop-button-spinner），无 disabled 态（ainnotation 波3 #3）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs 发送/停止钮段；dsh: InputBar.module.css:371-379（34px circle）'
+    find: 'IconArrowUp { size: 16 }'
+    expect: '发送钮两态：空闲（输入空置灰 bg-selector cursor-default）/ 可发（32px 圆形 bg-brand + hover 提亮 + active 缩放），点击发送并清草稿。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 发送钮段；dsh: InputBar.module.css（圆形发送钮）'
   - key: stop-button
-    find: 'w-[28px] h-[28px] rounded-full bg-brand'
-    expect: '运行态停止钮 28px 圆形 bg-brand（较旧 34px 小白方块更小更精致，ainnotation 波3 #3），is_streaming 时同位替换静止态发送钮。'
+    find: 'title: sh::BTN_STOP'
+    expect: '运行态停止钮 32px 圆形 bg-brand + 白色 Spinner 14px 描边环（stop-button-spinner），is_streaming 时同位替换静止态发送钮。'
     source: 'kymido: crates/web-ui/src/components/chat.rs 发送/停止钮段；ainnotation 波3 #3'
   - key: stop-button-spinner
     find: 'Spinner { size: 14, class: "text-white" }'
@@ -92,7 +92,7 @@ anchors:
     source: 'kymido: crates/web-ui/src/components/chat.rs 停止钮；ui-kit Spinner'
   - key: picker-no-chevron
     file: crates/web-ui/src/components/menu_picker.rs
-    find: 'span { "{label}" }'
+    find: 'span { class: "{mono_class}", "{label}" }'
     expect: '模型/思考 MenuPicker 触发钮体内仅 label span，无右侧 chevron 图标（ainnotation 波3 #1/#2 删除），点击展开不变。'
     source: 'kymido: crates/web-ui/src/components/menu_picker.rs:37（MenuPicker，4146126 自 chat.rs 拆出）；ainnotation 波3 #1/#2'
   - key: composer-click-outside
@@ -104,9 +104,9 @@ anchors:
     expect: '任务看板开合钮保持纯 toggle 语义：stop_propagation 后调 on_toggle_tasks，点外关闭不抢该点击（ainnotation 波3 #5）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs composer 工具栏任务看板钮'
   - key: tool-button-28
-    find: 'size: ButtonSize::IconSm'
-    expect: 'composer 工具钮（看板/下拉触发）28px（ui-kit Button Ghost + IconSm，dsh 同款几何）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:324（ui-kit Button IconSm = size-7）；dsh: InputBar.module.css:316-324（attach 28px circle）'
+    find: 'IconSquareCheck { size: 15 }'
+    expect: 'composer 工具钮（附件 IconPaperclip / 任务看板 IconSquareCheck）32px 圆形（旧 ui-kit Button IconSm 28px 已改裸 button），无 run 时看板钮 opacity-40 置灰不可用。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 工具钮段；dsh: InputBar.module.css（圆钮几何）'
   - key: minimap
     find: 'id: "minimap"'
     expect: '左侧 minimap 锚点列（每条用户 prompt 一条横杠，客户端 JS 聚光梯度 + hover popover + click 平滑跳转，ainotation 波2 #3）。'

@@ -30,16 +30,16 @@ anchors:
     expect: '左侧列装 ui-kit 双栏侧栏（DualSidebar → DualPaneNav，一级 会话/设置/统计 + 二级菜单映射中栏页）。'
     source: 'kymido: workspace.rs（sidebar 槽）+ components/dual_sidebar.rs（DualSidebar）'
   - key: sidebar-collapse-signal
-    find: 'GlobalSignal::<bool>::new(|| false)'
-    expect: '双栏折叠态为全局信号（切视图保持）；展开 270 / 折叠 80 由该信号驱动。'
-    source: 'kymido: workspace.rs（sidebar_collapsed，取代旧宽度/折叠双信号）'
+    find: 'static SIDEBAR_COLLAPSED: GlobalSignal<bool>'
+    expect: '双栏折叠态为模块级全局信号（切视图保持）；展开 270 / 折叠 80 由该信号驱动。'
+    source: 'kymido: workspace.rs（SIDEBAR_COLLAPSED，取代旧宽度/折叠双信号）'
   - key: collapse-toggle
-    find: 'IconPanelLeft { size: 16 }'
-    expect: '中栏面包屑头最左放折叠钮（Ghost IconSm + IconPanelLeft），点击切 sidebar_collapsed；取代旧侧栏 logo 行折叠钮。'
+    find: 'IconChevronLeft { size: 16 }'
+    expect: '中栏顶层栏最左折叠钮（ui-kit NavTopBar 最左钮结构：data-testid=sidebar-collapse + ANIM_SCOPE），图标随展开态切换（展开=chevron-left 收起方向 / 折叠=chevron-right 展开方向，ui-kit icon-anim hover 微动效），点击切 sidebar_collapsed；取代旧侧栏 top 槽折叠钮。'
     source: 'kymido: workspace.rs（header 槽折叠钮，BTN_EXPAND/COLLAPSE_SIDEBAR 标题）'
   - key: breadcrumb-header
-    find: 'min-h-[44px] pl-7 pr-5 pt-3 pb-2 border-b border-b1'
-    expect: '中栏顶部是 44px 面包屑头（折叠钮 + 项目名/会话名/分支 chip 或 统计/设置 页标题），非独立顶栏。'
+    find: 'min-h-[44px] pl-2 pr-5 pt-2.5 pb-2 border-b border-b1'
+    expect: '中栏顶部是 44px 面包屑头（最左折叠钮 + 项目名/会话名/分支 chip 或 统计/设置 页标题），非独立顶栏。'
     source: 'kymido: workspace.rs（header 槽）'
   - key: branch-chip
     find: 'bg-chip-brand text-brand-300 border border-b1'
