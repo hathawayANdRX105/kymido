@@ -813,6 +813,14 @@ pub fn Workspace(
     // 推断的缓存状态，最后会话自身状态）。Mock 无缓存，合并后与原样一致。
     let sidebar_sessions = merge_run_statuses(space_sessions.read().clone(), &run_status_cache());
 
+    // 顶栏折叠钮 aria-label（同 title 语义）：rsx 字符串插值不接受 block
+    // if/else（dioxus formatted segment 只解析 Ident/表达式），前置算好，
+    // 同 ui-kit NavTopBar 的 toggle_label 模式。
+    let collapse_aria = if sidebar_collapsed() {
+        sh::BTN_EXPAND_SIDEBAR
+    } else {
+        sh::BTN_COLLAPSE_SIDEBAR
+    };
     rsx! {
         // 三列框架壳在 layouts/app_frame.rs：这里只喂侧栏、中栏头与正文。
         AppFrame {
@@ -867,7 +875,7 @@ pub fn Workspace(
                     // hover 微动效图标。
                     button {
                         "data-testid": "sidebar-collapse",
-                        "aria-label": "{if sidebar_collapsed() { sh::BTN_EXPAND_SIDEBAR } else { sh::BTN_COLLAPSE_SIDEBAR }}",
+                        "aria-label": "{collapse_aria}",
                         class: "hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground md:flex {ANIM_SCOPE}",
                         onclick: move |_| {
                             sidebar_collapsed.set(!sidebar_collapsed());
