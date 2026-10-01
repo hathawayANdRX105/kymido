@@ -91,12 +91,16 @@
     "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
 }
 
-/* ── 双栏侧栏（ui-kit DualPaneNav）全黑统一：shadcn 语义色指到 kymido base 黑。
-   kit theme.css 的 --background/--sidebar 是近黑 rgb(8-11)，与 kymido base
-   #151517 两色不一致 → 侧栏根 / rail / 列表出现色差。覆盖成 --color-base 统一全黑。 */
+/* kymido 整页 / 侧栏表面对齐 ui-kit 的 --background（全黑统一）：
+   页面底色（--color-base）与侧栏表面（--color-sidebar，kymido @theme 原值
+   #1b1b1c）都指向 kit 的 --background，让 DualPaneNav 的容器 / rail /
+   二级列表同色——用户批注明确要求全黑一致样式（2026-10 批注轮 #5）；
+   kit 的 --card / --sidebar-accent 仍保留较亮值，浮层卡片与选中态可辨。
+   body 底色同用 kit token（同 ferrite：只 import kit tokens，不另起色值，
+   见 ferrite/apps/admin-web/assets/tailwind.entry.css）。 */
 :root {
-  --color-background: var(--color-base);
-  --color-sidebar: var(--color-base);
+  --color-base: var(--background);
+  --color-sidebar: var(--background);
 }
 
 /* ── Global base ── */
@@ -114,7 +118,7 @@
   html,
   body {
     height: 100%;
-    background-color: var(--color-base);
+    background-color: var(--background);
     color: var(--color-label);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;

@@ -8,7 +8,7 @@
 //! * `Daemon` owns the lock + worker state; `Drop` performs the
 //!   shutdown sequence so accidental early-return cleanup is automatic.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -295,8 +295,15 @@ impl Daemon {
         let shutdown = Arc::new(AtomicBool::new(false));
         let started_at_ms = now_ms();
         let events = EventBus::new();
-        // A2: project registry, seeded with the default (data-dir) project.
-        let project_store = Arc::new(crate::projects::ProjectStore::open(&cfg.data_dir));
+        // 项目注册表与 sessions.db 同目录（`session_db_path` 的父目录），
+        // 不跟 `cfg.data_dir`：后者是相对路径（默认 `./.kymido`），改名期间
+        // 的陈旧 config 值会把它带到旧目录去。session_db_path 走
+        // `platform_config_dir()`，与 socket / db 同宗，不受那份 config 影响。
+        let projects_dir = session_db_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| cfg.data_dir.clone());
+        let project_store = Arc::new(crate::projects::ProjectStore::open(&projects_dir));
 
         // Push every submitted question to `user.question` subscribers (the
         // web UI renders them; CLI/smoke can poll `user.question.pending`).
