@@ -135,9 +135,9 @@ pub trait SessionPersistence: Send + Sync {
 
 ```bash
 cd <repo根>/.wt/<name>
-cpulimit -l 70 -i -- cargo check -p <crate_name>  # 必须带 -p，禁止无 -p 全仓 check
+systemd-run --user --scope -p CPUQuota=70% -- cargo check -p <crate_name>  # 必须带 -p，禁止无 -p 全仓 check
 # 有下游依赖 crate 的一并检查
-cpulimit -l 70 -i -- cargo check -p <downstream_crate>  # 必须带 -p，禁止无 -p 全仓 check
+systemd-run --user --scope -p CPUQuota=70% -- cargo check -p <downstream_crate>  # 必须带 -p，禁止无 -p 全仓 check
 ```
 
 `cargo check` 全绿 = 铺地基完成。
