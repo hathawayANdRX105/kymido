@@ -5,7 +5,7 @@
 //! 重则渲染路径死循环（侧栏卡死）。这些用例只测纯函数，不起 UI。
 
 use web_state::types::{Session, SessionStatus};
-use web_ui::components::sidebar::group_sessions;
+use web_ui::components::dual_sidebar::group_sessions;
 
 fn session(id: &str, parent_id: Option<&str>) -> Session {
     Session {

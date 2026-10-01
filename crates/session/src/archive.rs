@@ -71,7 +71,7 @@ pub(crate) enum ArchiveLine {
 }
 
 /// What an archive sweep actually moved, and what it reclaimed.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ArchiveReceipt {
     pub session_id: String,
     /// Message rows removed from the live database.
@@ -287,6 +287,21 @@ pub fn list_archives(db_path: &Path) -> Result<Vec<String>, SessionError> {
     }
     ids.sort();
     Ok(ids)
+}
+
+/// Archived sessions on disk as read-only summaries (id / title / message count),
+/// without restoring them into the live database. Decodes each archive's header
+/// (zstd + checksum) so a corrupt archive surfaces as an error instead of a
+/// silently-missing row; a missing archive directory yields an empty list.
+pub fn list_archived(db_path: &Path) -> Result<Vec<SessionSummary>, SessionError> {
+    let ids = list_archives(db_path)?;
+    ids.into_iter()
+        .map(|id| {
+            let raw = fs::read(archive_path(db_path, &id)).map_err(SessionError::Io)?;
+            let decoded = decode_archive(&raw)?;
+            Ok(summary_of(&decoded.session, decoded.messages.len()))
+        })
+        .collect()
 }
 
 /// An archive is untrusted input as far as the store is concerned: a role

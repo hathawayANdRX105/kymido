@@ -22,6 +22,7 @@ pub const BTN_DELETE_SESSION: &str = "删除会话";
 pub const BTN_DELETE: &str = "删除";
 pub const BTN_ADD_IMAGE: &str = "添加图片附件";
 pub const BTN_REMOVE_SPACE: &str = "移除项目";
+pub const BTN_CREATE_PROJECT: &str = "创建项目（选择目录）";
 pub const BTN_NEW_SESSION: &str = "新会话";
 pub const BTN_NEW_CHAT_IN_SPACE: &str = "新建会话";
 pub const BTN_SAVE_CONFIG: &str = "保存配置";
@@ -30,11 +31,15 @@ pub const BTN_EXPAND_SIDEBAR: &str = "展开侧边栏";
 pub const BTN_COLLAPSE_SIDEBAR: &str = "收起侧边栏";
 pub const BTN_TASK_PANEL: &str = "任务看板";
 pub const BTN_COPY: &str = "复制";
+pub const BTN_ARCHIVE_SESSION: &str = "归档会话";
+pub const BTN_RESTORE_SESSION: &str = "恢复会话";
+pub const BTN_PURGE_SESSION: &str = "彻底删除";
 
 // ---- LBL_ : 标签 / 表头 / 区段名 ----
 pub const LBL_SESSIONS: &str = "会话";
 pub const LBL_STATS: &str = "数据统计";
 pub const LBL_SETTINGS: &str = "设置";
+pub const LBL_ARCHIVE: &str = "归档";
 pub const LBL_ABOUT: &str = "关于";
 pub const LBL_MODEL_CHANNEL: &str = "模型与渠道";
 pub const LBL_MCP_SERVERS: &str = "MCP 服务器";
@@ -67,14 +72,20 @@ pub const MSG_NO_IMAGE_INPUT: &str = "当前模型不支持图片输入";
 pub const MSG_SEARCH_SESSION: &str = "搜索会话 (⌘K)";
 pub const MSG_SEARCH_PLACEHOLDER: &str = "搜索会话名称或编号...";
 pub const MSG_INPUT_PLACEHOLDER: &str = "输入指令，Enter 发送，Shift+Enter 换行...";
-pub const MSG_SIDEBAR_WIDTH_PRESET: &str = "拖拽设定默认宽度";
 pub const MSG_TOOL_FAILED: &str = "失败";
 
-// ---- OPT_ : 下拉/选项文案（思考强度四档）----
+// ---- OPT_ : 下拉/选项文案（思考强度四档 + 统计时间范围档）----
 pub const OPT_THINKING_OFF: &str = "关闭";
 pub const OPT_THINKING_LIGHT: &str = "轻量";
 pub const OPT_THINKING_STANDARD: &str = "标准";
 pub const OPT_THINKING_DEEP: &str = "深度";
+/// 双栏侧栏「统计」二级菜单的 6 档时间范围文案（id = daemon 范围 token）。
+pub const OPT_STATS_RANGE_1H: &str = "最近 1 小时";
+pub const OPT_STATS_RANGE_24H: &str = "最近 24 小时";
+pub const OPT_STATS_RANGE_7D: &str = "最近 7 天";
+pub const OPT_STATS_RANGE_30D: &str = "最近 30 天";
+pub const OPT_STATS_RANGE_90D: &str = "最近 90 天";
+pub const OPT_STATS_RANGE_ALL: &str = "全部";
 
 // ---- STATUS_ : 状态徽标（任务看板 / 统计）----
 pub const STATUS_ALL: &str = "全部";

@@ -91,6 +91,14 @@
     "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
 }
 
+/* ── 双栏侧栏（ui-kit DualPaneNav）全黑统一：shadcn 语义色指到 kymido base 黑。
+   kit theme.css 的 --background/--sidebar 是近黑 rgb(8-11)，与 kymido base
+   #151517 两色不一致 → 侧栏根 / rail / 列表出现色差。覆盖成 --color-base 统一全黑。 */
+:root {
+  --color-background: var(--color-base);
+  --color-sidebar: var(--color-base);
+}
+
 /* ── Global base ── */
 @layer base {
   * {

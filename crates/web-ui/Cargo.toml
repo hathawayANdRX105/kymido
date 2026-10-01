@@ -11,10 +11,10 @@ web-client = { path = "../web-client" }
 web-state = { path = "../web-state" }
 # ferrite 家族共享设计系统（shadcn token 桥 + Dioxus 基元）。dioxus 版本与 kit
 # 的 =0.7.10 钉齐，双版本会导致 Element 类型不通。
-# rev 钉 kit 的 DropdownMenu 根 id 修复（8937af0，main 的 33869f1 图标集的
-# 后继；tag 未发布，kit 主线统一发 tag 后改回 tag pin）。
+# rev 钉 kit 双栏侧栏 content 槽 + DualPaneGroupList + DualPaneNav 顶部 top 槽
+# + LiveView 可移植 popover 宽限（97fa40b，feat/dual-pane-16）。
 # https 形式：ssh 对本机不通（cargo git fetch 挂），仓可匿名读。
-ui-kit = { git = "https://github.com/hathawayANdRX105/ui-kit.git", rev = "8937af0fd43df5bacb88ec2e5113e990b7a93d9b" }
+ui-kit = { git = "https://github.com/hathawayANdRX105/ui-kit.git", rev = "97fa40b75955338e32e9abf1b5f1d280d73fbbde" }
 dioxus = { version = "0.7" }
 pulldown-cmark = { workspace = true }
 ammonia = { workspace = true }

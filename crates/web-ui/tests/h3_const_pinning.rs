@@ -67,7 +67,6 @@ fn msg_constants_match_original_literals() {
         sh::MSG_INPUT_PLACEHOLDER,
         "输入指令，Enter 发送，Shift+Enter 换行..."
     );
-    assert_eq!(sh::MSG_SIDEBAR_WIDTH_PRESET, "拖拽设定默认宽度");
     assert_eq!(sh::MSG_TOOL_FAILED, "失败");
 }
 
@@ -77,6 +76,16 @@ fn opt_constants_match_original_thinking_levels() {
     assert_eq!(sh::OPT_THINKING_LIGHT, "轻量");
     assert_eq!(sh::OPT_THINKING_STANDARD, "标准");
     assert_eq!(sh::OPT_THINKING_DEEP, "深度");
+}
+
+#[test]
+fn opt_constants_stats_ranges_match_dual_sidebar_menu() {
+    assert_eq!(sh::OPT_STATS_RANGE_1H, "最近 1 小时");
+    assert_eq!(sh::OPT_STATS_RANGE_24H, "最近 24 小时");
+    assert_eq!(sh::OPT_STATS_RANGE_7D, "最近 7 天");
+    assert_eq!(sh::OPT_STATS_RANGE_30D, "最近 30 天");
+    assert_eq!(sh::OPT_STATS_RANGE_90D, "最近 90 天");
+    assert_eq!(sh::OPT_STATS_RANGE_ALL, "全部");
 }
 
 #[test]

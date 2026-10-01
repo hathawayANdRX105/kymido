@@ -32,6 +32,7 @@ pub mod client;
 mod dispatch;
 pub mod exec_state;
 pub mod lock;
+pub mod projects;
 pub mod protocol;
 mod questions;
 mod reaper;
@@ -45,6 +46,7 @@ pub mod startup_sweep;
 pub mod state;
 pub use client::{AppendOutcome, ClientError, DaemonClient, DaemonInfo, Subscription};
 pub use lock::InstanceLock;
+pub use projects::{ProjectError, ProjectStore};
 pub use protocol::{Command, EventFrame, Request, Response, ResponseError};
 pub use questions::{
     AnswerError, QuestionAnswer, QuestionBroker, QuestionBrokerConfig, QuestionIntent,

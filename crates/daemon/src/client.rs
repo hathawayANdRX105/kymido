@@ -25,7 +25,7 @@ use crate::state::{RunRecord, StatsSummary};
 use session::{SessionMessage, SessionRole, SessionSummary};
 
 use crate::DaemonError;
-use crate::protocol::{Command, EventFrame, Request, Response};
+use crate::protocol::{Command, EventFrame, ProjectEntry, Request, Response};
 
 /// Errors returned from the daemon client.
 #[derive(Debug)]
@@ -229,6 +229,51 @@ impl DaemonClient {
         Ok(v.deleted)
     }
 
+    /// `session.archive` → receipt for the soft-deleted (archived) session.
+    pub fn session_archive(
+        &self,
+        session_id: &str,
+    ) -> Result<session::ArchiveReceipt, ClientError> {
+        self.call(Command::SessionArchive, json!({ "session_id": session_id }))
+    }
+
+    /// `session.list_archived` → read-only summaries of archived sessions.
+    pub fn session_list_archived(&self) -> Result<Vec<SessionSummary>, ClientError> {
+        self.call(Command::SessionListArchived, json!({}))
+    }
+
+    /// `session.restore` → summary of the session restored into the live DB.
+    pub fn session_restore(&self, session_id: &str) -> Result<SessionSummary, ClientError> {
+        self.call(Command::SessionRestore, json!({ "session_id": session_id }))
+    }
+
+    /// `session.purge` → `true` if an archive file was actually removed.
+    pub fn session_purge(&self, session_id: &str) -> Result<bool, ClientError> {
+        let v: PurgeOutcome =
+            self.call(Command::SessionPurge, json!({ "session_id": session_id }))?;
+        Ok(v.purged)
+    }
+
+    // ---------------- Project registry (A2) ----------------
+
+    /// `project.list` → every registered project (persisted in the data dir).
+    pub fn project_list(&self) -> Result<Vec<ProjectEntry>, ClientError> {
+        self.call(Command::ProjectList, json!({}))
+    }
+
+    /// `project.create` → the newly registered project.  The path must be an
+    /// existing directory; a duplicate path is rejected.
+    pub fn project_create(&self, path: &str) -> Result<ProjectEntry, ClientError> {
+        self.call(Command::ProjectCreate, json!({ "path": path }))
+    }
+
+    /// `project.remove` → `true` if a row was actually removed.
+    pub fn project_remove(&self, project_id: &str) -> Result<bool, ClientError> {
+        let v: ProjectRemoveOutcome =
+            self.call(Command::ProjectRemove, json!({ "project_id": project_id }))?;
+        Ok(v.removed)
+    }
+
     /// `session.append` → assigned seq + timestamp.
     pub fn session_append(
         &self,
@@ -429,6 +474,16 @@ pub struct DaemonInfo {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 struct DeleteOutcome {
     deleted: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PurgeOutcome {
+    purged: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ProjectRemoveOutcome {
+    removed: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]

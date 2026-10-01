@@ -124,6 +124,37 @@ pub enum Command {
     #[serde(rename = "session.read_from_cursor")]
     SessionReadFromCursor,
 
+    /// `session.archive` — `{ session_id }` → `{ session_id, messages, raw_bytes, archived_bytes }`。
+    /// 软删：把会话从活库移入冷归档（.jsonl.zst），活库行被清掉。已存在
+    /// 归档时拒绝重归档。归档会话可通过 `session.restore` 取回。
+    #[serde(rename = "session.archive")]
+    SessionArchive,
+    /// `session.list_archived` — `{}` → `[SessionSummary]`。只读列出磁盘上的
+    /// 归档会话（id / 标题 / 消息数），不解冻回活库。
+    #[serde(rename = "session.list_archived")]
+    SessionListArchived,
+    /// `session.restore` — `{ session_id }` → `SessionSummary`。把冷归档会话
+    /// 逐字写回活库；目标已存在活库行 / 已存在归档时拒绝。
+    #[serde(rename = "session.restore")]
+    SessionRestore,
+    /// `session.purge` — `{ session_id }` → `{ purged: bool }`。彻底删除一个
+    /// 归档文件（不可恢复）；`false` 表示该 id 无归档。
+    #[serde(rename = "session.purge")]
+    SessionPurge,
+
+    // ---------------- Project registry (A2) ----------------
+    /// `project.list` — `{}` → `[ProjectEntry]`。列出已注册项目（持久化于
+    /// data_dir 下的 projects 文件）。
+    #[serde(rename = "project.list")]
+    ProjectList,
+    /// `project.create` — `{ path }` → `ProjectEntry`。把目录注册为项目
+    /// （校验为已存在目录；已注册同路径拒绝）。
+    #[serde(rename = "project.create")]
+    ProjectCreate,
+    /// `project.remove` — `{ project_id }` → `{ removed: bool }`。注销项目。
+    #[serde(rename = "project.remove")]
+    ProjectRemove,
+
     /// `run.list` — `{ limit }` → `[RunRecord]`.
     #[serde(rename = "run.list")]
     RunList,
@@ -352,4 +383,15 @@ impl EventFrame {
 pub enum EventFrameKind {
     #[serde(rename = "event")]
     Event,
+}
+
+/// A registered project (A2 project registry): a working directory the user
+/// can create sessions in.  Persisted in the daemon's data dir; the wire
+/// shape mirrors the web's `WorkspaceSpace` minus `branch`/`is_active`
+/// (those are UI-side concerns, derived at the mapping boundary).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectEntry {
+    pub id: String,
+    pub name: String,
+    pub path: String,
 }

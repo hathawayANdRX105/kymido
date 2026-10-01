@@ -1,19 +1,15 @@
-//! 设置弹窗（dsh SettingsRoot 复刻）：800px r24 面板 + 188px 内导航。
+//! 设置页面（dsh SettingsRoot 复刻的提级形态）：中栏视图，分区由侧栏
+//! 「设置」二级菜单选定（[`SettingsSection`]），800px 弹窗与 188px 内导航已退役。
 //! 「模型与渠道」承载 LLM 配置表单；「MCP 服务器」承载 [[mcp.servers]]
 //! 的列表编辑；「关于」放版本与项目信息。
 
-use crate::components::ui::Modal;
 use dioxus::prelude::*;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
-use ui_kit::icons::{IconSettings, IconTerminal, IconTrash, IconX};
+use ui_kit::icons::IconTrash;
 use web_client::llm::{LlmRuntimeConfig, McpServerForm};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section {
-    Models,
-    Mcp,
-    About,
-}
+use crate::nav::SettingsSection;
+use crate::shared as sh;
 
 /// Max Tokens 输入校验：空白修剪后须为 16–200,000 的 u32，合法返回 `None`。
 pub fn validate_max_tokens(value: &str) -> Option<&'static str> {
@@ -25,76 +21,27 @@ pub fn validate_max_tokens(value: &str) -> Option<&'static str> {
     }
 }
 
+/// 设置页面（中栏正文）：分区由侧栏二级菜单写入的 `section` 信号驱动，
+/// 页面只渲染对应分区 pane；弹窗壳（Modal + 内导航 + 关闭钮）已删。
 #[component]
-pub fn SettingsModal(
+pub fn SettingsPage(
+    section: Signal<SettingsSection>,
     config: LlmRuntimeConfig,
     on_update_config: EventHandler<LlmRuntimeConfig>,
-    on_close: EventHandler<()>,
 ) -> Element {
-    let mut section = use_signal(|| Section::Models);
-
-    let nav_cell = |active: bool| {
-        if active {
-            "h-10 px-3 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] bg-[#434546] text-label cursor-pointer transition-colors border-none w-full"
-        } else {
-            "h-10 px-3 rounded-xl flex items-center gap-2.5 text-[14px] leading-[22px] text-label-2 hover:bg-ihover hover:text-label cursor-pointer transition-colors border-none w-full bg-transparent"
-        }
-    };
-
-    let title = match section() {
-        Section::Models => "模型与渠道",
-        Section::Mcp => "MCP 服务器",
-        Section::About => "关于 kymido",
-    };
-
+    let s = section();
     rsx! {
-        Modal { width_class: "w-[800px]", on_close: on_close,
-            div { class: "flex h-[min(760px,80vh)]",
-                // 左导航栏（188px）
-                nav { class: "w-[188px] shrink-0 bg-sidebar p-3 flex flex-col gap-1",
-                    button {
-                        r#type: "button",
-                        class: "{nav_cell(section() == Section::Models)} {ui_kit::icons::ANIM_SCOPE}",
-                        onclick: move |_| section.set(Section::Models),
-                        IconSettings { size: 16, class: "text-label-3" }
-                        span { "模型与渠道" }
-                    }
-                    button {
-                        r#type: "button",
-                        class: "{nav_cell(section() == Section::Mcp)} {ui_kit::icons::ANIM_SCOPE}",
-                        onclick: move |_| section.set(Section::Mcp),
-                        IconTerminal { size: 16, class: "text-label-3" }
-                        span { "MCP 服务器" }
-                    }
-                    button {
-                        r#type: "button",
-                        class: "{nav_cell(section() == Section::About)}",
-                        onclick: move |_| section.set(Section::About),
-                        span { class: "w-4 text-center text-[14px] text-label-3", "i" }
-                        span { "关于" }
-                    }
-                }
-                // 右内容列
-                div { class: "flex-1 min-w-0 flex flex-col",
-                    div { class: "h-[54px] px-6 flex items-center justify-between border-b border-b1 shrink-0",
-                        span { class: "text-[14px] leading-5 font-medium text-label", "{title}" }
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            size: ButtonSize::IconSm,
-                            title: "关闭",
-                            onclick: move |_| on_close.call(()),
-                            IconX { size: 16 }
-                        }
-                    }
-                    div { class: "flex-1 overflow-y-auto",
-                        if section() == Section::Models {
-                            ConfigForm { config: config.clone(), on_update_config: on_update_config }
-                        } else if section() == Section::Mcp {
-                            McpServersPane { config: config.clone(), on_update_config: on_update_config }
-                        } else {
-                            AboutPane {}
-                        }
-                    }
+        div { class: "flex-1 min-h-0 flex flex-col",
+            div { class: "h-[54px] px-6 flex items-center justify-between border-b border-b1 shrink-0",
+                span { class: "text-[14px] leading-5 font-medium text-label", "{s.label()}" }
+            }
+            div { class: "flex-1 overflow-y-auto",
+                if s == SettingsSection::Models {
+                    ConfigForm { config: config.clone(), on_update_config: on_update_config }
+                } else if s == SettingsSection::Mcp {
+                    McpServersPane { config: config.clone(), on_update_config: on_update_config }
+                } else {
+                    AboutPane {}
                 }
             }
         }

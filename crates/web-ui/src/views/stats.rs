@@ -116,8 +116,9 @@ pub struct Feed {
 }
 
 #[component]
-pub fn StatsView() -> Element {
-    let mut selected_range = use_signal(|| "24h".to_string());
+pub fn StatsView(mut range: Signal<String>) -> Element {
+    // 范围由 Workspace 信号持有：侧栏「统计」二级菜单与页内胶囊分段写同一
+    // 信号（单一事实源），StatsView 自己不再持有本地 selected_range。
 
     // daemon 探测只做一次：socket 由 `KYMIDO_DAEMON_SOCKET` / 平台配置目录
     // 决定（见 `WebDaemon::from_env_or_default`），不必读配置文件。
@@ -140,12 +141,12 @@ pub fn StatsView() -> Element {
 
     // 范围变化即重取。阻塞 RPC 放线程里 join，不在渲染线程上跑。
     use_effect(move || {
-        let range = selected_range();
+        let range_val = range();
         let Some(d) = daemon() else {
             summary.set(None);
             return;
         };
-        let fetched = std::thread::spawn(move || d.stats_summary(&range).ok())
+        let fetched = std::thread::spawn(move || d.stats_summary(&range_val).ok())
             .join()
             .ok()
             .flatten();
@@ -162,12 +163,12 @@ pub fn StatsView() -> Element {
     let subtitle = match snapshot.as_ref() {
         Some(s) => format!(
             "当前视图范围：最近 {} · 共 {} 次运行（来自 run ledger）",
-            selected_range(),
+            range(),
             s.total_runs
         ),
         None => format!(
             "当前视图范围：最近 {} · 未连接 daemon，暂无统计数据",
-            selected_range()
+            range()
         ),
     };
 
@@ -183,8 +184,8 @@ pub fn StatsView() -> Element {
                 // 附送滚轮循环切换）；active 为下标，映射回 RANGES 字符串。
                 SegmentedCapsule {
                     items: RANGES.iter().map(|r| r.to_string()).collect(),
-                    active: RANGES.iter().position(|r| *r == selected_range()).unwrap_or(0),
-                    on_select: move |i: usize| selected_range.set(RANGES[i].to_string()),
+                    active: RANGES.iter().position(|r| *r == range()).unwrap_or(0),
+                    on_select: move |i: usize| range.set(RANGES[i].to_string()),
                     testid_prefix: "stats-range",
                 }
             }
@@ -217,7 +218,7 @@ pub fn StatsView() -> Element {
                 }
 
                 div { class: "bg-layer-1 border border-b1 rounded-xl p-5 flex flex-col gap-4",
-                    h3 { class: "text-[14px] leading-5 font-medium text-label m-0", "吞吐趋势（运行数 · {selected_range()}）" }
+                    h3 { class: "text-[14px] leading-5 font-medium text-label m-0", "吞吐趋势（运行数 · {range()}）" }
                     ThroughputChart { points: points.clone() }
                 }
 
