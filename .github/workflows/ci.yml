@@ -22,17 +22,29 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Private git dependency (ui-kit) is ssh-addressed; the runner has no
-      # deploy key and GITHUB_TOKEN cannot reach private repos of a
-      # public-repo event. The UIKIT_PAT secret (fine-grained, ui-kit read
-      # only) is injected into the git URL; cargo uses the git CLI so the
-      # url.insteadOf rewrite applies.
+      # Private git dep (ui-kit): the runner has no deploy key and GITHUB_TOKEN
+      # cannot reach private repos of a public-repo event. The UIKIT_PAT secret
+      # (fine-grained, ui-kit read only) is injected into the git URL; cargo
+      # uses the git CLI so the url.insteadOf rewrites apply. The dep URL in
+      # Cargo.toml is https-addressed, so BOTH the ssh- and https-prefix
+      # rewrites are registered — the ssh-only rewrite silently matched nothing
+      # and every run since the https pin failed the fetch with exit 128
+      # (anon https fetch of a private repo, run 36896427859).
       - name: Allow cargo to fetch private git deps
         env:
           UIKIT_PAT: ${{ secrets.UIKIT_PAT }}
-        run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
+        run: |
+          git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
+          git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "https://github.com/hathawayANdRX105/"
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
+      # `web` bin 的 build.rs 在 bin/web 跑 Tailwind CLI（`node_modules/.bin/
+      # tailwindcss`），node_modules 不跟 git（CI 全新 checkout 没有）——不装则
+      # Tailwind 产物 0 字节、护栏硬失败（run 36904776053：Can't resolve
+      # 'tailwindcss'）。runner 镜像无 bun（run 36906279179：command not
+      # found），用 npm ci（package-lock.json 确定性）；本地 dev 惯例仍是 bun。
+      - name: Install bin/web frontend deps (tailwind build.rs)
+        run: cd bin/web && npm ci --no-audit --no-fund
       # Scope by the diff through the shared resolver (`scripts/ci_scope.py`,
       # byte-identical in ferrite), which answers three questions at once:
       # which crates own the changed files, what depends on them (reverse
@@ -192,15 +204,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Private git dependency (ui-kit) is ssh-addressed; the runner has no
-      # deploy key and GITHUB_TOKEN cannot reach private repos of a
-      # public-repo event. The UIKIT_PAT secret (fine-grained, ui-kit read
-      # only) is injected into the git URL; cargo uses the git CLI so the
-      # url.insteadOf rewrite applies.
+      # Private git dep (ui-kit) fetches with the UIKIT_PAT secret injected
+      # into the git URL (runner has no deploy key; GITHUB_TOKEN of a
+      # public-repo event cannot reach private repos). The dep URL in
+      # Cargo.toml is https-addressed, so BOTH the ssh- and https-prefix
+      # rewrites are registered — see the test job's step for the history.
       - name: Allow cargo to fetch private git deps
         env:
           UIKIT_PAT: ${{ secrets.UIKIT_PAT }}
-        run: git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
+        run: |
+          git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "ssh://git@github.com/hathawayANdRX105/"
+          git config --global url."https://x-access-token:${UIKIT_PAT}@github.com/hathawayANdRX105/".insteadOf "https://github.com/hathawayANdRX105/"
       - name: Install system deps (ripgrep for tools tests)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       # Plan-mode / Profile CLI / UI contract anchors used to be re-run here
