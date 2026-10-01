@@ -1,27 +1,28 @@
-# Agent 行为规范
+<!-- managed by canon agents.yaml @ 2026-10-02 -->
+## kymido 约定
 
-## Issue/PR 创建
+#### Issue/PR 创建
 
 创建 issue/PR 前必须读 `.github/ISSUE_TEMPLATE/` 或 `.github/PULL_REQUEST_TEMPLATE.md`，然后通过已安装 gate 拦截的 `gh` 创建，禁止绕过 gate。
 
 ```bash
-# 安装/更新拦截门
-gate init
+### 安装/更新拦截门
+canon init
 
-# issue(正文按 .github/ISSUE_TEMPLATE/ 下模板)
+### issue(正文按 .github/ISSUE_TEMPLATE/ 下模板)
 gh issue create --title "..." --body "..." --label <epic|sub|...>
 
-# PR(正文按 .github/PULL_REQUEST_TEMPLATE.md)
+### PR(正文按 .github/PULL_REQUEST_TEMPLATE.md)
 gh pr create --title "..." --body "..." --head <branch>
 ```
 
 gate 自动做创建前校验(规则在 `.githooks/spec/`)+ 创建后现实校验，FAIL 拒绝创建。
 
-**`.githooks/` 是 gate 自己的领地，agent 禁止改动 gate 规则**（`hooks/`、`spec/` 下的 gate 规则 yaml、`gate` 二进制）。gate 规则的增删改由用户或 gate 自身的 `gate init` 负责；agent 遇到 gate FAIL 应改自己的提交/PR 正文去迎合规则，而不是去改规则。UI 契约 yaml（7 份，含 `anchors`/`target` 字段）也平铺在 `.githooks/spec/`，但它们不是 gate 规则，由 `bin/web/tests/ui_contract.rs` 消费。
+**`.githooks/` 是 gate 自己的领地，agent 禁止改动 gate 规则**（`hooks/`、`spec/` 下的 gate 规则 yaml、`gate` 二进制）。gate 规则的增删改由用户或 gate 自身的 `canon init` 负责；agent 遇到 gate FAIL 应改自己的提交/PR 正文去迎合规则，而不是去改规则。UI 契约 yaml（7 份，含 `anchors`/`target` 字段）也平铺在 `.githooks/spec/`，但它们不是 gate 规则，由 `bin/web/tests/ui_contract.rs` 消费。
 
-## 构建与验证（CI 驱动）
+#### 构建与验证（CI 驱动）
 
-**测试一律不在本地跑。** `cargo test` / `cargo clippy` / 全量 `cargo build` / `npm install` 全部交给 PR 的 CI（`.github/workflows/ci.yml`）。本地跑测试属违规操作，即使套了 限流器 也不允许。
+**测试一律不在本地跑。** `cargo test` / `cargo clippy` / 全量 `cargo build` / `npm install` 全部交给 PR 的 CI（`.github/workflows/ci.yml`）。本地跑测试属违规操作，即使套了配额也不允许。
 
 本地只允许这三类轻量验证：
 - `cargo fmt --check`（秒级，提交前必跑——commit checklist 会拦不合格的 rust）
@@ -30,17 +31,17 @@ gate 自动做创建前校验(规则在 `.githooks/spec/`)+ 创建后现实校�
 
 验证节奏：本地 `fmt --check` + 单 crate `cargo check` → push → **CI 出结果才算验证过**。CI 红了看日志改，不要在本地复现。
 
-**唯一例外**是 web UI 需要肉眼确认时的 `cargo build --bin kymido-web`（见下文启动序列），必须套 cgroup CPU 配额：
+**唯一例外**是 web UI 需要肉眼确认时的 `cargo build --bin oi-web`（见下文启动序列），必须套 `systemd-run --user --scope -p CPUQuota=65% --`：
 
 ```bash
-systemd-run --user --scope -p CPUQuota=65% -- cargo build --bin kymido-web
+systemd-run --user --scope -p CPUQuota=65% -- cargo build --bin oi-web
 ```
 
-## 禁改区
+#### 禁改区
 
 `.githooks/` 归 gate 自身维护，**任何开发任务都不得改动 gate 规则**（包括 `.githooks/spec/` 下的 gate 规则 yaml、hook 脚本）。规则要改先去 demo 沙盒（见下文）验证，并由用户显式指派。例外：UI 契约 yaml（用户指定）与 gate 规则平铺在 `.githooks/spec/`，由 ui_contract.rs 消费，不算 gate 规则。
 
-## Demo 验证沙盒
+#### Demo 验证沙盒
 
 验证 issue/PR 流程、gh-gate 拦截、规则改动时，**不要在本仓库(kymido)直接创建 demo issue/PR**，使用专用沙盒：
 
@@ -48,11 +49,13 @@ systemd-run --user --scope -p CPUQuota=65% -- cargo build --bin kymido-web
 - 用途：验证 epic/sub/PR 链路、checkbox 强制、双向关联(GT-04b)、审查强制等，避免污染 kymido
 - .githooks 与 kymido 同步；规则改动后先在此仓库验证，再同步到其他项目(deskctl / new-api)
 
-## TUI（kymido tui）
+#### TUI（已删除）
 
-TUI 已重新落地（epic #423；旧「已删除」状态 2026-09-25 起不再成立）：`crates/tui/` 存在，`kymido tui` 按 `--tui auto|enhanced|inline|linear` 四档渲染——enhanced 为全屏 alternate screen（transcript + composer dock + 历史/中断键），inline 为终端原生 scrollback 轨（#455），探针门要求 TTY、颜色、≥44×12 且非 tmux/Screen/Zellij，不合格自动回落 linear（auto 永不选 inline）。交付（契约测试 140 条 / 25 文件，`crates/tui/tests/`）：批次 1（epic #423）T1 linear 基线 #425、T2 enhanced 外壳与接线 #430/#438、T3 工具卡/问题面板/footer #447/#449、T4 会话导航 picker #448/#451、T5 文档收口 #453；批次 2（epic #458）T6 in-app 滚动 #462、T7 滚轮 #468、T8 inline dock #469、T9 斜杠面板 #476、T10 运行中排队 #479、T11 转录搜索 #486、T12 消息操作 #493、T13 逐轮回退 #498、T14 daemon 自启 #504、T15 完成通知 #505、T16 会话管理 picker 新建/改名/删除、T17 主题配置（`[tui] theme` + `/theme` 面板）、T18 PTY smoke。验证口径：测试与 smoke 走 CI（`tui_pty_smoke` 已上线并在 smoke job 内跑真 pty：进 alternate screen、`/` 面板、Ctrl+K picker、Ctrl+D 干净退出），肉眼交互验收按 P2 路 B 推迟；渲染契约正本在 `todo/tui/route-tui.md`（local-only，不入 git）。前端验证分工：web 走上文「Web（kymido-web）启动与样式缺失排查」「Web UI 契约验收」两节，TUI 走本节。
+终端 UI（Ratatui）已在 dsh web 复刻转正时删除：`crates/tui/` 与 `specs/tui/` 均不存在，别再去找。前端验证全部走上面的 Web（oi-web）与「Web UI 契约验收」两节。
 
-## Web（kymido-web）启动与样式缺失排查
+`.agent/skills/ui-validation/SKILL.md` 仍保留，但其描述的 TestBackend/specs/tui 流程已无对应代码，用到时先核实目标是否存在。
+
+#### Web（oi-web）启动与样式缺失排查
 
 **症状**：Web UI 打开后是「裸文本」——没有暗色主题、没有卡片/气泡样式，文字堆在一起（如 "搜索会话⌘K / 工作区 / Spaces" 全是素文本），但 JS 功能正常（能发消息、minimap 逻辑在跑）。这是**二进制里嵌进去的 CSS 为空**，不是前端没渲染、也不是没合并代码。
 
@@ -66,14 +69,14 @@ TUI 已重新落地（epic #423；旧「已删除」状态 2026-09-25 起不再�
 
 ```bash
 cd bin/web && npm install                # 确保 node_modules/.bin/tailwindcss 存在
-# 可选：手动确认能生成非空 CSS（约 40KB）
-#   node_modules/.bin/tailwindcss -i .tailwind.gen-input.css -o /tmp/t.css
+### 可选：手动确认能生成非空 CSS（约 40KB）
+###   node_modules/.bin/tailwindcss -i .tailwind.gen-input.css -o /tmp/t.css
 cd <仓库根>
 touch bin/web/assets/tailwind-input.css   # 强制重跑 build.rs
-cargo build --bin kymido-web                  # 不是 -p web；二进制在 bin/web（kymido-web）
-pkill -x kymido-web; sleep 1
-nohup ./target/debug/kymido-web > /tmp/kymido-web.log 2>&1 &      # 起在默认 8026（PORT 可覆盖）
-# 验样式：页面内联 <style> 块的字节数（2026-09-16 实测 40005，含 .flex/.mx-auto/padding-left）
+cargo build --bin oi-web                  # 不是 -p web；二进制在 bin/web（oi-web）
+pkill -x oi-web; sleep 1
+nohup ./target/debug/oi-web > /tmp/oi-web.log 2>&1 &      # 起在默认 8026（PORT 可覆盖）
+### 验样式：页面内联 <style> 块的字节数（2026-09-16 实测 40005，含 .flex/.mx-auto/padding-left）
 curl -s localhost:8026/ | python3 -c 'import sys,re;h=sys.stdin.read();m=re.search(r"<style>(.*?)</style>",h,re.S);print("style bytes:",len(m.group(1)) if m else "NONE")'
 ```
 
@@ -83,7 +86,7 @@ curl -s localhost:8026/ | python3 -c 'import sys,re;h=sys.stdin.read();m=re.sear
 
 **CI / 协作**：`node_modules` 未进 git，CI 与任何新克隆/新 worktree 都要先 `npm install` 再 build，否则 UI 无样式。若要让 build 可复现，考虑把 `node_modules` 入库或让 build.rs 失败时报错而非静默写空文件。
 
-## Web UI 契约验收（.githooks/spec 下 7 份 UI 契约）
+#### Web UI 契约验收（.githooks/spec 下 7 份 UI 契约）
 
 web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.githooks/spec/` 下的 7 份 UI 契约 yaml（workspace / chat / sidebar / stats / settings / quick-switcher / taskpanel），防止后续接线（5.2a/5.2b）破坏。改动 web 组件样式或布局时：先跑契约测试，再按下表浏览器抽查。
 
@@ -91,7 +94,7 @@ web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.gith
 
 **yaml 字段约定**：`name`（契约名）/ `target`（kymido 实现文件，相对仓库根）/ `description` / `anchors`（锚点列表，每项 `key` + `find`（源码中稳定 class 片段或静态字面量）+ `expect`（预期形态）+ `source`（kymido 实现位置 + dsh 出处）+ 可选 `file`（锚点级实现文件覆盖，默认用 target））/ `notes`。测试两类断言：① 每个 yaml 可被 serde_yaml 解析且字段齐全；② 每个 `find` 关键字在对应实现文件中出现。新增 spec 必须同步登记 `tests/ui_contract.rs` 的 `SPEC_FILES`。
 
-**起服**：按上文「正确启动序列」起 kymido-web（记得 npm install + touch css + 重建重启，浏览器硬刷新）。
+**起服**：按上文「正确启动序列」起 oi-web（记得 npm install + touch css + 重建重启，浏览器硬刷新）。
 
 **浏览器抽查点**（每屏挑核心）：
 
@@ -99,17 +102,245 @@ web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.gith
 - `chat.yaml`——发送消息后「工作过程」折叠行出现（24px 头 + 计数）；用户气泡右对齐 r22、max-w 525；发送钮 34px 圆形品牌蓝；状态行 12px 居中（model · tokens · $cost · context）。
 - `sidebar.yaml`——logo 行 52px + 18px 字标；新会话钮 h38 r12；项目行 34 / 会话行 32（缩进 22px，状态点 brand/dim/danger）；时间戳 hover 隐藏；底部数据统计/设置行 42px。
 - `stats.yaml`——KPI 卡一行 5 张；指标带一行 7 格；主体三列 320/1fr/340；吞吐折线品牌蓝。
-- `settings.yaml`——弹窗 800px r16（ui-kit token 系）、左导航 188px（单元 h40 r12）；「关于」页有版本号 chip。
+- `settings.yaml`——弹窗 800px r24、左导航 188px（单元 h40 r12）；「关于」页有版本号 chip。
 - `quick-switcher.yaml`——⌘K/Ctrl+K 弹出 560px 顶部对齐面板；输入 h44、会话行 h40；ESC 退出。
 - `taskpanel.yaml`——composer 上方 dock 卡宽随消息列（≤780）；进度条 1px 品牌蓝；filter chip h26 r7；任务卡 r10。
 
 **已知偏差（记录不改）**：dsh 消息列 748px，kymido 消息列与 composer 统一 `max-w-[780px]`（chat.yaml notes）。
 
-## Ainotation 标注栈（kymido-web）
+## 发现处置纪律
 
-kymido-web 已接 ainotation MCP 闭环（对标 ferrite admin-web 接线，协议细节见 ferrite `apps/admin-web/AINOTATION.md`）：
+自动检查（canon 的 `FAIL`/`WARN`、`jev` L3 语义发现、CRG / `ocr review` 审查意见）
+产出的是**发现**，不是判决。每条发现都必须被显式处置，不存在"绕过"这个选项。
 
-- **部件**：SDK bundle 内联在 index（`bin/web/src/app.rs` 的 `debug_assertions` 门控；源 `bin/web/ainotation-entry.ts`，`bin/web` 下 `bun run aino` 重打 → 需重新 build + 重启 kymido-web）；同步桥 `bin/web/scripts/ainotation-bridge.mjs`（:44091，避开 ferrite 的 :44090；项目名 `kymido-web`——ainotation 服务的运行时注册键，改名会断既有 grant，留待后续单独处理；注册目录=本仓库根）；grant 文件 `bin/web/assets/ainotation/connection.json` 已 gitignore。
-- **启动顺序**：ainotation service（ferrite 的 `just aino-service` 或 `npx @ainotation/mcp@beta service`，幂等）→ `node bin/web/scripts/ainotation-bridge.mjs`（常驻，自动注册项目并每 2 分钟续租 grant）→ kymido-web（见上文启动序列）。
-- **MCP 作用域**：`ainotation` 走用户级全局注册（`~/.omp/agent/mcp.json`，`connect` 不带 `--directory`）——会话启动时按 agent 工作区/启动目录自动收窄到对应 Web 项目（kymido 会话即 `kymido-web`），多项目会话用 `ainotation_list_projects` + 按名选项目；每仓不再放 `.omp/mcp.json`。改完配置需 `/mcp reload` 或新会话。会话先于 service 启动时 ainotation 工具调用会挂起，reload 可修复。
-- **页面**：浮层 A 钮是 `<ainotation-inspector-shell>`（web component + shadow DOM，按普通 div 扫不到）；Dioxus 重渲染替换节点后旧标注目标失效属预期，重标即可。
+### 先读规范，再改代码
+
+1. 拿到 finding，先读规则原文，确认这条发现到底要求什么：
+   - canon 规则总览：`gate-spec` skill（正本）；各仓 `.githooks/spec/docs/SPEC_OVERVIEW.md` 为播种副本
+   - 单条规则的参数（匹配范围 / 严重度 / harness）：`.githooks/spec/**/<rule>.yaml`
+   - 项目适配说明（本仓为什么这么定）：`.agent/rules/gates.md`
+2. 不确定 finding 是否成立时，读完规则仍不能判定 → **记为待裁决**并在交付记录里写明，
+   不要凭猜测改代码，也不要直接忽略。
+
+### 按根因修，不按症状修
+
+- finding 指向的**约束**是根因。修代码使约束成立，而不是让检查不再报。
+- 修完自问：这条约束在本仓还成立吗？下次同类改动还会不会触发？
+
+### 完整读输出，不截断
+
+- 拦截信息**逐条读完**再动手。`| head -5`、`| tail`、`grep -v` 会吞掉后面的 finding，
+  让人误以为已经修完。
+- 报告里出现「N checks passed」时，确认 N 覆盖了你改动的部分。
+
+### 禁止糊弄式修复
+
+以下动作一律视为违规（无论 canon 是否因此变绿）：
+
+| 禁止 | 为什么 | 正确做法 |
+|---|---|---|
+| 改 `.githooks/spec/` 规则、降低 `fail_severity`、删 spec 文件 | 把约束改没，不是修问题 | 开 issue 说明规则缺陷，交维护者决定 |
+| `--no-verify`、跳过钩子、直接推 | 绕过的是整个门禁体系 | 修到清零；规则有误走 issue |
+| `head` / `tail` / `grep -v` 截断输出后当没看见 | 后面的 finding 被吞 | 完整读输出 |
+| 加 `#[allow(dead_code)]` / `# noqa` 消告警 | 压制信号而非解决 | 删无用代码，或写清保留理由 |
+| 建空文件 / 空目录 / 占位文件骗过目录类规则 | 结构噪音 | 真按规则合并或删除 |
+| 给无断言测试塞 `assert!(true)` | 测试变成永真装饰 | 断言真实行为；无行为可测就删测试 |
+| 拆分 / 改名 / 移动只为躲过匹配范围 | 破坏结构换绿灯 | 按规则设计的结构改 |
+
+### 逐条处置并留下书面说明
+
+- **每条 finding 一个处置**：修复（默认）或**书面驳回**。
+- 修复 → 在交付记录里写：`规则 ID → 根因 → 改法（file:line）`。
+- 驳回 → 必须写 `规则 ID + 不修理由 + 依据`，由维护者裁决。沉默即违规。
+- 交付记录落点：PR 正文 `## Delivery record` 段，或 issue 的交付评论。
+- WARN 与 FAIL 同等对待。WARN 只是不拦，不是可忽略。
+
+### 规范层级
+
+- `.githooks/` 是 canon 领地：agent 不改规则。
+- `.agent/rules/`、`specs/rules/` 是规范正本：发现规则与现实冲突 → 提 issue，不自行改写。
+- 本纪律与各仓既有条款冲突时，以本纪律为准（它更严格）。
+
+## 代码风格
+
+### 命名与结构
+
+- 函数名动宾结构、见名知目的（`parse_channel_config` 而不是 `do_config`）。
+- 公共 API 写文档注释（用途、参数、错误、示例），模块头写 `//!`。
+- 变量与类型不缩写到看不出含义；短名只留给公认短物（`id`、`ctx`、`err`）。
+
+### 注释
+
+- 注释写**为什么**，不复述代码在做什么。
+- 不留 AI 味注释（`// Step 1:` / `// This function` / `// 该函数…` / `// 首先…然后…`）。
+- 需要解释的复杂逻辑，宁可提取成命名清晰的函数，也不要靠注释块描述流程。
+- 注释掉的代码直接删；git 记得它。
+
+### 占位符与未完成
+
+- 未实现的函数或 trait 用语言原生宏，并带 issue 号：
+  - Rust：`todo!("TODO(#123): 说明这里要做什么")` / `unimplemented!("…")`
+- TODO / FIXME 注释必须带 issue 号：`// TODO(#123): …`。
+- 不留空的 `todo!()` / `pass` / `NotImplemented` 桩而无说明。
+
+### 复用与删除
+
+- 动手前先找同仓同类实现与已装依赖。已有工具能解决就不新写。
+- 新增依赖前确认：标准库能做完？已装依赖能做？确实都需要才加。
+- **删除优于新增**：不留兼容垫片、旧别名、废弃分支、注释掉的旧实现。
+- 改了接口就同步迁移所有调用方，不留双路径兼容。
+
+### 工具
+
+- 命名、缩进、格式化交给项目工具（`cargo fmt` / `gofmt` / `ruff format` / `prettier` / `biome`），
+  不手工对齐，不在格式化工具之外争论风格。
+- lint 报错逐条判断：真问题就修；误报就在规则允许的方式下局部豁免并写明理由，
+  不整文件关掉。
+
+## Rust 开发性能
+
+本仓 `.cargo/config.toml` 已配 `jobs = 4`（多会话并发上限）与
+`rustc-wrapper = sccache`（跨 worktree 编译缓存），`Cargo.toml` 已关增量、
+降 debuginfo。配置随 cargo 向上搜索对 `.wt/*` worktree 自动生效。
+
+- 跑测试用 `just test-fast`：testless 函数级影响分析，只跑本次改动可能破坏的
+  测试；testless 异常/零命中自动降级全量，绝不静默跳过。全量务必
+  `cargo test --workspace`（根包 workspace 下裸 `cargo test` 只跑根包）。
+- 不要在会话里自行 `export RUSTC_WRAPPER` 或改 jobs——统一走仓配置；
+  重命令照旧套 cgroup CPU 配额（`systemd-run --user --scope -p CPUQuota=70% --`）。
+- 增量编译已关（缓存优先）：同树连续小改动按 crate 级重编是预期行为，不是
+  回归；若本仓热重载明显变慢，提 issue 议局部放开。
+- 新建 `.wt` worktree 直接用；旧布局 worktree 若报 workspace 收编错误，
+  根因与修法见 canon 仓 `Cargo.toml` 的 `exclude` 注释。
+- 配置细节、坑清单与实测基线：skill `rust-dev-perf`。
+
+## 构建与验证
+
+### 基线
+
+- 改动前先确认基线状态。基线已经红就先说清，别把自己的问题和既有问题混在一起报。
+
+### 验证行为，不是验证代码存在
+
+- 改完跑**真实命令**验证："跑一下" = 启动实际程序、调用实际接口、发真实请求、观察输出或状态。
+- bug 修复先复现再修，修完确认复现路径不再触发。
+- 永久性改动要留一个能抓住真实回归的检查。
+- 测可观察行为与边界：状态迁移、转换、优先级、真实错误、边界值。
+  不测 plumbing、不断言源码文本、不写永真断言、不测 mock 的回声。
+- 测试与被测文件就近放 `tests/`（同名对应），保持全量套件可通过。
+
+### 重命令放对位置
+
+- 全量测试、全量构建、全量 lint 放 CI 或收尾阶段，不在改动过程中反复跑。
+- 本地只跑轻量、快的针对性检查（单 crate `cargo check`、单包测试、`fmt --check`、
+  类型检查）。
+- 需要本地跑重命令时，套资源限制（`systemd-run --user --scope -p CPUQuota=65% --` 或本仓等价手段），
+  不抢占用户正在用的 CPU。
+- 装依赖、打包等命令同样受限。
+
+### 收尾
+
+- 一次跑完该跑的检查（测试 + lint + 类型），不在半成品状态下宣称通过。
+- 验证不了的部分（缺运行环境、缺凭据、缺硬件）明确说"未验证 + 为什么"，
+  不把"没跑"说成"通过"。
+- 不因为失败就改测试迎合实现。测试红了先判断是实现错还是测试错。
+
+## 破坏性操作与敏感信息
+
+### 删除
+
+- 删文件前确认它确实是废弃物（生成物、已合并的临时文件），不是"看起来没用"。
+- 用可恢复的方式删（`gio trash`），不用不可恢复的直接删除。
+- `rm -rf`、覆盖写、清空数据库这类不可逆操作：**先说明影响，等确认**。
+- 删的是别人的产物、你不理解用途的文件、或 gitignore 里的东西 → 停下来问。
+
+### 敏感与不可逆
+
+- 凭据、token、密钥、私钥：不打印到输出、不写进提交、不粘到 issue/PR 正文。
+- 不擅自 dump 整个配置文件或环境变量（可能含密钥）。要看就只看需要的字段。
+- 系统级配置、字体、全局环境、dotfiles 里的全局项：默认别动，改动前先问。
+- 数据库迁移、配置格式变更、依赖大版本升级：先确认可回滚。
+
+### 安装与全局改动
+
+- 装包、改 PATH、装 systemd 服务、改 shell 配置：先确认再动。
+- 写进 dotbot / 配置管理器托管范围的路径前，先确认该由谁管。
+- 不可逆的系统级改动（分区、引导、网络栈）一律先问，不自行执行。
+
+## 调查与审查
+
+### 先建图，再查调用
+
+- 调查陌生代码先建调用图谱（`code-review-graph update`）再查调用关系，
+  不逐文件翻、不靠 grep 猜。
+- 改共享逻辑前先看影响面（谁在调、调了会怎样），再动。
+
+### 审查两层
+
+1. **结构层**：`code-review-graph detect-changes` 看结构影响、循环依赖、风险面。
+2. **规范层**：`ocr review`（**代码审查工具**，与 OCR 截图识别无关）看代码规范。
+   按模块分批喂，不要一次性喂整个仓。
+
+- 审查发现逐条处置：修或书面驳回（同发现处置纪律）。
+- 改完核心逻辑后跑一次工具审查再收工。
+
+### 写代码的模型 ≠ 审查的模型
+
+- 自己写的代码自己审有盲区。审查方尽量指定与写作不同的模型。
+- 无法可靠判断"这段是谁写的" → 开工前问一句，别猜。
+
+### UI 验证
+
+- 交互元素加 `data-testid`（值取稳定标识，如 `name` 属性），容器加 `role` + `aria-label`。
+- 冒烟验证用结构化快照（`tab.ariaSnapshot()`）做 role / name / testid 断言。
+- 禁区：只靠截图肉眼判断、用 class 选择器断言、绕过结构化快照直接提 PR。
+- 截图能证明"看起来对"，不能证明"结构对、可访问、可自动化"。
+
+### 别造 demo 污染真实仓
+
+- 验证 issue/PR 流程、gh 拦截、规则改动，用专用沙盒仓（如 `demo-githooks`），
+  不在业务仓创建 demo issue/PR。
+
+## 提交与 PR
+
+### 分支
+
+- 默认分支是 `main`（本仓若不同以本仓为准），功能从默认分支拉。
+- 一个任务一个分支，分支名带类型前缀（`feat/` / `fix/` / `refactor/` / `chore/`）。
+- 合并后清理已合并分支与 worktree，不留 stale 分支。
+
+### Commit
+
+- 标题走 conventional commit（`feat:` / `fix:` / `refactor:` / `docs:` / `chore:` /
+  `test:` / `ci:` / `build:` / `perf:` / `style:` / `revert:`）。
+- 标题**用英文**，正文可用中文。
+- 一个 commit 一件事。不把无关改动、格式化噪声、生成物混进逻辑改动。
+- 提交前跑对应检查（`canon pre-commit` / `canon pre-push`），不靠推送失败才发现。
+
+### Issue
+
+- 标题中文；正文 heading 英文、内容中文。
+- sub-issue 必须自包含：正文不写 `Parent:` / `Related:` / PR 占位符，直接写清它要什么。
+- 关闭前 `Done when` 的 checkbox 全勾。
+
+### PR
+
+- 标题纯英文（conventional commit 风格）；正文小节标题英文、内容中文。
+- 正文按仓库模板（`.github/PULL_REQUEST_TEMPLATE.md`）写：背景 / 改了什么 / 为什么 /
+  实现步骤 / 交付记录 / 怎么验证 / 检查清单。
+- 关联 issue 用 `Fixes #<n>` 收尾行；draft 阶段用 `Related #<n>`，合并授权前改 `Fixes`。
+- 开启或更新 PR 后看 CI 结果到底（`gh pr checks`），红了就修，不等用户来问。
+- 被 canon 拦下就修代码，**不改规则**。规则确有缺陷 → 开 issue 交维护者裁决。
+
+### 收尾
+
+- 收尾时清掉：已合并分支、临时 worktree、临时进程、跑完的 dev server。
+- 资源及时释放；只保留维护者需要的进程（如用户要看的 web 前端）。
+
+## 子代理与并行
+
+- 派子代理时 prompt 写全：目标文件 / 符号、要做什么、验收标准、明确不做什么。
+- 子代理之间不共享未写进文件的结论；结论落文件，不落聊天。
+- 独立切片才并行；有依赖的按序做。
+- 子代理声称改完的东西要自己核对，不以"它说完成了"为凭据。
+- 大范围改动派只读代理先摸清结构，再动手改。
