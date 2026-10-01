@@ -16,8 +16,8 @@ use crate::views::workspace::View;
 
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    ANIM_SCOPE, IconChartBar, IconFolder, IconMessageSquare, IconPlus, IconSearch, IconSettings,
-    IconTrash,
+    ANIM_SCOPE, IconBox, IconChartBar, IconFolder, IconMessageSquare, IconPlus, IconSearch,
+    IconSettings, IconTrash,
 };
 use ui_kit::layout::{DualPaneChild, DualPaneGroup, DualPaneNav};
 
@@ -35,9 +35,10 @@ pub fn SessionTreePanel(
     on_select: EventHandler<String>,
     on_select_space: EventHandler<String>,
     on_create: EventHandler<String>,
-    on_delete_session: EventHandler<String>,
+    on_archive_session: EventHandler<String>,
     on_delete_space: EventHandler<String>,
     on_open_search: EventHandler<()>,
+    on_create_project: EventHandler<()>,
 ) -> Element {
     // 项目默认全部展开
     let mut expanded_spaces = use_signal(|| {
@@ -49,7 +50,7 @@ pub fn SessionTreePanel(
 
     rsx! {
         div { class: "flex flex-col gap-1.5 min-h-0 flex-1",
-            // 小按钮行：⌘K 搜索入口（「+ 创建项目 / 归档」钮属 Batch 3 后端）
+            // 小按钮行：⌘K 搜索 + 「+ 创建项目」目录弹窗（A2）
             div { class: "flex items-center gap-1.5",
                 Button {
                     variant: ButtonVariant::Ghost,
@@ -58,6 +59,14 @@ pub fn SessionTreePanel(
                     title: sh::MSG_SEARCH_SESSION,
                     onclick: move |_| on_open_search.call(()),
                     IconSearch { size: 15 }
+                }
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
+                    class: "{ANIM_SCOPE}",
+                    title: sh::BTN_CREATE_PROJECT,
+                    onclick: move |_| on_create_project.call(()),
+                    IconPlus { size: 15 }
                 }
             }
             // 项目/会话树
@@ -120,7 +129,7 @@ pub fn SessionTreePanel(
                                             depth,
                                             active: session.id == active_id,
                                             on_select: on_select,
-                                            on_delete: on_delete_session,
+                                            on_archive: on_archive_session,
                                         }
                                     }
                                 }
@@ -144,9 +153,10 @@ pub fn DualSidebar(
     on_select: EventHandler<String>,
     on_select_space: EventHandler<String>,
     on_create: EventHandler<String>,
-    on_delete_session: EventHandler<String>,
+    on_archive_session: EventHandler<String>,
     on_delete_space: EventHandler<String>,
     on_open_search: EventHandler<()>,
+    on_create_project: EventHandler<()>,
     view: Signal<View>,
     settings_section: Signal<SettingsSection>,
     expanded: bool,
@@ -160,7 +170,8 @@ pub fn DualSidebar(
         view.set(match i {
             0 => View::Chat,
             1 => View::Settings,
-            _ => View::Stats,
+            2 => View::Stats,
+            _ => View::Archive,
         });
     };
 
@@ -187,9 +198,10 @@ pub fn DualSidebar(
                     on_select: on_select,
                     on_select_space: on_select_space,
                     on_create: on_create,
-                    on_delete_session: on_delete_session,
+                    on_archive_session: on_archive_session,
                     on_delete_space: on_delete_space,
                     on_open_search: on_open_search,
+                    on_create_project: on_create_project,
                 }
             }),
         },
@@ -217,6 +229,14 @@ pub fn DualSidebar(
             id: "stats",
             label: sh::TTL_STATS,
             icon: rsx! { IconChartBar { size: 20 } },
+            children: Vec::new(),
+            content: None,
+        },
+        // 归档：软删会话的一级 tab（列表在中心页 ArchiveView，同统计/设置页模式）。
+        DualPaneGroup {
+            id: "archive",
+            label: sh::LBL_ARCHIVE,
+            icon: rsx! { IconBox { size: 20 } },
             children: Vec::new(),
             content: None,
         },

@@ -658,6 +658,29 @@ impl SessionState {
         self.inner.delete_session(id)
     }
 
+    /// Move a session out of the live database into a cold archive (soft
+    /// delete). Backs the `session.archive` command.
+    pub fn archive_session(&self, id: &str) -> Result<session::ArchiveReceipt, SessionError> {
+        self.inner.archive_session(id)
+    }
+
+    /// Restore a cold-archived session back into the live database. Backs
+    /// the `session.restore` command.
+    pub fn restore_session(&self, id: &str) -> Result<SessionSummary, SessionError> {
+        self.inner.restore_session(id)
+    }
+
+    /// Read-only listing of archived sessions (summaries, no restore). Backs
+    /// the `session.list_archived` command.
+    pub fn list_archived(&self) -> Result<Vec<SessionSummary>, SessionError> {
+        session::list_archived(self.inner.path())
+    }
+
+    /// Permanently delete an archived session's file. Backs `session.purge`.
+    pub fn purge_archive(&self, id: &str) -> Result<bool, SessionError> {
+        session::delete_archive(self.inner.path(), id)
+    }
+
     pub fn list_sessions(
         &self,
         query: &str,

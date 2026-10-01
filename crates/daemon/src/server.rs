@@ -181,6 +181,8 @@ pub struct Daemon {
     pub(crate) run_ledger: RunLedger,
     /// `.kymido` data dir; `task.list` reads `tasks.jsonl` from here.
     pub(crate) task_data_dir: PathBuf,
+    /// A2 project registry: persisted list of registered working dirs.
+    pub(crate) project_store: std::sync::Arc<crate::projects::ProjectStore>,
     pub(crate) workers: Arc<SessionRegistry>,
     /// S3: connection attach bookkeeping + the 30s tree-gated unloader;
     /// the connection loop attaches/detaches through its tracker.
@@ -293,6 +295,8 @@ impl Daemon {
         let shutdown = Arc::new(AtomicBool::new(false));
         let started_at_ms = now_ms();
         let events = EventBus::new();
+        // A2: project registry, seeded with the default (data-dir) project.
+        let project_store = Arc::new(crate::projects::ProjectStore::open(&cfg.data_dir));
 
         // Push every submitted question to `user.question` subscribers (the
         // web UI renders them; CLI/smoke can poll `user.question.pending`).
@@ -324,6 +328,7 @@ impl Daemon {
             session_state,
             run_ledger,
             task_data_dir: cfg.data_dir.clone(),
+            project_store: Arc::clone(&project_store),
             workers,
             reaper,
             reaper_thread: None,
@@ -346,6 +351,7 @@ impl Daemon {
             task_data_dir: daemon.task_data_dir.clone(),
             questions: Arc::clone(&questions),
             attach: daemon.reaper.attach_tracker().clone(),
+            projects: Arc::clone(&daemon.project_store),
         })?;
         daemon.accept_thread = Some(accept_thread);
         let reaper_thread =
@@ -809,6 +815,7 @@ struct AcceptLoopCtx {
     task_data_dir: PathBuf,
     questions: Arc<crate::questions::QuestionBroker>,
     attach: AttachTracker,
+    projects: Arc<crate::projects::ProjectStore>,
 }
 
 fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, DaemonError> {
@@ -828,6 +835,7 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 task_data_dir,
                 questions,
                 attach,
+                projects,
             } = ctx;
             // We poll the shutdown flag between accepts and use a short
             // accept timeout so we don't block forever once shutdown is
@@ -847,6 +855,7 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                 let conn_id = next_conn.fetch_add(1, Ordering::Relaxed);
                 let task_data_dir = task_data_dir.clone();
                 let questions = Arc::clone(&questions);
+                let projects = Arc::clone(&projects);
                 thread::spawn(move || {
                     if let Err(e) = handle_connection(
                         conn,
@@ -860,6 +869,7 @@ fn spawn_accept_loop(ctx: AcceptLoopCtx) -> Result<thread::JoinHandle<()>, Daemo
                         conn_id,
                         task_data_dir,
                         &questions,
+                        &projects,
                     ) {
                         eprintln!("daemon: connection error: {e}");
                     }
@@ -883,6 +893,7 @@ fn handle_connection(
     conn_id: u64,
     task_data_dir: PathBuf,
     questions: &Arc<crate::questions::QuestionBroker>,
+    projects: &Arc<crate::projects::ProjectStore>,
 ) -> Result<(), DaemonError> {
     // R2 3.3: responses and pushed events share one write channel drained by
     // a dedicated writer thread, so a subscribed connection can receive
@@ -912,6 +923,7 @@ fn handle_connection(
         &task_data_dir,
         &out,
         questions,
+        projects,
     );
     // Teardown: stop pushes, wake the writer thread, let queued frames flush.
     events.remove_conn(conn_id);
@@ -940,6 +952,7 @@ fn connection_read_loop(
     task_data_dir: &std::path::Path,
     out: &std::sync::mpsc::Sender<String>,
     questions: &Arc<crate::questions::QuestionBroker>,
+    projects: &Arc<crate::projects::ProjectStore>,
 ) -> Result<(), DaemonError> {
     // S1: this connection's most recent explicitly targeted session — the
     // default for steer/abort requests that carry no `session_id`.
@@ -1026,6 +1039,7 @@ fn connection_read_loop(
                 out: out.clone(),
                 task_data_dir: task_data_dir.to_path_buf(),
                 questions: Arc::clone(questions),
+                projects: projects,
             };
             crate::dispatch::dispatch(&mut ctx, req)
         });

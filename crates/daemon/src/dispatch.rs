@@ -391,6 +391,8 @@ pub struct DispatchCtx<'a> {
     pub task_data_dir: std::path::PathBuf,
     /// Pending user questions (plan-mode review and friends).
     pub questions: std::sync::Arc<crate::questions::QuestionBroker>,
+    /// Project registry (A2): persisted list of registered working dirs.
+    pub projects: &'a crate::projects::ProjectStore,
 }
 
 /// Dispatch a single request.  Always returns a `Response`; the caller just
@@ -774,6 +776,105 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                 .unwrap_or(0);
             let (runs, next_cursor) = ctx.runs.read_from_cursor(cursor);
             Response::ok(id, json!({ "runs": runs, "cursor": next_cursor }))
+        }
+
+        // ---------------- Session archive (soft delete / restore) ----------------
+        Command::SessionArchive => {
+            let sid = match require_str(&req.params, "session_id") {
+                Ok(s) => s,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            match ctx.sessions.archive_session(sid) {
+                Ok(receipt) => Response::ok(
+                    id,
+                    json!({
+                        "session_id": receipt.session_id,
+                        "messages": receipt.messages,
+                        "raw_bytes": receipt.raw_bytes,
+                        "archived_bytes": receipt.archived_bytes,
+                    }),
+                ),
+                Err(e) => session_error_response(id, "session.archive", e),
+            }
+        }
+
+        Command::SessionListArchived => match ctx.sessions.list_archived() {
+            Ok(rows) => match serde_json::to_value(&rows) {
+                Ok(v) => Response::ok(id, v),
+                Err(e) => Response::err(
+                    id,
+                    ResponseError::new("internal", format!("serialize: {e}")),
+                ),
+            },
+            Err(e) => session_error_response(id, "session.list_archived", e),
+        },
+
+        Command::SessionRestore => {
+            let sid = match require_str(&req.params, "session_id") {
+                Ok(s) => s,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            match ctx.sessions.restore_session(sid) {
+                Ok(summary) => match serde_json::to_value(&summary) {
+                    Ok(v) => Response::ok(id, v),
+                    Err(e) => Response::err(
+                        id,
+                        ResponseError::new("internal", format!("serialize: {e}")),
+                    ),
+                },
+                Err(e) => session_error_response(id, "session.restore", e),
+            }
+        }
+
+        Command::SessionPurge => {
+            let sid = match require_str(&req.params, "session_id") {
+                Ok(s) => s,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            match ctx.sessions.purge_archive(sid) {
+                Ok(purged) => Response::ok(id, json!({ "purged": purged })),
+                Err(e) => session_error_response(id, "session.purge", e),
+            }
+        }
+
+        // ---------------- Project registry (A2) ----------------
+        Command::ProjectList => {
+            let rows = ctx.projects.list();
+            match serde_json::to_value(&rows) {
+                Ok(v) => Response::ok(id, v),
+                Err(e) => Response::err(
+                    id,
+                    ResponseError::new("internal", format!("serialize: {e}")),
+                ),
+            }
+        }
+
+        Command::ProjectCreate => {
+            let path = match require_str(&req.params, "path") {
+                Ok(p) => p,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            match ctx.projects.create(path) {
+                Ok(entry) => match serde_json::to_value(&entry) {
+                    Ok(v) => Response::ok(id, v),
+                    Err(e) => Response::err(
+                        id,
+                        ResponseError::new("internal", format!("serialize: {e}")),
+                    ),
+                },
+                Err(e) => Response::err(id, ResponseError::new("project", e.to_string())),
+            }
+        }
+
+        Command::ProjectRemove => {
+            let pid = match require_str(&req.params, "project_id") {
+                Ok(p) => p,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            match ctx.projects.remove(pid) {
+                Ok(removed) => Response::ok(id, json!({ "removed": removed })),
+                Err(e) => Response::err(id, ResponseError::new("project", e.to_string())),
+            }
         }
 
         // ---------------- Worker ----------------

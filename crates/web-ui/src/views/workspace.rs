@@ -14,8 +14,8 @@ use crate::components::ui::Modal;
 use crate::layouts::app_frame::AppFrame;
 use crate::shared as sh;
 use crate::state::actions::{
-    WorkspaceSignals, abort_run, answer_question, change_model, create_session, delete_session,
-    delete_space, select_space, send_message, set_thinking,
+    WorkspaceSignals, abort_run, add_space, answer_question, archive_session, change_model,
+    create_session, delete_space, select_space, send_message, set_thinking,
 };
 use crate::state::backend::{DataBackend, daemon_space, probe_backend};
 use crate::state::readiness::ReadinessGate;
@@ -23,6 +23,7 @@ use crate::state::session::{
     active_session_running, apply_run_statuses, merge_run_statuses, now_ms, session_exists_in,
 };
 use crate::state::subscriptions::{question_event_loop, worker_event_loop};
+use crate::views::archive::ArchiveView;
 use crate::views::config::{SettingsPage, SettingsSection};
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
@@ -46,6 +47,8 @@ pub enum View {
     Stats,
     /// 设置页（分区走 settings_section 信号；弹窗形态已退役）
     Settings,
+    /// 归档页（软删会话列表；恢复 / 彻底删除）
+    Archive,
 }
 const RUN_TASK_LIMIT: u32 = 50;
 
@@ -64,6 +67,8 @@ pub fn Workspace(
     // 不再冻死：超时退化为 Disconnected，空态先渲染，数据由事件订阅补。
     // 保留 JoinError 日志——socket 解析或 ping 里的真 panic 不能静默吞。
     let mut backend = use_signal(probe_backend);
+    // 归档页刷新触发器：本页 restore/purge 后自增，ArchiveView 重取列表。
+    let archive_rev = use_signal(|| 0u32);
 
     // Worker subscription readiness gate (shared between worker_event_loop
     // and the background prompt thread).
@@ -71,8 +76,14 @@ pub fn Workspace(
 
     let data_dir = config.data_dir.clone();
     let mut spaces = use_signal(move || match backend() {
-        // Daemon 模式：项目行 = 单行真实项目（名字取 data_dir 文件名）
-        DataBackend::Daemon(_) => vec![daemon_space(&data_dir)],
+        // Daemon 模式：项目 = 注册表（A2），首帧线程内取一次（LiveView 不能同步 RPC）；
+        // 取不到（无 daemon / 超时）退化为单行 data_dir 项目（旧行为），不回退假数据。
+        DataBackend::Daemon(d) => std::thread::spawn(move || d.list_projects())
+            .join()
+            .ok()
+            .and_then(|r| r.ok())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| vec![daemon_space(&data_dir)]),
         // 无 daemon：无项目行（空态）
         DataBackend::Disconnected => Vec::new(),
     });
@@ -155,6 +166,9 @@ pub fn Workspace(
     });
     let mut view = use_signal(|| View::Chat);
     let mut show_quick_switcher = use_signal(|| false);
+    // A2 创建项目目录弹窗（开合 + 待提交的目录路径草稿）。
+    let mut show_create_project = use_signal(|| false);
+    let mut create_project_path = use_signal(String::new);
     // 统计/设置二级菜单选项写入的页内定位信号（侧栏菜单与页面胶囊单一事实源）
     let stats_range = use_signal(|| String::from("24h"));
     let settings_section = use_signal(|| SettingsSection::Models);
@@ -764,12 +778,17 @@ pub fn Workspace(
         create_session(sig, config_create.model.clone(), space_path);
     };
 
-    let on_delete_session = move |id: String| {
-        delete_session(sig, id);
+    let on_archive_session = move |id: String| {
+        archive_session(sig, id);
     };
 
     let on_delete_space = move |space_path: String| {
         delete_space(sig, space_path);
+    };
+    // A2：打开「创建项目」目录弹窗（路径草稿清空，用户输入目录）。
+    let on_open_create_project = move |_| {
+        create_project_path.set(String::new());
+        show_create_project.set(true);
     };
 
     let on_model_change = move |m: String| {
@@ -828,9 +847,10 @@ pub fn Workspace(
                     },
                     on_select_space: on_select_space,
                     on_create: on_create_session,
-                    on_delete_session: on_delete_session,
+                    on_archive_session: on_archive_session,
                     on_delete_space: on_delete_space,
                     on_open_search: move |_| show_quick_switcher.set(true),
+                    on_create_project: on_open_create_project,
                     view: view,
                     settings_section: settings_section,
                     expanded: !sidebar_collapsed(),
@@ -867,7 +887,9 @@ pub fn Workspace(
                         }
                     },
                     if view() == View::Stats {
-                        span { class: "text-[14px] leading-5 font-medium text-label", "数据统计" }
+                        span { class: "text-[14px] leading-5 font-medium text-label", "{sh::TTL_STATS}" }
+                    } else if view() == View::Archive {
+                        span { class: "text-[14px] leading-5 font-medium text-label", "{sh::LBL_ARCHIVE}" }
                     } else if view() == View::Settings {
                         span { class: "text-[14px] leading-5 font-medium text-label", "设置" }
                     } else {
@@ -893,6 +915,9 @@ pub fn Workspace(
             children: rsx! {
                 match view() {
                     View::Stats => rsx! { StatsView { range: stats_range } },
+                    View::Archive => rsx! {
+                        ArchiveView { rev: archive_rev }
+                    },
                     View::Settings => rsx! {
                         SettingsPage {
                             section: settings_section,
@@ -990,6 +1015,53 @@ pub fn Workspace(
                             div { class: "flex items-center gap-1.5",
                                 kbd { "ESC" }
                                 span { "退出" }
+                            }
+                        }
+                    }
+                }
+            }
+            // A2 创建项目：目录弹窗（输入已存在目录路径，注册为项目）
+            if show_create_project() {
+                Modal {
+                    width_class: "w-[560px]",
+                    top_aligned: true,
+                    on_close: move |_| show_create_project.set(false),
+                    div { class: "p-4 flex flex-col gap-3",
+                        div { class: "flex flex-col gap-1",
+                            label { class: "text-[14px] font-medium text-label", "创建项目（目录路径）" }
+                            p { class: "text-[12px] leading-5 text-caption", "输入一个已存在的目录路径，注册为新项目。同一路径重复注册会被拒绝。" }
+                        }
+                        input {
+                            class: "w-full h-11 rounded-xl bg-layer-1 border border-b2 px-4 text-[14px] leading-5 text-label outline-none transition-colors focus:border-brand placeholder:text-caption",
+                            r#type: "text",
+                            placeholder: "~/projects/your-repo",
+                            value: "{create_project_path}",
+                            oninput: move |e| create_project_path.set(e.value().clone()),
+                            onkeydown: move |e: KeyboardEvent| {
+                                if e.key() == Key::Enter {
+                                    let path = create_project_path().clone();
+                                    add_space(sig, path);
+                                    show_create_project.set(false);
+                                } else if e.key() == Key::Escape {
+                                    show_create_project.set(false);
+                                }
+                            },
+                            autofocus: true,
+                        }
+                        div { class: "flex justify-end gap-2",
+                            button {
+                                class: "h-9 px-4 rounded-lg text-[13px] text-label-2 hover:bg-selector transition-colors cursor-pointer border-none bg-transparent",
+                                onclick: move |_| show_create_project.set(false),
+                                "取消"
+                            }
+                            button {
+                                class: "h-9 px-4 rounded-lg text-[13px] font-medium text-bg bg-brand hover:opacity-90 transition-opacity cursor-pointer border-none",
+                                onclick: move |_| {
+                                    let path = create_project_path().clone();
+                                    add_space(sig, path);
+                                    show_create_project.set(false);
+                                },
+                                "创建"
                             }
                         }
                     }

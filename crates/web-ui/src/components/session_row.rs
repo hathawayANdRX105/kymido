@@ -14,10 +14,10 @@ pub(crate) fn SessionRow(
     depth: usize,
     active: bool,
     on_select: EventHandler<String>,
-    on_delete: EventHandler<String>,
+    on_archive: EventHandler<String>,
 ) -> Element {
     let id_for_select = session.id.clone();
-    let id_for_delete = session.id.clone();
+    let id_for_archive = session.id.clone();
     // 运行中（事件流实时写入 Active）→ 行左侧旋转指示
     let running = session.status == SessionStatus::Active;
 
@@ -40,13 +40,13 @@ pub(crate) fn SessionRow(
             }
             span { class: "{title_class}", "{session.title}" }
             span { class: "text-[12px] leading-5 text-label-3 shrink-0", "{session.last_active}" }
-            // 删除会话钮：hover 行才出现，排在行最右
+            // 归档会话钮（软删：移入「归档」而非硬删）：hover 行才出现，排在行最右
             button {
                 class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
-                title: sh::BTN_DELETE_SESSION,
+                title: sh::BTN_ARCHIVE_SESSION,
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
-                    on_delete.call(id_for_delete.clone());
+                    on_archive.call(id_for_archive.clone());
                 },
                 IconTrash { size: 13 }
             }

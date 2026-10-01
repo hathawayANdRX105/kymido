@@ -22,6 +22,7 @@ pub const BTN_DELETE_SESSION: &str = "删除会话";
 pub const BTN_DELETE: &str = "删除";
 pub const BTN_ADD_IMAGE: &str = "添加图片附件";
 pub const BTN_REMOVE_SPACE: &str = "移除项目";
+pub const BTN_CREATE_PROJECT: &str = "创建项目（选择目录）";
 pub const BTN_NEW_SESSION: &str = "新会话";
 pub const BTN_NEW_CHAT_IN_SPACE: &str = "新建会话";
 pub const BTN_SAVE_CONFIG: &str = "保存配置";
@@ -30,11 +31,15 @@ pub const BTN_EXPAND_SIDEBAR: &str = "展开侧边栏";
 pub const BTN_COLLAPSE_SIDEBAR: &str = "收起侧边栏";
 pub const BTN_TASK_PANEL: &str = "任务看板";
 pub const BTN_COPY: &str = "复制";
+pub const BTN_ARCHIVE_SESSION: &str = "归档会话";
+pub const BTN_RESTORE_SESSION: &str = "恢复会话";
+pub const BTN_PURGE_SESSION: &str = "彻底删除";
 
 // ---- LBL_ : 标签 / 表头 / 区段名 ----
 pub const LBL_SESSIONS: &str = "会话";
 pub const LBL_STATS: &str = "数据统计";
 pub const LBL_SETTINGS: &str = "设置";
+pub const LBL_ARCHIVE: &str = "归档";
 pub const LBL_ABOUT: &str = "关于";
 pub const LBL_MODEL_CHANNEL: &str = "模型与渠道";
 pub const LBL_MCP_SERVERS: &str = "MCP 服务器";

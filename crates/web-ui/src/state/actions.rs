@@ -11,7 +11,9 @@ use std::time::Duration;
 use dioxus::prelude::*;
 use web_client::{ClientError, QuestionAnswer};
 use web_state::title_from_first_message;
-use web_state::types::{ChatMessage, PendingAttachment, Session, SessionStatus, StatusLine};
+use web_state::types::{
+    ChatMessage, PendingAttachment, Session, SessionStatus, StatusLine, WorkspaceSpace,
+};
 
 use crate::state::backend::DataBackend;
 use crate::state::readiness::ReadinessGate;
@@ -130,8 +132,82 @@ pub fn delete_session(mut sig: WorkspaceSignals, id: String) {
     }
 }
 
+/// 归档会话（软删）：Daemon 侧 `session.archive`（线程内，活库行移入冷归档），内存
+/// 清理与 [`delete_session]` 一致；当前会话被归档时回落到该 space 的头部会话。
+pub fn archive_session(mut sig: WorkspaceSignals, id: String) {
+    if let DataBackend::Daemon(d) = (sig.backend)() {
+        let id_daemon = id.clone();
+        std::thread::spawn(move || {
+            let _ = d.archive_session(&id_daemon);
+        });
+    }
+    let mut map = (sig.space_sessions).read().clone();
+    for list in map.values_mut() {
+        list.retain(|s| s.id != id);
+    }
+    (sig.space_sessions).set(map);
+    (sig.session_messages).write().remove(&id);
+    if (sig.active_session_id)() == id {
+        let next = sig
+            .space_sessions
+            .read()
+            .get(&(sig.active_space_path)())
+            .and_then(|list| list.first().map(|s| s.id.clone()))
+            .unwrap_or_default();
+        (sig.active_session_id).set(next);
+    }
+}
+
+/// 创建项目（按目录路径）：乐观更新——UI 线程立即把新项目登记进 `spaces` 并切为
+/// active（会话列表先空，单库 MVP 下会话仍挂 active 项目）；随后后台线程发
+/// `project.create` 持久化到 daemon 注册表（校验为已存在目录）。`Signal` 非
+/// `Send` 不能进 std::thread，故 UI 写在主线程、RPC 在后台线程只带 `d`+`path`；
+/// 校验失败（路径不存在 / 重复）时注册表不落地，下次 `project.list` 重载即消失。
+pub fn add_space(mut sig: WorkspaceSignals, path: String) {
+    let path = path.trim().to_string();
+    if path.is_empty() {
+        return;
+    }
+    let name = std::path::Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| path.clone());
+    let space = WorkspaceSpace {
+        id: path.clone(),
+        name,
+        path: path.clone(),
+        branch: String::new(),
+        is_active: true,
+    };
+    let mut sp = (sig.spaces)();
+    if !sp.iter().any(|s| s.path == path) {
+        sp.push(space.clone());
+        (sig.spaces).set(sp);
+    }
+    (sig.active_space_path).set(path.clone());
+    (sig.space_sessions)
+        .write()
+        .entry(path.clone())
+        .or_insert_with(Vec::new);
+    // 持久化：Daemon 侧 project.create（后台线程；校验 + 写注册表）。
+    if let DataBackend::Daemon(d) = (sig.backend)() {
+        let path_daemon = path.clone();
+        std::thread::spawn(move || {
+            let _ = d.create_project(&path_daemon);
+        });
+    }
+}
+
 /// 删除项目（空间）：内存移除 + 回落。
 pub fn delete_space(mut sig: WorkspaceSignals, space_path: String) {
+    // 持久化：Daemon 侧注销该项目（线程内；默认 data_dir 项目 id==path 同样命中）。
+    if let DataBackend::Daemon(d) = (sig.backend)() {
+        let path_daemon = space_path.clone();
+        std::thread::spawn(move || {
+            let _ = d.remove_project(&path_daemon);
+        });
+    }
     let mut sp = (sig.spaces)();
     sp.retain(|s| s.path != space_path);
     (sig.spaces).set(sp);

@@ -9,12 +9,13 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use daemon::protocol::ProjectEntry;
 use daemon::{Command, DaemonClient, Subscription};
 use serde_json::Value;
 use session::SessionRole;
 use store::{Task, goal::Goal, todo::Todo};
 use web_state::convert::{message_to_chat, summary_to_session};
-use web_state::types::{ChatMessage, PendingAttachment, Session};
+use web_state::types::{ChatMessage, PendingAttachment, Session, WorkspaceSpace};
 
 /// daemon 侧的统计 DTO 原样转出，供 page-stats 直接消费——统计页没有
 /// 需要额外映射的展示形状（KPI 文案在页面里现算），再抄一层 UI DTO 只会
@@ -156,6 +157,50 @@ impl WebDaemon {
     pub fn delete_session(&self, sid: &str) -> Result<(), ClientError> {
         self.client.session_delete(sid)?;
         Ok(())
+    }
+
+    /// 归档会话（软删：移入冷归档，活库行清掉）。已存在归档时拒绝。
+    pub fn archive_session(&self, sid: &str) -> Result<(), ClientError> {
+        self.client.session_archive(sid)?;
+        Ok(())
+    }
+
+    /// 列出已归档（软删）的会话（只读，不解冻回活库）。
+    pub fn list_archived_sessions(&self) -> Result<Vec<Session>, ClientError> {
+        let rows = self.client.session_list_archived()?;
+        Ok(rows.iter().map(summary_to_session).collect())
+    }
+
+    /// 把归档会话恢复回活库（逐字写回）。目标已存在活库行时拒绝。
+    pub fn restore_session(&self, sid: &str) -> Result<(), ClientError> {
+        self.client.session_restore(sid)?;
+        Ok(())
+    }
+
+    /// 彻底删除一个归档会话（不可恢复）。
+    pub fn purge_archived_session(&self, sid: &str) -> Result<(), ClientError> {
+        self.client.session_purge(sid)?;
+        Ok(())
+    }
+
+    // ---------------- 项目注册表（A2） ----------------
+
+    /// 列出已注册项目（持久化于 daemon data_dir）。`branch`/`is_active` 是
+    /// UI 侧概念，映射时填空 / true（单库 MVP，active 由 UI 取首项）。
+    pub fn list_projects(&self) -> Result<Vec<WorkspaceSpace>, ClientError> {
+        let rows = self.client.project_list()?;
+        Ok(rows.iter().map(project_entry_to_space).collect())
+    }
+
+    /// 按目录路径注册一个新项目（校验为已存在目录；同路径拒绝）。
+    pub fn create_project(&self, path: &str) -> Result<WorkspaceSpace, ClientError> {
+        let entry = self.client.project_create(path)?;
+        Ok(project_entry_to_space(&entry))
+    }
+
+    /// 注销一个项目（按 id=路径）。`true` 表示确实删了一行。
+    pub fn remove_project(&self, project_id: &str) -> Result<bool, ClientError> {
+        self.client.project_remove(project_id)
     }
 
     /// 中止当前运行（orbit 模式置 abort 标志；omp 模式转发 abort）。
@@ -395,6 +440,18 @@ impl WebDaemon {
     /// 会撞 "runtime within a runtime"）。
     pub fn stats_summary(&self, range: &str) -> Result<StatsSummary, ClientError> {
         self.client.stats_summary(range)
+    }
+}
+
+/// 项目注册表条目 → UI 空间 DTO。`branch`/`is_active` 是 UI 侧概念，
+/// daemon 不感知，映射时填空 / true（单库 MVP，active 由 UI 取首项）。
+fn project_entry_to_space(e: &ProjectEntry) -> WorkspaceSpace {
+    WorkspaceSpace {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        path: e.path.clone(),
+        branch: String::new(),
+        is_active: true,
     }
 }
 
