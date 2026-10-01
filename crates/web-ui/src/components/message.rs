@@ -24,6 +24,8 @@ pub(crate) fn MessageItem(
     let dom_id = id.unwrap_or_default();
 
     if is_user {
+        // 复制源：用户正文（纯图无正文时不显示复制钮）。
+        let user_copy_src = message.content.clone();
         rsx! {
             div { class: "flex flex-col items-end gap-1 w-full group",
                 id: "{dom_id}",
@@ -45,8 +47,23 @@ pub(crate) fn MessageItem(
                         dangerous_inner_html: "{markdown_to_html(&message.content)}"
                     }
                 }
-                span { class: "text-[12px] leading-5 text-label-3 pr-2 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
-                    "{message.timestamp}"
+                div { class: "flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-75 pr-2",
+                    if !user_copy_src.is_empty() {
+                        button {
+                            class: "size-5 rounded flex items-center justify-center text-label-3 hover:text-label-2 cursor-pointer border-none bg-transparent",
+                            title: sh::BTN_COPY,
+                            onclick: move |_| {
+                                let t = user_copy_src.clone();
+                                _ = document::eval(&format!(
+                                    "navigator.clipboard && navigator.clipboard.writeText({t:?})"
+                                ));
+                            },
+                            IconCopy { size: 11 }
+                        }
+                    }
+                    span { class: "text-[12px] leading-5 text-label-3",
+                        "{message.timestamp}"
+                    }
                 }
             }
         }

@@ -1,8 +1,8 @@
 //! 双栏侧边栏（ui-kit DualPaneNav 形态）：一级 = 会话 / 设置 / 统计，
 //! 二级菜单选项映射中栏页面：
-//! - 会话二级 = 自定义 content 槽（项目 → 会话两级折叠树 + 新会话 / ⌘K 搜索小按钮）；
+//! - 会话二级 = 自定义 content 槽（项目 → 会话两级折叠树 + ⌘K 搜索小按钮）；
 //! - 设置二级 = 默认列表（模型与渠道 / MCP 服务器 / 关于），点击切设置页分区；
-//! - 统计二级 = 默认列表（6 档时间范围），点击切统计页并写 range 信号。
+//! - 统计 = 一级叶子（点击切统计页；时间范围由页内胶囊选，无二级清单）。
 //! 折叠态 = 一级 icon rail（hover 浮出二级 popover，kit 内置）。
 
 use std::collections::{HashMap, HashSet};
@@ -16,55 +16,15 @@ use crate::views::workspace::View;
 
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
-    IconChartBar, IconFolder, IconMessageSquare, IconPlus, IconSearch, IconSettings, IconTrash,
+    ANIM_SCOPE, IconChartBar, IconFolder, IconMessageSquare, IconPlus, IconSearch, IconSettings,
+    IconTrash,
 };
 use ui_kit::layout::{DualPaneChild, DualPaneGroup, DualPaneNav};
 
 use super::session_row::SessionRow;
 
-/// 品牌字标：kymido + 品牌蓝圆点。品牌字标属业务身份，不进 ui-kit；
-/// 双栏形态下挂在 DualPaneNav 底部 footer 槽。
-#[component]
-pub fn Wordmark() -> Element {
-    rsx! {
-        span { class: "flex items-baseline gap-1.5 select-none",
-            span { class: "text-[18px] leading-6 font-semibold tracking-[0.04em] text-label", "kymido" }
-            span { class: "w-1.5 h-1.5 rounded-full bg-brand translate-y-[-2px]" }
-        }
-    }
-}
-
-/// 「统计」二级菜单选项：id = daemon 时间范围 token（与 `parse_stats_range`
-/// 认的 token 对齐），label 展示文案。
-const STATS_RANGE_OPTIONS: [DualPaneChild; 6] = [
-    DualPaneChild {
-        id: "1h",
-        label: sh::OPT_STATS_RANGE_1H,
-    },
-    DualPaneChild {
-        id: "24h",
-        label: sh::OPT_STATS_RANGE_24H,
-    },
-    DualPaneChild {
-        id: "7d",
-        label: sh::OPT_STATS_RANGE_7D,
-    },
-    DualPaneChild {
-        id: "30d",
-        label: sh::OPT_STATS_RANGE_30D,
-    },
-    DualPaneChild {
-        id: "90d",
-        label: sh::OPT_STATS_RANGE_90D,
-    },
-    DualPaneChild {
-        id: "All",
-        label: sh::OPT_STATS_RANGE_ALL,
-    },
-];
-
 /// 「会话」二级菜单 content：项目 → 会话两级折叠树（项目行 h34 / 会话行
-/// 缩进 22px，markup 与原单栏侧栏同源）+ 新会话 / ⌘K 搜索小按钮。
+/// 缩进 22px，markup 与原单栏侧栏同源）+ ⌘K 搜索小按钮（「+ 创建项目 / 归档」属 Batch 3）。
 /// 折叠态（rail-only）装不下动态会话数据（DualPaneChild 是 `&'static str`，
 /// 会话 id/标题是动态的），故会话组不用默认列表，content 专属展开态。
 #[component]
@@ -87,28 +47,14 @@ pub fn SessionTreePanel(
             .collect::<HashSet<_>>()
     });
 
-    // 多个 move 闭包要读「第一个项目」——提前取好，各自克隆
-    let first_path_new_chat = spaces.first().map(|s| s.path.clone());
-
     rsx! {
         div { class: "flex flex-col gap-1.5 min-h-0 flex-1",
-            // 小按钮行：新会话（第一个项目）+ ⌘K 搜索入口
+            // 小按钮行：⌘K 搜索入口（「+ 创建项目 / 归档」钮属 Batch 3 后端）
             div { class: "flex items-center gap-1.5",
-                button {
-                    class: "flex-1 h-[34px] px-3 rounded-lg border border-b2 bg-layer-2 hover:bg-layer-3 hover:border-b3 flex items-center justify-center gap-1.5 text-[13px] leading-[20px] text-label-2 hover:text-label transition-colors cursor-pointer",
-                    title: sh::BTN_NEW_SESSION,
-                    onclick: move |_| {
-                        if let Some(path) = first_path_new_chat.clone() {
-                            on_create.call(path);
-                        }
-                    },
-                    IconPlus { size: 15, class: "text-label-3" }
-                    span { {sh::BTN_NEW_SESSION} }
-                }
                 Button {
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::IconSm,
-                    class: "nav-search-bar",
+                    class: "{ANIM_SCOPE} nav-search-bar",
                     title: sh::MSG_SEARCH_SESSION,
                     onclick: move |_| on_open_search.call(()),
                     IconSearch { size: 15 }
@@ -202,9 +148,12 @@ pub fn DualSidebar(
     on_delete_space: EventHandler<String>,
     on_open_search: EventHandler<()>,
     view: Signal<View>,
-    stats_range: Signal<String>,
     settings_section: Signal<SettingsSection>,
     expanded: bool,
+    /// 最左上折叠钮（ui-kit 动态 icon + ANIM_SCOPE）；消费方注入 DualPaneNav 的 top 槽，
+    /// `None` = 不渲染折叠钮。
+    #[props(default)]
+    collapse_control: Option<Element>,
 ) -> Element {
     let on_group_change = move |i: usize| {
         // 一级 = 页面导航（二级选项在该页内细化，点击一级不清页内定位）
@@ -216,17 +165,10 @@ pub fn DualSidebar(
     };
 
     let on_child_click = move |id: String| {
-        match SettingsSection::from_id(&id) {
-            Some(sec) => {
-                settings_section.set(sec);
-                view.set(View::Settings);
-            }
-            // 统计时间范围 token（1h/24h/7d/30d/90d/All）
-            None => {
-                stats_range.set(id);
-                view.set(View::Stats);
-            }
-        };
+        if let Some(sec) = SettingsSection::from_id(&id) {
+            settings_section.set(sec);
+            view.set(View::Settings);
+        }
     };
 
     let groups = vec![
@@ -275,7 +217,7 @@ pub fn DualSidebar(
             id: "stats",
             label: sh::TTL_STATS,
             icon: rsx! { IconChartBar { size: 20 } },
-            children: STATS_RANGE_OPTIONS.to_vec(),
+            children: Vec::new(),
             content: None,
         },
     ];
@@ -287,11 +229,8 @@ pub fn DualSidebar(
             expanded: expanded,
             on_group_change: on_group_change,
             on_child_click: on_child_click,
-            footer: Some(rsx! {
-                div { class: "flex w-full items-center justify-center py-1",
-                    Wordmark {}
-                }
-            }),
+            top: collapse_control,
+            footer: None,
         }
     }
 }

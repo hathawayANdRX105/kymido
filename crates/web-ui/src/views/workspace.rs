@@ -27,7 +27,7 @@ use crate::views::config::{SettingsPage, SettingsSection};
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
-use ui_kit::icons::IconPanelLeft;
+use ui_kit::icons::{ANIM_SCOPE, IconMenu};
 use web_client::QuestionAnswer;
 use web_client::QuestionItem;
 use web_client::llm::LlmRuntimeConfig;
@@ -692,7 +692,6 @@ pub fn Workspace(
     // 双栏侧栏折叠态：全局信号，切视图后仍保持。宽度固定为 kit 双栏几何
     // （展开 270 / 折叠 80，见 app_frame grid_cols），拖拽调宽已退役。
     let mut sidebar_collapsed = GlobalSignal::<bool>::new(|| false).signal();
-    let on_toggle_sidebar = move |_| sidebar_collapsed.set(!sidebar_collapsed());
 
     let active_space = spaces()
         .iter()
@@ -833,9 +832,26 @@ pub fn Workspace(
                     on_delete_space: on_delete_space,
                     on_open_search: move |_| show_quick_switcher.set(true),
                     view: view,
-                    stats_range: stats_range,
                     settings_section: settings_section,
                     expanded: !sidebar_collapsed(),
+                    collapse_control: Some(rsx! {
+                        div { class: "flex w-full items-center",
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::IconSm,
+                                class: "{ANIM_SCOPE}",
+                                title: if sidebar_collapsed() {
+                                    sh::BTN_EXPAND_SIDEBAR
+                                } else {
+                                    sh::BTN_COLLAPSE_SIDEBAR
+                                },
+                                onclick: move |_| {
+                                    sidebar_collapsed.set(!sidebar_collapsed());
+                                },
+                                IconMenu { size: 16 }
+                            }
+                        }
+                    }),
                 }
             }
             },
@@ -850,18 +866,6 @@ pub fn Workspace(
                             show_tasks.set(false);
                         }
                     },
-                    // 最左折叠钮（取代旧侧栏 logo 行折叠钮）
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::IconSm,
-                        title: if sidebar_collapsed() {
-                            sh::BTN_EXPAND_SIDEBAR
-                        } else {
-                            sh::BTN_COLLAPSE_SIDEBAR
-                        },
-                        onclick: on_toggle_sidebar,
-                        IconPanelLeft { size: 16 }
-                    }
                     if view() == View::Stats {
                         span { class: "text-[14px] leading-5 font-medium text-label", "数据统计" }
                     } else if view() == View::Settings {

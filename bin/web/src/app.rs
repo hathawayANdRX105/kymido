@@ -358,84 +358,92 @@ pub async fn launch() {
         }};
         var ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
         var ATTACHMENT_MAX_COUNT = 4;
-        var bridgeEl = document.getElementById("attachment-bridge");
-        var pickerEl = document.getElementById("attachment-input");
-        if (bridgeEl && pickerEl) {{
-            var readingEl = document.getElementById("attachment-reading");
+        // LiveView 首帧是异步渲染：脚本加载时 composer 的 #attachment-input /
+        // #attachment-bridge 可能尚未进 DOM，load 时 getElementById + addEventListener
+        // 会拿到 null 而整段跳过（→ 选图永不生效）。改用 document 级 change 委托，
+        // 事件触发时惰性取元素，无论 input 何时渲染都生效。
+        function renderRejected(items) {{
             var rejectedEl = document.getElementById("attachment-rejected");
-            function renderRejected(items) {{
-                if (!rejectedEl) return;
-                if (items.length === 0) {{
-                    rejectedEl.classList.add("hidden");
-                    rejectedEl.innerHTML = "";
+            if (!rejectedEl) return;
+            if (items.length === 0) {{
+                rejectedEl.classList.add("hidden");
+                rejectedEl.innerHTML = "";
+                return;
+            }}
+            rejectedEl.classList.remove("hidden");
+            rejectedEl.innerHTML = items.map(function (it) {{
+                // Names come from the file picker, so escape before
+                // innerHTML — otherwise a crafted filename can inject a
+                // <script> into the composer.
+                var safe = String(it.name).replace(/[&<>"]/g, function (c) {{
+                    return {{ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }}[c];
+                }});
+                return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#f87171;">' +
+                    '<span style="overflow:hidden;text-overflow:ellipsis;max-width:180px;">' + safe + '</span>' +
+                    '<span style="color:#9ca3af;">' + it.reason + '</span></div>';
+            }}).join("");
+        }}
+        document.addEventListener("change", function (event) {{
+            var pickerEl = event.target;
+            if (!pickerEl || pickerEl.id !== "attachment-input") return;
+            var bridgeEl = document.getElementById("attachment-bridge");
+            if (!bridgeEl) return;
+            var files = Array.prototype.slice.call(pickerEl.files || []);
+            pickerEl.value = "";
+            if (files.length === 0) return;
+            var picked = [];
+            var rejected = [];
+            var pending = files.slice(0, ATTACHMENT_MAX_COUNT);
+            var overLimit = files.length - pending.length;
+            if (overLimit > 0) rejected.push({{ name: "", reason: "exceeds " + ATTACHMENT_MAX_COUNT + " attachments" }});
+            var inFlight = 0;
+            function refreshReading() {{
+                var readingEl = document.getElementById("attachment-reading");
+                if (!readingEl) return;
+                if (inFlight > 0) {{
+                    readingEl.classList.remove("hidden");
+                    readingEl.textContent = "处理中 " + inFlight + " 项…";
+                }} else {{
+                    readingEl.classList.add("hidden");
+                }}
+            }}
+            pending.forEach(function (file) {{
+                var ext = (file.name.split(".").pop() || "").toLowerCase();
+                var mediaType = ATTACHMENT_TYPES[ext];
+                if (!mediaType) {{
+                    rejected.push({{ name: file.name, reason: "unsupported type ." + ext }});
                     return;
                 }}
-                rejectedEl.classList.remove("hidden");
-                rejectedEl.innerHTML = items.map(function (it) {{
-                    // Names come from the file picker, so escape before
-                    // innerHTML — otherwise a crafted filename can inject a
-                    // <script> into the composer.
-                    var safe = String(it.name).replace(/[&<>"]/g, function (c) {{
-                        return {{ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }}[c];
+                if (file.size > ATTACHMENT_MAX_BYTES) {{
+                    rejected.push({{ name: file.name, reason: "exceeds " + (ATTACHMENT_MAX_BYTES / 1048576) + "MB" }});
+                    return;
+                }}
+                inFlight++;
+                refreshReading();
+                var reader = new FileReader();
+                reader.onload = function () {{
+                    var result = reader.result || "";
+                    var comma = result.indexOf(",");
+                    picked.push({{
+                        name: file.name,
+                        media_type: mediaType,
+                        data: comma >= 0 ? result.slice(comma + 1) : result,
                     }});
-                    return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#f87171;">' +
-                        '<span style="overflow:hidden;text-overflow:ellipsis;max-width:180px;">' + safe + '</span>' +
-                        '<span style="color:#9ca3af;">' + it.reason + '</span></div>';
-                }}).join("");
-            }}
-            pickerEl.addEventListener("change", function () {{
-                var files = Array.prototype.slice.call(pickerEl.files || []);
-                pickerEl.value = "";
-                if (files.length === 0) return;
-                var picked = [];
-                var rejected = [];
-                var pending = files.slice(0, ATTACHMENT_MAX_COUNT);
-                var overLimit = files.length - pending.length;
-                if (overLimit > 0) rejected.push({{ name: "", reason: "exceeds " + ATTACHMENT_MAX_COUNT + " attachments" }});
-                var inFlight = 0;
-                pending.forEach(function (file) {{
-                    var ext = (file.name.split(".").pop() || "").toLowerCase();
-                    var mediaType = ATTACHMENT_TYPES[ext];
-                    if (!mediaType) {{
-                        rejected.push({{ name: file.name, reason: "unsupported type ." + ext }});
-                        return;
-                    }}
-                    if (file.size > ATTACHMENT_MAX_BYTES) {{
-                        rejected.push({{ name: file.name, reason: "exceeds " + (ATTACHMENT_MAX_BYTES / 1048576) + "MB" }});
-                        return;
-                    }}
-                    inFlight++;
-                    if (readingEl) {{
-                        readingEl.classList.remove("hidden");
-                        readingEl.textContent = "处理中 " + inFlight + " 项…";
-                    }}
-                    var reader = new FileReader();
-                    reader.onload = function () {{
-                        var result = reader.result || "";
-                        var comma = result.indexOf(",");
-                        picked.push({{
-                            name: file.name,
-                            media_type: mediaType,
-                            data: comma >= 0 ? result.slice(comma + 1) : result,
-                        }});
-                        bridgeEl.value = JSON.stringify(picked);
-                        bridgeEl.dispatchEvent(new Event("input", {{ bubbles: true }}));
-                        inFlight--;
-                        if (inFlight === 0 && readingEl) {{
-                            readingEl.classList.add("hidden");
-                        }}
-                    }};
-                    reader.onerror = function () {{
-                        inFlight--;
-                        rejected.push({{ name: file.name, reason: "read failed" }});
-                        if (inFlight === 0 && readingEl) readingEl.classList.add("hidden");
-                        renderRejected(rejected);
-                    }};
-                    reader.readAsDataURL(file);
-                }});
-                renderRejected(rejected);
+                    bridgeEl.value = JSON.stringify(picked);
+                    bridgeEl.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                    inFlight--;
+                    refreshReading();
+                }};
+                reader.onerror = function () {{
+                    inFlight--;
+                    rejected.push({{ name: file.name, reason: "read failed" }});
+                    refreshReading();
+                    renderRejected(rejected);
+                }};
+                reader.readAsDataURL(file);
             }});
-        }}
+            renderRejected(rejected);
+        }});
     }})();
     </script>
 </body>
