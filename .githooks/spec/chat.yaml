@@ -75,16 +75,16 @@ anchors:
     expect: 'StatsLine 状态行 12/20 tertiary 居中：model · ↑in ↓out · $cost · context %；单行 12px 居中，置于输入卡下方一行（ainnotation 波3 #4 由卡上方移到下方）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs:151；dsh: StatsLine.module.css:8-16（center 12px/20px tertiary）'
   - key: composer-card
-    find: 'rounded-[22px] border border-b1 bg-input-bg shadow-lv2'
-    expect: 'composer 输入卡 r22 胶囊（max-w 780 随消息列），focus-within 提亮边框。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs:159；dsh: InputBar.module.css:56,85（border-radius: 22px）'
+    find: 'rounded-[24px] border border-b1 bg-input-bg shadow-lv2'
+    expect: 'composer 输入卡 r24 胶囊（max-w 780 随消息列），focus-within 提亮边框。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 输入卡段；dsh: InputBar.module.css（胶囊卡）'
   - key: send-button
-    find: 'w-[34px] h-[34px] rounded-full bg-brand'
-    expect: '静止态发送钮 34px 圆形 bg-brand（#679efe）；流式时同位换 28px 停止钮（stop-button / stop-button-spinner），无 disabled 态（ainnotation 波3 #3）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs 发送/停止钮段；dsh: InputBar.module.css:371-379（34px circle）'
+    find: 'IconArrowUp { size: 16 }'
+    expect: '发送钮两态：空闲（输入空置灰 bg-selector cursor-default）/ 可发（32px 圆形 bg-brand + hover 提亮 + active 缩放），点击发送并清草稿。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 发送钮段；dsh: InputBar.module.css（圆形发送钮）'
   - key: stop-button
-    find: 'w-[28px] h-[28px] rounded-full bg-brand'
-    expect: '运行态停止钮 28px 圆形 bg-brand（较旧 34px 小白方块更小更精致，ainnotation 波3 #3），is_streaming 时同位替换静止态发送钮。'
+    find: 'title: sh::BTN_STOP'
+    expect: '运行态停止钮 32px 圆形 bg-brand + 白色 Spinner 14px 描边环（stop-button-spinner），is_streaming 时同位替换静止态发送钮。'
     source: 'kymido: crates/web-ui/src/components/chat.rs 发送/停止钮段；ainnotation 波3 #3'
   - key: stop-button-spinner
     find: 'Spinner { size: 14, class: "text-white" }'
