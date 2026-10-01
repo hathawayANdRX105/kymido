@@ -40,9 +40,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       # `web` bin 的 build.rs 在 bin/web 跑 Tailwind CLI（`node_modules/.bin/
       # tailwindcss`），node_modules 不跟 git（CI 全新 checkout 没有）——不装则
-      # Tailwind 产物 0 字节、护栏硬失败（run 36904776053：Can't resolve 'tailwindcss'）。
+      # Tailwind 产物 0 字节、护栏硬失败（run 36904776053：Can't resolve
+      # 'tailwindcss'）。runner 镜像无 bun（run 36906279179：command not
+      # found），用 npm ci（package-lock.json 确定性）；本地 dev 惯例仍是 bun。
       - name: Install bin/web frontend deps (tailwind build.rs)
-        run: cd bin/web && bun install
+        run: cd bin/web && npm ci --no-audit --no-fund
       # Scope by the diff through the shared resolver (`scripts/ci_scope.py`,
       # byte-identical in ferrite), which answers three questions at once:
       # which crates own the changed files, what depends on them (reverse
