@@ -8,36 +8,8 @@ use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::IconTrash;
 use web_client::llm::{LlmRuntimeConfig, McpServerForm};
 
+use crate::nav::SettingsSection;
 use crate::shared as sh;
-
-/// 设置分区：侧栏「设置」二级菜单选项 ↔ 中栏页面一一对应。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SettingsSection {
-    Models,
-    Mcp,
-    About,
-}
-
-impl SettingsSection {
-    /// 分区展示名（页面头 / 侧栏二级菜单行文案同源）。
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Models => sh::LBL_MODEL_CHANNEL,
-            Self::Mcp => sh::LBL_MCP_SERVERS,
-            Self::About => sh::LBL_ABOUT,
-        }
-    }
-
-    /// 侧栏二级菜单选项 id ↔ 分区；未识别 id 返回 `None`（调用方自行忽略）。
-    pub fn from_id(id: &str) -> Option<Self> {
-        match id {
-            "models" => Some(Self::Models),
-            "mcp" => Some(Self::Mcp),
-            "about" => Some(Self::About),
-            _ => None,
-        }
-    }
-}
 
 /// Max Tokens 输入校验：空白修剪后须为 16–200,000 的 u32，合法返回 `None`。
 pub fn validate_max_tokens(value: &str) -> Option<&'static str> {

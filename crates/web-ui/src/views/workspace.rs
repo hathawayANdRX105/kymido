@@ -12,6 +12,7 @@ use crate::components::dual_sidebar::DualSidebar;
 use crate::components::taskpanel::TaskPanel;
 use crate::components::ui::Modal;
 use crate::layouts::app_frame::AppFrame;
+use crate::nav::{SettingsSection, View};
 use crate::shared as sh;
 use crate::state::actions::{
     WorkspaceSignals, abort_run, add_space, answer_question, archive_session, change_model,
@@ -24,7 +25,7 @@ use crate::state::session::{
 };
 use crate::state::subscriptions::{question_event_loop, worker_event_loop};
 use crate::views::archive::ArchiveView;
-use crate::views::config::{SettingsPage, SettingsSection};
+use crate::views::config::SettingsPage;
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
@@ -39,18 +40,10 @@ use web_state::types::{
 use web_state::ui_state::{AgentEvent, UiState};
 use web_state::{is_placeholder_title, title_from_first_message};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum View {
-    /// 会话页（chat 对话）
-    Chat,
-    /// 统计页（时间范围走 stats_range 信号）
-    Stats,
-    /// 设置页（分区走 settings_section 信号；弹窗形态已退役）
-    Settings,
-    /// 归档页（软删会话列表；恢复 / 彻底删除）
-    Archive,
-}
 const RUN_TASK_LIMIT: u32 = 50;
+/// 双栏侧栏折叠态：全局信号，切视图后仍保持（宽度固定为 kit 双栏几何
+/// （展开 270 / 折叠 80，见 app_frame grid_cols），拖拽调宽已退役）。
+static SIDEBAR_COLLAPSED: GlobalSignal<bool> = GlobalSignal::new(|| false);
 
 /// 任务看板拉取的任务存储条数上限（daemon `task.list` 的缺省值一致：
 /// 按 `updated_at` 降序取最近若干条，跨会话的持久编排全在此列）。
@@ -703,9 +696,7 @@ pub fn Workspace(
         });
     });
 
-    // 双栏侧栏折叠态：全局信号，切视图后仍保持。宽度固定为 kit 双栏几何
-    // （展开 270 / 折叠 80，见 app_frame grid_cols），拖拽调宽已退役。
-    let mut sidebar_collapsed = GlobalSignal::<bool>::new(|| false).signal();
+    let mut sidebar_collapsed = SIDEBAR_COLLAPSED.signal();
 
     let active_space = spaces()
         .iter()

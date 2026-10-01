@@ -33,7 +33,7 @@ pub struct WorkspaceSignals {
     pub pending_question: Signal<Option<web_client::QuestionItem>>,
     pub show_quick_switcher: Signal<bool>,
     pub show_tasks: Signal<bool>,
-    pub view: Signal<super::super::views::workspace::View>,
+    pub view: Signal<crate::nav::View>,
     pub backend: Signal<DataBackend>,
     pub readiness: Signal<ReadinessGate>,
     pub run_target_sid: Signal<String>,
@@ -80,7 +80,7 @@ pub fn title_to_persist(
 /// 会话选中：切会话 + 回到聊天视图。
 pub fn select_session(mut sig: WorkspaceSignals, id: String) {
     (sig.active_session_id).set(id);
-    (sig.view).set(super::super::views::workspace::View::Chat);
+    (sig.view).set(crate::nav::View::Chat);
 }
 
 /// 空间（项目）选中：仅切 active space。
@@ -103,7 +103,7 @@ pub fn create_session(mut sig: WorkspaceSignals, model: String, space_path: Stri
             let _ = d.create_session(&new_id, &title);
         });
     }
-    (sig.view).set(super::super::views::workspace::View::Chat);
+    (sig.view).set(crate::nav::View::Chat);
 }
 
 /// 删除会话：Daemon 侧删除（线程内，连带消息），内存清理照旧；

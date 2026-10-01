@@ -10,9 +10,8 @@ use std::collections::{HashMap, HashSet};
 use dioxus::prelude::*;
 use web_state::types::{Session, WorkspaceSpace};
 
+use crate::nav::{SettingsSection, View};
 use crate::shared as sh;
-use crate::views::config::SettingsSection;
-use crate::views::workspace::View;
 
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
