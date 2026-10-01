@@ -1,6 +1,6 @@
 # CK-CRG-IMPACT: CRG 影响面门禁 (L2 语义层)
 # 检测: PR/diff 跨 N 个以上 crate 改动 → 警告（建议拆分或说明耦合）
-# 工具: code-review-graph detect-changes (已有, kymido 装了)
+# 工具: code-review-graph detect-changes (已有, omenic 装了)
 # 性能: 1-2s (CRG 索引已 build 过的情况)
 # SLA: l2 (语义层, 秒级)
 # Hook: merge (重量, 跨 crate 影响需要人审视)
