@@ -17,6 +17,7 @@ anchors:
     find: 'text-[18px] leading-6 font-semibold tracking-[0.04em]'
     file: crates/web-ui/src/views/config.rs
     expect: 'kymido 字标 18/24 semibold（品牌身份不进 ui-kit）；双栏侧栏 footer 槽被会话面板接管（2026-10 批注轮）后，字标现挂设置页 About 段。'
+    source: 'kymido: crates/web-ui/src/views/config.rs（About 段字标，原挂 dual_sidebar footer 槽）'
   - key: new-session-button
     find: 'IconPlus { size: 15 }'
     expect: '「会话」二级菜单头部小按钮行：搜索钮（nav-search-bar，IconSearch）+ 新建项目钮（ui-kit Button Ghost IconSm，IconPlus）；旧 h34 文字按钮已换成这两个图标小钮。'
