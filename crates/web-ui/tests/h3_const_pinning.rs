@@ -38,8 +38,12 @@ fn lbl_constants_match_original_literals() {
     assert_eq!(sh::LBL_PICK_MODEL, "选择模型");
     assert_eq!(sh::LBL_PICK_SESSION, "选择会话快速切换");
     assert_eq!(sh::LBL_PLAN_REVIEW, "计划评审");
-    assert_eq!(sh::LBL_WORK_PROCESS, "Work Process");
-    assert_eq!(sh::LBL_REASONING, "思考过程");
+    // a2c675f 起按 aui 词族换名：Work Process 块头行分进行中/结束两形
+    // （原 LBL_WORK_PROCESS），思考块头行分 Thinking/Thought（原 LBL_REASONING）。
+    assert_eq!(sh::LBL_WORK_PROGRESSING, "Progressing");
+    assert_eq!(sh::LBL_WORK_PROGRESS, "Progress");
+    assert_eq!(sh::LBL_THINKING_EN, "Thinking");
+    assert_eq!(sh::LBL_THOUGHT, "Thought");
     assert_eq!(sh::LBL_DESCRIPTION, "描述");
     assert_eq!(sh::LBL_ACCEPTANCE, "验收标准");
     assert_eq!(sh::LBL_RUNNING, "运行中");

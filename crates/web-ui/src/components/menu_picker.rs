@@ -1,9 +1,8 @@
 //! composer 下拉选择器（自 chat.rs 拆出）：ui-kit DropdownMenu 的数据驱动封装
-//! （label + header + items + 选中高亮），自底部向上弹出。仅被 `Chat` 使用。
+//! （胶囊触发器 + 下箭头 + header + items + 选中高亮），自底部向上弹出。仅被 `Chat` 使用。
 
 use dioxus::prelude::*;
 
-use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::IconCheck;
 use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel};
 
@@ -30,11 +29,10 @@ pub(crate) fn MenuPicker(
             content_class: "bottom-full left-0 mb-1 min-w-[190px]",
             close_signal: close_req,
             trigger: rsx! {
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    class: "{mono_class}",
-                    span { "{label}" }
+                button {
+                    r#type: "button",
+                    class: "flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] text-label-2 hover:bg-selector transition-colors cursor-pointer border-none bg-transparent",
+                    span { class: "{mono_class}", "{label}" }
                 }
             },
             content: rsx! {
