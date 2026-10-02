@@ -9,7 +9,6 @@ use ui_kit::icons::IconTrash;
 use web_client::llm::{LlmRuntimeConfig, McpServerForm};
 
 use crate::nav::SettingsSection;
-use crate::shared as sh;
 
 /// Max Tokens 输入校验：空白修剪后须为 16–200,000 的 u32，合法返回 `None`。
 pub fn validate_max_tokens(value: &str) -> Option<&'static str> {
