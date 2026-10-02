@@ -1,18 +1,18 @@
 <!-- managed by canon agents.yaml @ 2026-10-02 -->
 ## kymido 约定
 
-#### Issue/PR 创建
+### Issue/PR 创建
 
 创建 issue/PR 前必须读 `.github/ISSUE_TEMPLATE/` 或 `.github/PULL_REQUEST_TEMPLATE.md`，然后通过已安装 gate 拦截的 `gh` 创建，禁止绕过 gate。
 
 ```bash
-### 安装/更新拦截门
+# 安装/更新拦截门
 canon init
 
-### issue(正文按 .github/ISSUE_TEMPLATE/ 下模板)
+# issue(正文按 .github/ISSUE_TEMPLATE/ 下模板)
 gh issue create --title "..." --body "..." --label <epic|sub|...>
 
-### PR(正文按 .github/PULL_REQUEST_TEMPLATE.md)
+# PR(正文按 .github/PULL_REQUEST_TEMPLATE.md)
 gh pr create --title "..." --body "..." --head <branch>
 ```
 
@@ -20,7 +20,7 @@ gate 自动做创建前校验(规则在 `.githooks/spec/`)+ 创建后现实校�
 
 **`.githooks/` 是 gate 自己的领地，agent 禁止改动 gate 规则**（`hooks/`、`spec/` 下的 gate 规则 yaml、`gate` 二进制）。gate 规则的增删改由用户或 gate 自身的 `canon init` 负责；agent 遇到 gate FAIL 应改自己的提交/PR 正文去迎合规则，而不是去改规则。UI 契约 yaml（7 份，含 `anchors`/`target` 字段）也平铺在 `.githooks/spec/`，但它们不是 gate 规则，由 `bin/web/tests/ui_contract.rs` 消费。
 
-#### 构建与验证（CI 驱动）
+### 构建与验证（CI 驱动）
 
 **测试一律不在本地跑。** `cargo test` / `cargo clippy` / 全量 `cargo build` / `npm install` 全部交给 PR 的 CI（`.github/workflows/ci.yml`）。本地跑测试属违规操作，即使套了配额也不允许。
 
@@ -37,11 +37,11 @@ gate 自动做创建前校验(规则在 `.githooks/spec/`)+ 创建后现实校�
 systemd-run --user --scope -p CPUQuota=70% -- cargo build --bin oi-web
 ```
 
-#### 禁改区
+### 禁改区
 
 `.githooks/` 归 gate 自身维护，**任何开发任务都不得改动 gate 规则**（包括 `.githooks/spec/` 下的 gate 规则 yaml、hook 脚本）。规则要改先去 demo 沙盒（见下文）验证，并由用户显式指派。例外：UI 契约 yaml（用户指定）与 gate 规则平铺在 `.githooks/spec/`，由 ui_contract.rs 消费，不算 gate 规则。
 
-#### Demo 验证沙盒
+### Demo 验证沙盒
 
 验证 issue/PR 流程、gh-gate 拦截、规则改动时，**不要在本仓库(kymido)直接创建 demo issue/PR**，使用专用沙盒：
 
@@ -49,13 +49,13 @@ systemd-run --user --scope -p CPUQuota=70% -- cargo build --bin oi-web
 - 用途：验证 epic/sub/PR 链路、checkbox 强制、双向关联(GT-04b)、审查强制等，避免污染 kymido
 - .githooks 与 kymido 同步；规则改动后先在此仓库验证，再同步到其他项目(deskctl / new-api)
 
-#### TUI（已删除）
+### TUI（已删除）
 
 终端 UI（Ratatui）已在 dsh web 复刻转正时删除：`crates/tui/` 与 `specs/tui/` 均不存在，别再去找。前端验证全部走上面的 Web（oi-web）与「Web UI 契约验收」两节。
 
 `.agent/skills/ui-validation/SKILL.md` 仍保留，但其描述的 TestBackend/specs/tui 流程已无对应代码，用到时先核实目标是否存在。
 
-#### Web（oi-web）启动与样式缺失排查
+### Web（oi-web）启动与样式缺失排查
 
 **症状**：Web UI 打开后是「裸文本」——没有暗色主题、没有卡片/气泡样式，文字堆在一起（如 "搜索会话⌘K / 工作区 / Spaces" 全是素文本），但 JS 功能正常（能发消息、minimap 逻辑在跑）。这是**二进制里嵌进去的 CSS 为空**，不是前端没渲染、也不是没合并代码。
 
@@ -69,14 +69,14 @@ systemd-run --user --scope -p CPUQuota=70% -- cargo build --bin oi-web
 
 ```bash
 cd bin/web && npm install                # 确保 node_modules/.bin/tailwindcss 存在
-### 可选：手动确认能生成非空 CSS（约 40KB）
-###   node_modules/.bin/tailwindcss -i .tailwind.gen-input.css -o /tmp/t.css
+# 可选：手动确认能生成非空 CSS（约 40KB）
+#   node_modules/.bin/tailwindcss -i .tailwind.gen-input.css -o /tmp/t.css
 cd <仓库根>
 touch bin/web/assets/tailwind-input.css   # 强制重跑 build.rs
 cargo build --bin oi-web                  # 不是 -p web；二进制在 bin/web（oi-web）
 pkill -x oi-web; sleep 1
 nohup ./target/debug/oi-web > /tmp/oi-web.log 2>&1 &      # 起在默认 8026（PORT 可覆盖）
-### 验样式：页面内联 <style> 块的字节数（2026-09-16 实测 40005，含 .flex/.mx-auto/padding-left）
+# 验样式：页面内联 <style> 块的字节数（2026-09-16 实测 40005，含 .flex/.mx-auto/padding-left）
 curl -s localhost:8026/ | python3 -c 'import sys,re;h=sys.stdin.read();m=re.search(r"<style>(.*?)</style>",h,re.S);print("style bytes:",len(m.group(1)) if m else "NONE")'
 ```
 
@@ -86,7 +86,7 @@ curl -s localhost:8026/ | python3 -c 'import sys,re;h=sys.stdin.read();m=re.sear
 
 **CI / 协作**：`node_modules` 未进 git，CI 与任何新克隆/新 worktree 都要先 `npm install` 再 build，否则 UI 无样式。若要让 build 可复现，考虑把 `node_modules` 入库或让 build.rs 失败时报错而非静默写空文件。
 
-#### Web UI 契约验收（.githooks/spec 下 7 份 UI 契约）
+### Web UI 契约验收（.githooks/spec 下 7 份 UI 契约）
 
 web UI（dsh 设计语言复刻，C5.1 已验收）的视觉/结构锁在 `.githooks/spec/` 下的 7 份 UI 契约 yaml（workspace / chat / sidebar / stats / settings / quick-switcher / taskpanel），防止后续接线（5.2a/5.2b）破坏。改动 web 组件样式或布局时：先跑契约测试，再按下表浏览器抽查。
 
