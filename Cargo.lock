@@ -4694,6 +4694,7 @@ dependencies = [
  "axum",
  "dioxus",
  "dioxus-liveview",
+ "serde_json",
  "serde_yaml",
  "tokio",
  "web-client",

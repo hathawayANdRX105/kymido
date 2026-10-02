@@ -21,3 +21,7 @@ web-ui = { path = "../../crates/web-ui" }
 # 仅测试用：解析 specs/ui/*.yaml 契约（见 tests/ui_contract.rs）
 [dev-dependencies]
 serde_yaml = { workspace = true }
+
+# build.rs 用 cargo metadata 定位 ui-kit checkout（见 build.rs 的 uikit_dir）
+[build-dependencies]
+serde_json = { workspace = true }
