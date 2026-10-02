@@ -2,37 +2,54 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Locate the ui-kit checkout whose assets/src must enter the Tailwind input.
-/// Two layouts are supported: a sibling checkout (local iteration, path dep)
-/// and the cargo git checkout of the `ui-kit` git dep. Newest rev dir wins so
-/// a bumped lockfile revision doesn't get shadowed by a stale checkout.
-fn uikit_dir(manifest: &Path) -> Option<PathBuf> {
+/// cargo metadata 是唯一权威：它给出本仓 Cargo.lock 钉死的 rev 的确切 checkout。
+/// 此前按 mtime 挑「最新」checkout——ferrite / kymido 共享 CARGO_HOME，另一仓
+/// bump rev 后其 checkout 更新，就会把别的仓的 kit 版本混进本仓 CSS（rsx 编译
+/// 对 A、样式导入对 B 的版本倾斜）。sibling checkout 仅作 metadata 失败时的
+/// 本地兜底；两者皆失交由调用方硬失败（与下方 tailwind 体积护栏同一哲学）。
+fn uikit_dir(manifest: &Path) -> Result<PathBuf, String> {
+    let meta = Command::new("cargo")
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            &manifest.join("Cargo.toml").to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("cargo metadata 执行失败: {e}"))?;
+    if !meta.status.success() {
+        return Err(format!(
+            "cargo metadata 退出码 {:?}: {}",
+            meta.status.code(),
+            String::from_utf8_lossy(&meta.stderr).trim()
+        ));
+    }
+    let parsed: serde_json::Value = serde_json::from_slice(&meta.stdout)
+        .map_err(|e| format!("cargo metadata 输出解析失败: {e}"))?;
+    if let Some(pkg) = parsed["packages"]
+        .as_array()
+        .and_then(|pkgs| pkgs.iter().find(|p| p["name"] == "ui-kit"))
+    {
+        let mp = PathBuf::from(
+            pkg["manifest_path"]
+                .as_str()
+                .ok_or("ui-kit 包缺 manifest_path 字段")?,
+        );
+        return mp
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "ui-kit manifest_path 无父目录".into());
+    }
+    // 本地 path 迭代（临时把依赖指到 sibling）时 metadata 同样能解析到，走不到
+    // 这里；这段只是 cargo 自身异常时的最后退路。
     if let Some(projects) = manifest.ancestors().nth(3) {
         let sibling = projects.join("ui-kit");
         if sibling.join("src").is_dir() {
-            return Some(sibling);
+            return Ok(sibling);
         }
     }
-    let cargo_home = std::env::var_os("CARGO_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")))?;
-    for entry in std::fs::read_dir(cargo_home.join("git/checkouts"))
-        .ok()?
-        .flatten()
-    {
-        if !entry.file_name().to_string_lossy().starts_with("ui-kit-") {
-            continue;
-        }
-        let mut revs: Vec<PathBuf> = std::fs::read_dir(entry.path())
-            .ok()?
-            .flatten()
-            .map(|e| e.path())
-            .collect();
-        revs.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
-        if let Some(latest) = revs.pop() {
-            return Some(latest);
-        }
-    }
-    None
+    Err("cargo metadata 里没有 ui-kit 包，且无 sibling ../ui-kit".into())
 }
 
 /// Compile the Tailwind v4 input (`assets/tailwind-input.css`) into a static
@@ -71,26 +88,28 @@ fn main() {
     // ui-kit（ferrite 家族共享设计系统）的 token 桥 / 动画层 / rsx 类名也要进
     // 产物：kit 组件里的 shadcn 语义类（bg-primary 等）与 animate-in 工具类
     // 定义在 kit 自己的 assets/src 下，不在本仓，必须显式 @import + @source。
-    let kit = uikit_dir(&manifest);
-    if kit.is_none() {
-        println!(
-            "cargo:warning=ui-kit checkout not found (sibling ../ui-kit or cargo git checkout); kit classes will be missing from the stylesheet"
+    // 解析不到就硬失败——静默缺 kit 类的「编译通过但 UI 半裸」在共享
+    // CARGO_HOME 的多仓机器上是常态而非意外，必须在编译期拦住。
+    let kit = uikit_dir(&manifest).unwrap_or_else(|e| {
+        let repo_root = manifest
+            .ancestors()
+            .nth(2)
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        eprintln!(
+            "ui-kit checkout 解析失败（{e}）。tokens/组件/动画 css 无法注入，\
+             继续编译会得到缺 kit 类的样式表。修复：cd {repo_root} && cargo fetch \
+             （或放一个 sibling ../ui-kit）后重试。"
         );
-    }
-    let kit_imports = kit.as_ref().map(|k| {
-        let k = k.to_string_lossy().replace('\\', "/");
-        // ui-kit.css 是组件类层（ui-* 类名）。2026-09 起 ui-kit 把样式从 Rust 常量
-        // 搬进了 CSS，rsx 侧直接写类名——不注入这份文件，ui-* 类全部缺失。
-        format!(
-            "@import \"{k}/assets/tokens.css\";\n@import \"{k}/assets/ui-kit.css\";\n@import \"{k}/assets/animation.css\";\n@import \"{k}/assets/icon-anim.css\";\n"
-        )
+        std::process::exit(1);
     });
-    let kit_src = kit.as_ref().map(|k| {
-        format!(
-            "@source \"{}/src/**/*.rs\";\n",
-            k.to_string_lossy().replace('\\', "/")
-        )
-    });
+    let kit_root = kit.to_string_lossy().replace('\\', "/");
+    // ui-kit.css 是组件类层（ui-* 类名）。2026-09 起 ui-kit 把样式从 Rust 常量
+    // 搬进了 CSS，rsx 侧直接写类名——不注入这份文件，ui-* 类全部缺失。
+    let kit_imports = format!(
+        "@import \"{kit_root}/assets/tokens.css\";\n@import \"{kit_root}/assets/ui-kit.css\";\n@import \"{kit_root}/assets/animation.css\";\n@import \"{kit_root}/assets/icon-anim.css\";\n"
+    );
+    let kit_src = format!("@source \"{kit_root}/src/**/*.rs\";\n");
 
     let mut body = String::with_capacity(css.len());
     let mut injected = false;
@@ -108,8 +127,8 @@ fn main() {
         if !injected && line.trim_start().starts_with("@import ") {
             body.push_str(&format!(
                 "{}@source \"{crate_src}\";\n@source \"{webui_src}\";\n{}",
-                kit_imports.as_deref().unwrap_or(""),
-                kit_src.as_deref().unwrap_or("")
+                kit_imports.as_str(),
+                kit_src.as_str()
             ));
             injected = true;
         }
@@ -120,7 +139,7 @@ fn main() {
             0,
             &format!(
                 "@source \"{crate_src}\";\n@source \"{webui_src}\";\n{}",
-                kit_src.as_deref().unwrap_or("")
+                kit_src.as_str()
             ),
         );
     }
@@ -190,4 +209,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     // rsx classes live in the web crates; their edits must re-run this script.
     println!("cargo:rerun-if-changed=../../crates/web-ui");
+    // kit checkout 随 lockfile rev 变化；纯 rev bump（只动 Cargo.lock）也必须重跑，
+    // 否则 CSS 继续用旧 rev 的 kit 资产。
+    println!("cargo:rerun-if-changed=../../Cargo.lock");
 }
