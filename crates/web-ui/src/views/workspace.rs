@@ -12,6 +12,7 @@ use crate::components::dual_sidebar::DualSidebar;
 use crate::components::taskpanel::TaskPanel;
 use crate::components::ui::Modal;
 use crate::layouts::app_frame::AppFrame;
+use crate::nav::{SettingsSection, View};
 use crate::shared as sh;
 use crate::state::actions::{
     WorkspaceSignals, abort_run, add_space, answer_question, archive_session, change_model,
@@ -24,11 +25,10 @@ use crate::state::session::{
 };
 use crate::state::subscriptions::{question_event_loop, worker_event_loop};
 use crate::views::archive::ArchiveView;
-use crate::views::config::{SettingsPage, SettingsSection};
+use crate::views::config::SettingsPage;
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
-use ui_kit::button::{Button, ButtonSize, ButtonVariant};
-use ui_kit::icons::{ANIM_SCOPE, IconMenu};
+use ui_kit::icons::{ANIM_SCOPE, IconChevronLeft, IconChevronRight};
 use web_client::QuestionAnswer;
 use web_client::QuestionItem;
 use web_client::llm::LlmRuntimeConfig;
@@ -39,18 +39,10 @@ use web_state::types::{
 use web_state::ui_state::{AgentEvent, UiState};
 use web_state::{is_placeholder_title, title_from_first_message};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum View {
-    /// 会话页（chat 对话）
-    Chat,
-    /// 统计页（时间范围走 stats_range 信号）
-    Stats,
-    /// 设置页（分区走 settings_section 信号；弹窗形态已退役）
-    Settings,
-    /// 归档页（软删会话列表；恢复 / 彻底删除）
-    Archive,
-}
 const RUN_TASK_LIMIT: u32 = 50;
+/// 双栏侧栏折叠态：全局信号，切视图后仍保持（宽度固定为 kit 双栏几何
+/// （展开 270 / 折叠 80，见 app_frame grid_cols），拖拽调宽已退役）。
+static SIDEBAR_COLLAPSED: GlobalSignal<bool> = GlobalSignal::new(|| false);
 
 /// 任务看板拉取的任务存储条数上限（daemon `task.list` 的缺省值一致：
 /// 按 `updated_at` 降序取最近若干条，跨会话的持久编排全在此列）。
@@ -703,9 +695,7 @@ pub fn Workspace(
         });
     });
 
-    // 双栏侧栏折叠态：全局信号，切视图后仍保持。宽度固定为 kit 双栏几何
-    // （展开 270 / 折叠 80，见 app_frame grid_cols），拖拽调宽已退役。
-    let mut sidebar_collapsed = GlobalSignal::<bool>::new(|| false).signal();
+    let mut sidebar_collapsed = SIDEBAR_COLLAPSED.signal();
 
     let active_space = spaces()
         .iter()
@@ -823,6 +813,14 @@ pub fn Workspace(
     // 推断的缓存状态，最后会话自身状态）。Mock 无缓存，合并后与原样一致。
     let sidebar_sessions = merge_run_statuses(space_sessions.read().clone(), &run_status_cache());
 
+    // 顶栏折叠钮 aria-label（同 title 语义）：rsx 字符串插值不接受 block
+    // if/else（dioxus formatted segment 只解析 Ident/表达式），前置算好，
+    // 同 ui-kit NavTopBar 的 toggle_label 模式。
+    let collapse_aria = if sidebar_collapsed() {
+        sh::BTN_EXPAND_SIDEBAR
+    } else {
+        sh::BTN_COLLAPSE_SIDEBAR
+    };
     rsx! {
         // 三列框架壳在 layouts/app_frame.rs：这里只喂侧栏、中栏头与正文。
         AppFrame {
@@ -854,24 +852,6 @@ pub fn Workspace(
                     view: view,
                     settings_section: settings_section,
                     expanded: !sidebar_collapsed(),
-                    collapse_control: Some(rsx! {
-                        div { class: "flex w-full items-center",
-                            Button {
-                                variant: ButtonVariant::Ghost,
-                                size: ButtonSize::IconSm,
-                                class: "{ANIM_SCOPE}",
-                                title: if sidebar_collapsed() {
-                                    sh::BTN_EXPAND_SIDEBAR
-                                } else {
-                                    sh::BTN_COLLAPSE_SIDEBAR
-                                },
-                                onclick: move |_| {
-                                    sidebar_collapsed.set(!sidebar_collapsed());
-                                },
-                                IconMenu { size: 16 }
-                            }
-                        }
-                    }),
                 }
             }
             },
@@ -880,12 +860,32 @@ pub fn Workspace(
                 // 中栏头（面包屑）点击也视为「面板外」→ 关闭任务看板。
                 // 头 div 在本页（workspace.rs）撰写、作为 AppFrame 的 header 槽
                 // 传入，故无需改 app_frame.rs 即可覆盖「其他非面板区域」。
-                div { class: "min-h-[44px] pl-7 pr-5 pt-3 pb-2 border-b border-b1 flex items-center gap-2 shrink-0",
+                div { class: "min-h-[44px] pl-2 pr-5 pt-2.5 pb-2 border-b border-b1 flex items-center gap-2 shrink-0",
                     onclick: move |_| {
                         if show_tasks() {
                             show_tasks.set(false);
                         }
                     },
+                    // 顶层栏最左折叠钮（2026-10 批注轮：从侧栏 top 槽移到顶栏最左）。
+                    // 按钮结构跟 ui-kit NavTopBar 最左钮（data-testid / ANIM_SCOPE /
+                    // hover 面）；但 kymido 中栏头中间是面包屑，NavTopBar 的
+                    // justify-between 会把面包屑推到右缘，故只复用其按钮 markup。
+                    // 图标按展开态切换（动态）：展开 = chevron-left（收起方向），
+                    // 折叠 = chevron-right（展开方向），两枚都是 ui-kit icon-anim
+                    // hover 微动效图标。
+                    button {
+                        "data-testid": "sidebar-collapse",
+                        "aria-label": "{collapse_aria}",
+                        class: "hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground md:flex {ANIM_SCOPE}",
+                        onclick: move |_| {
+                            sidebar_collapsed.set(!sidebar_collapsed());
+                        },
+                        if sidebar_collapsed() {
+                            IconChevronRight { size: 16 }
+                        } else {
+                            IconChevronLeft { size: 16 }
+                        }
+                    }
                     if view() == View::Stats {
                         span { class: "text-[14px] leading-5 font-medium text-label", "{sh::TTL_STATS}" }
                     } else if view() == View::Archive {

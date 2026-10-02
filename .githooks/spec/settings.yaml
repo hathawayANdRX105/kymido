@@ -10,9 +10,10 @@ anchors:
     expect: '中栏设置页（SettingsPage）：区头 + 按 settings_section 信号渲染对应 pane；弹窗壳（Modal + 内导航 + 关闭钮）已删。'
     source: 'kymido: crates/web-ui/src/views/config.rs（SettingsPage，自 SettingsModal 提级）'
   - key: settings-section
+    file: crates/web-ui/src/nav.rs
     find: 'pub enum SettingsSection {'
     expect: '设置分区枚举（Models / Mcp / About）：侧栏「设置」二级菜单选项 ↔ 页面分区一一对应（from_id 映射菜单行 id）。'
-    source: 'kymido: crates/web-ui/src/views/config.rs（SettingsSection，原私有 Section 提级 pub）'
+    source: 'kymido: crates/web-ui/src/nav.rs（SettingsSection，0d2db80 自 config.rs 下沉）'
   - key: modal-radius
     file: crates/web-ui/src/components/ui.rs
     find: 'rounded-2xl border border-border bg-card shadow-xl'

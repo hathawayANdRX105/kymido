@@ -15,11 +15,12 @@ anchors:
     source: 'kymido: dual_sidebar.rs（DualSidebar groups）；ui-kit: layout/sidebar_dual.rs（content 槽）'
   - key: wordmark
     find: 'text-[18px] leading-6 font-semibold tracking-[0.04em]'
-    expect: 'kymido 字标 18/24 semibold + 品牌色圆点，挂 DualPaneNav footer 槽（左列底部）。'
-    source: 'kymido: dual_sidebar.rs（Wordmark，品牌字标属业务身份不进 ui-kit）'
+    file: crates/web-ui/src/views/config.rs
+    expect: 'kymido 字标 18/24 semibold（品牌身份不进 ui-kit）；双栏侧栏 footer 槽被会话面板接管（2026-10 批注轮）后，字标现挂设置页 About 段。'
+    source: 'kymido: crates/web-ui/src/views/config.rs（About 段字标，原挂 dual_sidebar footer 槽）'
   - key: new-session-button
-    find: 'flex-1 h-[34px] px-3 rounded-lg border border-b2 bg-layer-2'
-    expect: '「会话」二级菜单头部新会话小按钮：h34、r8、layer-2 底 + 1px 边框；在第一个项目里建会话。'
+    find: 'IconPlus { size: 15 }'
+    expect: '「会话」二级菜单头部小按钮行：搜索钮（nav-search-bar，IconSearch）+ 新建项目钮（ui-kit Button Ghost IconSm，IconPlus）；旧 h34 文字按钮已换成这两个图标小钮。'
     source: 'kymido: dual_sidebar.rs（SessionTreePanel 小按钮行）'
   - key: cmdk-search
     find: 'nav-search-bar'
@@ -65,9 +66,9 @@ anchors:
     expect: '「设置」二级菜单 = 默认列表（模型与渠道 / MCP 服务器 / 关于），点击映射中栏设置页分区（SettingsPage）；弹窗形态已删。'
     source: 'kymido: dual_sidebar.rs（DualSidebar settings 组）'
   - key: stats-default-list
-    find: 'STATS_RANGE_OPTIONS'
-    expect: '「统计」二级菜单 = 默认列表（6 档时间范围，id = daemon 范围 token），点击映射统计页并写 stats_range 信号。'
-    source: 'kymido: dual_sidebar.rs（STATS_RANGE_OPTIONS）+ daemon::state::parse_stats_range'
+    find: 'sh::TTL_STATS'
+    expect: '「统计」顶层为叶子页（假时间范围二级列表已删）；时间范围在统计页内由胶囊（SegmentedCapsule）切换，选中写 stats_range 信号。'
+    source: 'kymido: dual_sidebar.rs（统计组 children: Vec::new()）+ stats.rs（胶囊）'
 notes: |
   单栏侧栏（logo 行 / 底部统计设置行 / 56px 折叠 rail / 右缘拖拽条）随本次
   双栏化全部退役；折叠态 = kit DualPaneNav rail（80px）+ hover popover。

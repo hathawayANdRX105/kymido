@@ -10,9 +10,8 @@ use std::collections::{HashMap, HashSet};
 use dioxus::prelude::*;
 use web_state::types::{Session, WorkspaceSpace};
 
+use crate::nav::{SettingsSection, View};
 use crate::shared as sh;
-use crate::views::config::SettingsSection;
-use crate::views::workspace::View;
 
 use ui_kit::button::{Button, ButtonSize, ButtonVariant};
 use ui_kit::icons::{
@@ -160,10 +159,6 @@ pub fn DualSidebar(
     view: Signal<View>,
     settings_section: Signal<SettingsSection>,
     expanded: bool,
-    /// 最左上折叠钮（ui-kit 动态 icon + ANIM_SCOPE）；消费方注入 DualPaneNav 的 top 槽，
-    /// `None` = 不渲染折叠钮。
-    #[props(default)]
-    collapse_control: Option<Element>,
 ) -> Element {
     let on_group_change = move |i: usize| {
         // 一级 = 页面导航（二级选项在该页内细化，点击一级不清页内定位）
@@ -249,7 +244,6 @@ pub fn DualSidebar(
             expanded: expanded,
             on_group_change: on_group_change,
             on_child_click: on_child_click,
-            top: collapse_control,
             footer: None,
         }
     }
