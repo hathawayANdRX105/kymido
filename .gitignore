@@ -30,3 +30,4 @@ archify/
 # ainotation 桥生成的本机 grant 文件（仅 localhost 面）
 bin/web/assets/ainotation/connection.json
 .testless/
+/.oi/
