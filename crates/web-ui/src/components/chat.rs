@@ -441,7 +441,6 @@ pub fn Chat(
                                 }
                                 MenuPicker {
                                     label: model_label,
-                                    header: sh::LBL_PICK_MODEL,
                                     items: model_items,
                                     active_value: statusline.model.clone(),
                                     mono: true,
@@ -449,7 +448,6 @@ pub fn Chat(
                                 }
                                 MenuPicker {
                                     label: "思考 {statusline.thinking}",
-                                    header: sh::LBL_THINKING_STRENGTH,
                                     items: thinking_items,
                                     active_value: statusline.thinking.clone(),
                                     on_select: move |level: String| on_thinking_change.call(level),
