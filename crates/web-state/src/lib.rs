@@ -35,7 +35,7 @@ pub fn title_from_first_message(text: &str) -> String {
     // 行首 markdown 标记可重复出现（`## `、`> - `），一次性剥掉。
     let stripped = body
         .trim()
-        .trim_start_matches(|c| matches!(c, '#' | '-' | '*' | '>' | ' ' | '\t'));
+        .trim_start_matches(['#', '-', '*', '>', ' ', '\t']);
     if stripped.is_empty() {
         return EMPTY_TITLE_PLACEHOLDER.to_string();
     }

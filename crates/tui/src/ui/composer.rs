@@ -44,7 +44,7 @@ fn tail_cells(s: &str, cells: usize) -> (String, usize) {
     let mut kept: Vec<char> = Vec::new();
     let mut used = 0usize;
     for c in s.chars().rev() {
-        let w = UnicodeWidthChar::width(c).unwrap_or(0) as usize;
+        let w = UnicodeWidthChar::width(c).unwrap_or(0);
         if used + w > cells {
             break;
         }

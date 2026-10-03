@@ -51,7 +51,7 @@ fn tool_subagent_plugin_registers_into_catalog() {
     // into (`assemble` provides it in real composition; tests do it by hand).
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     drop(ctx);
     // Register mock provider directly
     let runtime: Arc<SubagentRuntimeService> = fiber.resolve("harness.subagents").unwrap();
@@ -80,7 +80,7 @@ fn tool_subagent_execute_returns_provider_output() {
     let mut fiber = Fiber::default();
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     drop(ctx);
     let runtime: Arc<SubagentRuntimeService> = fiber.resolve("harness.subagents").unwrap();
     runtime.register(
@@ -124,7 +124,7 @@ fn tool_subagent_execute_rejects_unknown_provider() {
     let mut fiber = Fiber::default();
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     ToolSubagentPlugin::default().register(&mut ctx);
     drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();

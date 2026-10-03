@@ -134,7 +134,7 @@ fn fork_provider_returns_run() {
 #[test]
 fn runtime_registers_provider() {
     let mut fiber = Fiber::default();
-    let runtime = SubagentRuntime::default();
+    let runtime = SubagentRuntime;
     let mut ctx = fiber.context();
     runtime.register(&mut ctx);
     drop(ctx);

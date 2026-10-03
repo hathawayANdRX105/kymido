@@ -30,7 +30,7 @@ fn finished_job_shows_up_in_the_next_request() {
         one_text_turn("noted"),
     ]);
     let mut server = daemon::Daemon::start(daemon_cfg(dir.path(), &mock, 8)).expect("start daemon");
-    let client = daemon::DaemonClient::connect_to(&server.socket_addr().path());
+    let client = daemon::DaemonClient::connect_to(server.socket_addr().path());
     let mut sub = client.subscribe("worker").expect("subscribe");
 
     prompt(&client, "run `sleep 0.2` in the background");

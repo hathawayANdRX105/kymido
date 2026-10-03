@@ -401,7 +401,7 @@ fn streaming_writes_forward_only_and_never_rewrites_history() {
     for i in 0..40 {
         let want = format!("[tool] read_file: /tmp/x{i}");
         assert!(
-            log.iter().any(|line| *line == want),
+            log.contains(&want),
             "成稿行 {want:?} 不见了（写即定稿）：{log:?}"
         );
     }

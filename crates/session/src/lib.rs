@@ -947,16 +947,16 @@ impl SessionDb {
             // archive cannot prove it holds anything the live rows lack,
             // so it may be replaced.
             let raw = std::fs::read(&path).map_err(SessionError::Io)?;
-            if let Ok(old) = archive::decode_archive(&raw) {
-                if old.messages.len() > messages.len() {
-                    return Err(SessionError::Archive(format!(
-                        "an archive at {} holds {} messages but the live session has {}; \
+            if let Ok(old) = archive::decode_archive(&raw)
+                && old.messages.len() > messages.len()
+            {
+                return Err(SessionError::Archive(format!(
+                    "an archive at {} holds {} messages but the live session has {}; \
                          refusing to shrink it — rewind less, or delete the archive by hand",
-                        path.display(),
-                        old.messages.len(),
-                        messages.len()
-                    )));
-                }
+                    path.display(),
+                    old.messages.len(),
+                    messages.len()
+                )));
             }
         }
 

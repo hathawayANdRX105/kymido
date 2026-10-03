@@ -120,9 +120,9 @@ pub fn compact_context_with(
         &policy.region(),
     );
     context.messages = out.iter().map(to_wire).collect();
-    if let (Some(log), Some(msg)) = (context_log, &summary) {
-        if let Err(e) = log.append(&to_wire(msg)) {
-            eprintln!("orbit: compaction summary dropped from context log: {e}");
-        }
+    if let (Some(log), Some(msg)) = (context_log, &summary)
+        && let Err(e) = log.append(&to_wire(msg))
+    {
+        eprintln!("orbit: compaction summary dropped from context log: {e}");
     }
 }

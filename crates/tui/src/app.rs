@@ -383,7 +383,7 @@ impl App {
                 let scheme = theme::Scheme::ALL[cursor.min(last)];
                 theme::set_active(scheme);
                 self.theme_panel = None;
-                self.set_status(&format!("theme: {}", scheme.name()));
+                self.set_status(format!("theme: {}", scheme.name()));
                 KeyAction::None
             }
             KeyCode::Esc => {
@@ -1916,7 +1916,7 @@ fn write_osc52(text: &str) -> Result<(), TuiError> {
 /// 换一个新 crate 不划算）。
 fn base64_std(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = (u32::from(chunk[0]) << 16)
             | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
@@ -2125,7 +2125,7 @@ fn event_loop(
                         KeyAction::Quit => break,
                         KeyAction::Abort => {
                             app.set_status("aborting turn");
-                            client.abort_worker(&sid).map_err(client_error)?;
+                            client.abort_worker(sid).map_err(client_error)?;
                         }
                         KeyAction::None => {}
                     }

@@ -516,8 +516,8 @@ fn picker_loop(
             continue;
         }
         // resize：下一轮 draw 的 autoresize 自动重排；paste/focus 不改状态。
-        match event::read()? {
-            Event::Key(key) => match state.handle_key(key) {
+        if let Event::Key(key) = event::read()? {
+            match state.handle_key(key) {
                 PickerAction::None => {}
                 PickerAction::Cancel => return Ok(None),
                 PickerAction::Select(id) => return Ok(Some(id)),
@@ -557,8 +557,7 @@ fn picker_loop(
                     }
                     Err(err) => state.set_notice(format!("删除失败: {err}")),
                 },
-            },
-            _ => {}
+            }
         }
     }
 }

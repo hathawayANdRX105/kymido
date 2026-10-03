@@ -74,7 +74,7 @@ impl SubagentProvider for ForkProvider {
                 &model,
                 &prompt,
                 max_turns,
-                &*tools,
+                &tools,
                 &signal,
                 0,
                 None,

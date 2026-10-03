@@ -64,7 +64,7 @@ pub fn Workspace(
 
     // Worker subscription readiness gate (shared between worker_event_loop
     // and the background prompt thread).
-    let readiness = use_signal(|| ReadinessGate::new());
+    let readiness = use_signal(ReadinessGate::new);
 
     let data_dir = config.data_dir.clone();
     let mut spaces = use_signal(move || match backend() {
@@ -233,10 +233,10 @@ pub fn Workspace(
         let d_snapshot = d.clone();
         let q_snapshot_tx = q_tx.clone();
         std::thread::spawn(move || {
-            if let Ok(list) = d_snapshot.pending_questions() {
-                if let Some(first) = list.into_iter().next() {
-                    let _ = q_snapshot_tx.send(first);
-                }
+            if let Ok(list) = d_snapshot.pending_questions()
+                && let Some(first) = list.into_iter().next()
+            {
+                let _ = q_snapshot_tx.send(first);
             }
         });
         std::thread::spawn(move || question_event_loop(d, q_tx));

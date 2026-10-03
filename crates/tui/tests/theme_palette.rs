@@ -60,10 +60,10 @@ fn draw_styles(app: &App) -> String {
     let mut out = String::new();
     for y in 0..buf.area.height {
         for x in 0..buf.area.width {
-            if let Some(cell) = buf.cell((x, y)) {
-                if cell.symbol() != " " {
-                    out.push_str(&format!("{:?}:{:?};", cell.fg, cell.modifier));
-                }
+            if let Some(cell) = buf.cell((x, y))
+                && cell.symbol() != " "
+            {
+                out.push_str(&format!("{:?}:{:?};", cell.fg, cell.modifier));
             }
         }
     }

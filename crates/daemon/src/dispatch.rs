@@ -922,11 +922,11 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     plan_mode::PlanModeCommand::Enter { .. } => true,
                     plan_mode::PlanModeCommand::Off => false,
                 };
-                match command {
-                    plan_mode::PlanModeCommand::Enter {
-                        message: Some(text),
-                    } => prompt_text = Some(text),
-                    _ => {}
+                if let plan_mode::PlanModeCommand::Enter {
+                    message: Some(text),
+                } = command
+                {
+                    prompt_text = Some(text)
                 }
                 match ctx.worker.plan().prepare_set(target) {
                     Ok(Some(mutation)) => {
@@ -991,13 +991,12 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
             // this change exists to eliminate. Start the pump before the
             // prompt goes out so the close path is wired regardless of
             // subscriptions. Idempotent (`pump_active` guards the spawn).
-            if ctx.worker.is_orbit() {
-                if let Err(e) = ctx
+            if ctx.worker.is_orbit()
+                && let Err(e) = ctx
                     .worker
                     .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
-                {
-                    return e;
-                }
+            {
+                return e;
             }
 
             if let Err(e) = ctx.worker.ensure_started() {
@@ -1070,10 +1069,10 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     }
                     // omp-compat: `prompt` blocks for the whole turn, so its
                     // return *is* the terminal state — close synchronously.
-                    if !run_id.is_empty() {
-                        if let Err(e) = ctx.runs.finish(run_id, finished, "ok") {
-                            eprintln!("daemon: run finish failed for {run_id}: {e}");
-                        }
+                    if !run_id.is_empty()
+                        && let Err(e) = ctx.runs.finish(run_id, finished, "ok")
+                    {
+                        eprintln!("daemon: run finish failed for {run_id}: {e}");
                     }
                     record_turn(
                         &ctx.sessions,
@@ -1092,10 +1091,10 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     // channel closed; omp: wire error), so the run did not
                     // start at all — closing it as failed here is correct in
                     // either mode.
-                    if !run_id.is_empty() {
-                        if let Err(e) = ctx.runs.finish(run_id, finished, "failed") {
-                            eprintln!("daemon: run finish-failed marking failed for {run_id}: {e}");
-                        }
+                    if !run_id.is_empty()
+                        && let Err(e) = ctx.runs.finish(run_id, finished, "failed")
+                    {
+                        eprintln!("daemon: run finish-failed marking failed for {run_id}: {e}");
                     }
                     record_turn(
                         &ctx.sessions,

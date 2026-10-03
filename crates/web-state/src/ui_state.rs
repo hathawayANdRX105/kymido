@@ -155,14 +155,15 @@ impl UiState {
         else {
             return;
         };
-        if !text.is_empty() && duration_ms.is_none() {
-            if let Some(start) = *started_ms {
-                *duration_ms = Some(now_epoch_ms().saturating_sub(start));
-            }
+        if !text.is_empty()
+            && duration_ms.is_none()
+            && let Some(start) = *started_ms
+        {
+            *duration_ms = Some(now_epoch_ms().saturating_sub(start));
         }
     }
     fn last_assistant_or_placeholder(&mut self) -> &mut ChatMessage {
-        if !self.messages.last().is_some_and(|m| m.role == "assistant") {
+        if self.messages.last().is_none_or(|m| m.role != "assistant") {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

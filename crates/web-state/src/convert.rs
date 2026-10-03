@@ -163,7 +163,7 @@ impl WireTranslator {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                (!delta.is_empty()).then(|| AgentEvent::Reasoning { delta })
+                (!delta.is_empty()).then_some(AgentEvent::Reasoning { delta })
             }
             "tool_execution" | "tool_execution_start" => {
                 let name = tool_name(event)?;
