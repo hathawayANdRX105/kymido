@@ -115,8 +115,10 @@ fn plain_answer_ends_loop() {
             stop_reason: StopReason::EndTurn,
         },
     ]])));
-    let mut ctx = Context::default();
-    ctx.system_prompt = Some("sys".into());
+    let mut ctx = Context {
+        system_prompt: Some("sys".into()),
+        ..Default::default()
+    };
     let events = run_agent(&backend, &model(), &mut ctx, &[], &sig(), None);
 
     assert_eq!(

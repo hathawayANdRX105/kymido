@@ -137,7 +137,6 @@ fn runtime_registers_provider() {
     let runtime = SubagentRuntime;
     let mut ctx = fiber.context();
     runtime.register(&mut ctx);
-    drop(ctx);
     let service: Option<Arc<SubagentRuntimeService>> = fiber.resolve("harness.subagents");
     assert!(
         service.is_some(),

@@ -549,7 +549,7 @@ fn dispatch_sub(command: Command, json: bool) -> Result<u8, String> {
     }
 }
 
-#[cfg(any(test))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
@@ -2052,15 +2052,15 @@ Status: ○ open  ◐ in_progress  ✗ failed  ● blocked  ✓ done
             all.iter().map(|t| (t.id.clone(), t.clone())).collect();
         let blocked: Vec<&Task> = all
             .iter()
-            .filter_map(|t| {
+            .filter(|t| {
                 if t.status == TaskStatus::Done {
-                    return None;
+                    return false;
                 }
                 let unmet = t
                     .deps
                     .iter()
                     .filter(|dep| map.get(*dep).is_none_or(|d| d.status != TaskStatus::Done));
-                if unmet.count() == 0 { None } else { Some(t) }
+                unmet.count() != 0
             })
             .collect();
         assert!(blocked.is_empty());

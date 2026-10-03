@@ -63,6 +63,12 @@ pub struct ExecState {
     // `OrbitSetup` assembly — never a daemon-wide singleton.
 }
 
+impl Default for ExecState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExecState {
     /// A fresh, idle session state with plan mode off (the jcode shape:
     /// per-session, no daemon-wide default state).

@@ -48,7 +48,6 @@ const STATS_RANGE: &str = "24h";
 
 /// T9：`/theme` 回显文案（主题能力现状：TUI 只有内置单套命名色，见
 /// `theme.rs` D11；`/theme` 切换是 T17 的活——编不到就不编，明说没有）。
-
 /// T12：copy 的短反馈文案（dock 活动行覆写；随下一次按键或状态事件退场，
 /// 见 [`App::handle_key`] 开头的清理点）。OSC52 是否被终端采纳不可证，
 /// 这行字只陈述「本方已写入 stdout」这一已证明事实（route §3 T12 注记①）。
@@ -328,7 +327,6 @@ impl App {
     /// overlay 之前）——面板期间按键只归 [`Self::theme_panel_key`]。
     /// 插在 rewind 之后：两个模态不可能同开（`/theme` 要打 `/`，rewind
     /// 确认态期间 composer 键全被吃掉）。
-
     /// T17：面板占行总数（主题面板开着 = 方案行数，否则斜杠面板行数；T20：
     /// 两者均含 2 行面板边框）——`ui::areas` / `ui::panels` 按这一个数从
     /// transcript 让行，渲染与让行不会漂移（两面板互斥，不叠加）。
@@ -1906,7 +1904,7 @@ pub fn osc52_bytes(text: &str) -> Vec<u8> {
 
 /// T12：把一条 copy 写到 stdout（事件循环消费 [`App::take_copy`]）——写出
 /// + flush 与 T15 通知共用 [`crate::write_raw`]，OSC52 才赶在下一帧重绘前
-/// 进终端。
+///   进终端。
 fn write_osc52(text: &str) -> Result<(), TuiError> {
     crate::write_raw(&osc52_bytes(text))
 }

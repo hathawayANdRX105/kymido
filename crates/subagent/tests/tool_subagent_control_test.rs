@@ -33,7 +33,6 @@ fn tool_subagent_control_registers_into_catalog() {
     ctx.provide("harness.tools", ToolCatalog::new());
     SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();
     let specs = catalog.specs();
     assert!(
@@ -49,7 +48,6 @@ fn tool_subagent_control_list_reports_registered_provider() {
     ctx.provide("harness.tools", ToolCatalog::new());
     SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let runtime: Arc<SubagentRuntimeService> = fiber.resolve("harness.subagents").unwrap();
     runtime.register("mock", Arc::new(MockProvider));
 
@@ -86,7 +84,6 @@ fn tool_subagent_control_rejects_unsupported_action() {
     ctx.provide("harness.tools", ToolCatalog::new());
     SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();
     let spec = catalog
         .specs()
@@ -116,7 +113,6 @@ fn tool_subagent_control_list_with_zero_providers_is_valid_json() {
     ctx.provide("harness.tools", ToolCatalog::new());
     SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();
     let spec = catalog
         .specs()
