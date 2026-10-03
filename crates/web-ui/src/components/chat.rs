@@ -6,11 +6,11 @@ use web_client::{QuestionAnswer, QuestionItem};
 use web_state::types::{ChatMessage, PendingAttachment, StatusLine};
 
 use crate::shared as sh;
-use ui_kit::Spinner;
 use ui_kit::icons::{
-    IconArrowUp, IconFolder, IconMoon, IconPaperclip, IconPlus, IconSearch, IconSquareCheck,
-    IconTerminal, IconTrash, IconWrench,
+    IconFolder, IconMoon, IconPaperclip, IconPlus, IconSearch, IconSquareCheck, IconTerminal,
+    IconTrash, IconWrench,
 };
+use ui_kit::{AttachmentInfo, Composer};
 
 use super::menu_picker::MenuPicker;
 use super::message::MessageItem;
@@ -164,6 +164,16 @@ pub fn Chat(
     } else {
         statusline.model.clone()
     };
+
+    // kit Composer 的附件 chips 数据面：只吃名 + 尺寸文案，base64 载荷留在
+    // PendingAttachment 里，等发送时随 on_send 一起交出去。
+    let attachment_infos: Vec<AttachmentInfo> = attachments()
+        .iter()
+        .map(|att| AttachmentInfo {
+            name: att.name.clone(),
+            size: Some(format!("{} KB", att.size_bytes() / 1024)),
+        })
+        .collect();
 
     let display_messages: Vec<ChatMessage> = messages
         .iter()
@@ -320,10 +330,12 @@ pub fn Chat(
                             }
                         }
                     }
-                    // 输入卡：r22 胶囊
-                    // 不加 overflow-hidden：模型/思考菜单从工具行向上弹出，
-                    // 裁剪会切掉卡片外的部分；圆角由卡片自身的 bg + radius 呈现
-                    div { class: "pointer-events-auto w-full rounded-[24px] border border-b1 bg-input-bg shadow-lv2 p-2.5 flex flex-col gap-1.5 transition-colors focus-within:border-b3",
+                    // 输入卡：ui-kit Composer（kit 自带 .chat-composer-card 胶囊壳
+                    // + 附件 chips 行 + Enter 提交 + send/stop 圆钮）。
+                    // Composer 不收 children，桥接 textarea 与附件状态占位放在卡外
+                    // 同栈：附件桥 JS 只按 id 取元素，层级无关。菜单自底部向上弹出，
+                    // 外层与 kit 壳都不带 overflow-hidden，不会裁掉菜单。
+                    div { class: "pointer-events-auto w-full flex flex-col gap-1.5",
                         // Bridge: the file picker JS writes base64 JSON here.
                         // Hidden from view, still a real textarea so
                         // LiveView's `oninput` wiring works unchanged.
@@ -341,28 +353,6 @@ pub fn Chat(
                                 }
                             },
                         }
-                        // 待发附件卡：名字 + 体积 + 移除。
-                        if !attachments().is_empty() {
-                            div { class: "flex flex-wrap gap-1.5 px-1 pt-0.5",
-                                for (idx, att) in attachments().into_iter().enumerate() {
-                                    div {
-                                        class: "flex items-center gap-1.5 rounded-[10px] border border-b1 bg-layer-1 px-2 py-1 text-[12px] text-label",
-                                        span { class: "max-w-[180px] truncate", "{att.name}" }
-                                        span { class: "text-caption font-mono", "{att.size_bytes() / 1024} KB" }
-                                        button {
-                                            r#type: "button",
-                                            class: "border-none bg-transparent text-caption hover:text-label cursor-pointer p-0",
-                                            title: sh::BTN_REMOVE,
-                                            onclick: move |_| {
-                                                let mut cur = attachments.write();
-                                                cur.remove(idx);
-                                            },
-                                            span { class: "text-[13px] leading-none", "×" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         // 处理中 / 错误两态由附件桥 JS 直接填（#attachment-reading /
                         // #attachment-rejected）：读文件、类型/体积过滤都是浏览器侧的事，
                         // Rust 渲染层只负责占位，JS 按 change 事件驱动这两块 DOM。
@@ -377,29 +367,33 @@ pub fn Chat(
                                 class: "hidden flex-col gap-0.5 mt-1",
                             }
                         }
-                        textarea {
-                            id: "chat-input-area",
-                            class: "w-full resize-none bg-transparent border-none outline-none text-[15px] leading-6 text-label placeholder:text-caption caret-brand px-3 pt-1.5 pb-1 min-h-[44px] max-h-[336px]",
-                            placeholder: "输入指令，Enter 发送，Shift+Enter 换行...",
-                            value: "{draft}",
-                            oninput: move |e: FormEvent| draft.set(e.value()),
-                            onkeydown: move |e: KeyboardEvent| {
-                                if e.key() == Key::Enter && !e.modifiers().contains(Modifiers::SHIFT) {
-                                    e.prevent_default();
-                                    let text = draft();
-                                    if !text.trim().is_empty() && !is_streaming {
-                                        on_send.call((
-                                            text.trim().to_string(),
-                                            std::mem::take(&mut *attachments.write()),
-                                        ));
-                                        draft.set(String::new());
-                                    }
+                        Composer {
+                            value: draft(),
+                            on_change: move |v: String| draft.set(v),
+                            // Enter 与 send 圆钮同走这一条提交链：trim 判空 + 运行中
+                            // 不重入（kit 的 Enter 提交不查 running，闸门落在本仓这
+                            // 一侧），发出后清 draft 与待发附件。
+                            on_submit: move |text: String| {
+                                let text = text.trim().to_string();
+                                if text.is_empty() || is_streaming {
+                                    return;
                                 }
+                                on_send.call((text, std::mem::take(&mut *attachments.write())));
+                                draft.set(String::new());
                             },
-                        }
-                        div { class: "flex items-center justify-between px-1 py-0.5",
-                            // aui ComposerToolbar / ComposerActions：左动作列 gap-1.5
-                            div { class: "flex items-center gap-1.5",
+                            running: is_streaming,
+                            on_cancel: move |_| on_abort.call(()),
+                            placeholder: "输入指令，Enter 发送，Shift+Enter 换行...".to_string(),
+                            attachments: attachment_infos,
+                            // chips 的 × 按渲染序下标移除（kit 原生语义）
+                            on_remove_attachment: Some(EventHandler::new(move |idx: usize| {
+                                let mut cur = attachments.write();
+                                if idx < cur.len() {
+                                    cur.remove(idx);
+                                }
+                            })),
+                            // 工具条左槽：attach 钮 + 任务看板钮 + 模型/思考下拉
+                            leading: Some(rsx! {
                                 // A <label for> opens the native picker without
                                 // any JS, so the button stays a plain element.
                                 // T5：active 模型未声明 image 输入时置灰（不渲染
@@ -430,7 +424,7 @@ pub fn Chat(
                                     r#type: "button",
                                     class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-label-2 hover:bg-selector transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer border-none bg-transparent",
                                     title: sh::BTN_TASK_PANEL,
-                                    // 点外关闭（ainnotation 波3）：开合钮保持纯 toggle 语义——
+                                    // 点外关闭（ainotation 波3）：开合钮保持纯 toggle 语义——
                                     // stop_propagation 挡住页面级 click 委托，开→关 / 关→开
                                     // 都由 on_toggle_tasks 自己完成
                                     onclick: move |e: MouseEvent| {
@@ -452,44 +446,11 @@ pub fn Chat(
                                     active_value: statusline.thinking.clone(),
                                     on_select: move |level: String| on_thinking_change.call(level),
                                 }
-                            }
-                                // aui ComposerSend 三态：idle（输入空置灰）/ ready（可发）/
-                                // streaming（停止钮，ui-kit Spinner）；token 计数只在卡下状态行
-                                if is_streaming {
-                                    button {
-                                        r#type: "button",
-                                        class: "w-[32px] h-[32px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-[opacity,scale] duration-150 active:scale-[0.96] border-none",
-                                        title: sh::BTN_STOP,
-                                        onclick: move |_| on_abort.call(()),
-                                        Spinner { size: 14, class: "text-white" }
-                                    }
-                                } else if draft().trim().is_empty() {
-                                    button {
-                                        r#type: "button",
-                                        class: "w-[32px] h-[32px] rounded-full bg-selector text-label-3 flex items-center justify-center cursor-default border-none",
-                                        title: sh::BTN_SEND,
-                                        IconArrowUp { size: 16 }
-                                    }
-                                } else {
-                                    button {
-                                        r#type: "button",
-                                        class: "w-[32px] h-[32px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-[opacity,scale] duration-150 active:scale-[0.96] border-none",
-                                        title: sh::BTN_SEND,
-                                        onclick: move |_| {
-                                            let text = draft();
-                                            if !text.trim().is_empty() && !is_streaming {
-                                                on_send.call((
-                                                    text.trim().to_string(),
-                                                    std::mem::take(&mut *attachments.write()),
-                                                ));
-                                                draft.set(String::new());
-                                            }
-                                        },
-                                        IconArrowUp { size: 16 }
-                                    }
-                                }
+                            }),
+                            // 右槽（voice 等）本仓暂无；send/stop 由 kit 圆钮接管
+                            trailing: None,
+                        }
                     }
-                }
                     // 状态行（dsh StatsLine：12/20 tertiary 居中）——在输入卡外下方
                     div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
                         "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}{error_seg}"
