@@ -100,6 +100,12 @@ pub enum SessionError {
     /// partially restored.
     #[error("archive error: {0}")]
     Archive(String),
+
+    /// A C01 durable-context operation was rejected: a malformed reference, a
+    /// scope mismatch, an idempotency/id collision, or a failed integrity
+    /// check. The string names the specific violation.
+    #[error("context error: {0}")]
+    Context(String),
 }
 
 impl SessionError {
@@ -239,6 +245,10 @@ mod archive;
 pub use archive::*;
 mod turn_log;
 pub use turn_log::*;
+mod context_events;
+pub use context_events::*;
+mod context_projection;
+pub use context_projection::*;
 // -----------------------------------------------------------------------------
 // SessionDb
 // -----------------------------------------------------------------------------
@@ -255,10 +265,19 @@ pub struct SessionDb {
     inner: Arc<Inner>,
 }
 
-struct Inner {
-    path: PathBuf,
-    runtime: tokio::runtime::Runtime,
-    conn: Mutex<Connection>,
+pub(crate) struct Inner {
+    pub(crate) path: PathBuf,
+    pub(crate) runtime: tokio::runtime::Runtime,
+    pub(crate) conn: Mutex<Connection>,
+}
+
+impl SessionDb {
+    /// Borrow the shared inner state. `pub(crate)` so the C01 context modules
+    /// (siblings of this one) can run on the same connection/runtime instead
+    /// of opening a second one.
+    pub(crate) fn inner(&self) -> &Inner {
+        &self.inner
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -369,6 +388,10 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             ON message_snapshots(session_id);";
     run_with_lock_retry(|| async {
         conn.execute_batch(sql).await?;
+        conn.execute_batch(context_events::CONTEXT_EVENTS_SCHEMA)
+            .await?;
+        conn.execute_batch(context_projection::CONTEXT_PROJECTION_SCHEMA)
+            .await?;
         Ok(())
     })
     .await
