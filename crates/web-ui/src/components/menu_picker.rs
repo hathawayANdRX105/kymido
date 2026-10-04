@@ -6,6 +6,13 @@ use dioxus::prelude::*;
 use ui_kit::icons::IconCheck;
 use ui_kit::{DropdownMenu, DropdownMenuItem, DropdownMenuLabel};
 
+/// 触发器胶囊样式（成组样式抽常量）。
+const MENU_PICKER_TRIGGER: &str = concat!(
+    "flex h-8 items-center gap-1.5 rounded-full px-3 role-caption ",
+    "hover:bg-secondary-hover transition-colors cursor-pointer ",
+    "border-none bg-transparent",
+);
+
 /// composer 下拉选择器：ui-kit DropdownMenu 的数据驱动封装（label + header +
 /// items + 选中高亮），自底部向上弹出。kit 菜单项不设「选中即关」，这里由
 /// `close_req` 请求收关——Dioxus signal 每次 set 都标脏，重复 set(true) 仍会
@@ -31,7 +38,7 @@ pub(crate) fn MenuPicker(
             trigger: rsx! {
                 button {
                     r#type: "button",
-                    class: "flex h-8 items-center gap-1.5 rounded-full px-3 role-caption hover:bg-secondary-hover transition-colors cursor-pointer border-none bg-transparent",
+                    class: "{MENU_PICKER_TRIGGER}",
                     span { class: "{mono_class}", "{label}" }
                 }
             },

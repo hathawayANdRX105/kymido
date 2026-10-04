@@ -13,6 +13,32 @@ use crate::utils::markdown::markdown_to_html;
 
 use super::chat::{KindIcon, format_tool_output, kind_chip, kind_label, line_is_error};
 
+/// 消息树样式常量（成组样式抽常量；copy 钮有带/不带 border 两态）。
+const MESSAGE_USER_ACTIONS: &str = concat!(
+    "flex items-center gap-1.5 opacity-0 group-hover:opacity-100 ",
+    "transition-opacity duration-75 pr-2",
+);
+const MESSAGE_COPY_BTN: &str = concat!(
+    "size-5 rounded flex items-center justify-center text-muted-foreground ",
+    "hover:text-foreground cursor-pointer border-none bg-transparent",
+);
+const MESSAGE_ASSISTANT_ACTIONS: &str = concat!(
+    "flex items-center gap-2 -ml-1 h-5 opacity-0 group-hover:opacity-100 ",
+    "transition-opacity duration-75",
+);
+const MESSAGE_COPY_BTN_PLAIN: &str = concat!(
+    "size-5 rounded flex items-center justify-center text-muted-foreground ",
+    "hover:text-foreground cursor-pointer",
+);
+const MESSAGE_PROCESS_HEADER: &str = concat!(
+    "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit ",
+    "role-hint hover:text-foreground",
+);
+const MESSAGE_TOOL_OUTPUT: &str = concat!(
+    "tool-output bg-codeblock rounded-lg px-3 py-2 font-mono ",
+    "role-caption whitespace-pre-wrap break-all",
+);
+
 /// 单条消息：用户右侧气泡 / assistant 按发生顺序（过程折叠 + 最终回复）。
 #[component]
 pub(crate) fn MessageItem(
@@ -47,10 +73,10 @@ pub(crate) fn MessageItem(
                         dangerous_inner_html: "{markdown_to_html(&message.content)}"
                     }
                 }
-                div { class: "flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-75 pr-2",
+                div { class: "{MESSAGE_USER_ACTIONS}",
                     if !user_copy_src.is_empty() {
                         button {
-                            class: "size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer border-none bg-transparent",
+                            class: "{MESSAGE_COPY_BTN}",
                             title: sh::BTN_COPY,
                             onclick: move |_| {
                                 let t = user_copy_src.clone();
@@ -153,9 +179,9 @@ pub(crate) fn MessageItem(
                 // aui ActionBar（hideWhenRunning 对位）：生成全部结束后才出现
                 if !streaming_tail {
                     div {
-                        class: "flex items-center gap-2 -ml-1 h-5 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
+                        class: "{MESSAGE_ASSISTANT_ACTIONS}",
                         button {
-                            class: "size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer",
+                            class: "{MESSAGE_COPY_BTN_PLAIN}",
                             title: sh::BTN_COPY,
                             onclick: move |_| {
                                 let t = copy_src.clone();
@@ -185,7 +211,7 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Eleme
     let count = parts.len();
     rsx! {
         div { class: "flex flex-col",
-            div { class: "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit role-hint hover:text-foreground",
+            div { class: "{MESSAGE_PROCESS_HEADER}",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
                     toggle.set(Some(!open));
@@ -275,7 +301,7 @@ fn ToolLine(tool: ToolCall) -> Element {
                     if !tool.summary.is_empty() {
                         div { class: "role-caption", "{tool.summary}" }
                     }
-                    div { class: "tool-output bg-codeblock rounded-lg px-3 py-2 font-mono role-caption whitespace-pre-wrap break-all",
+                    div { class: "{MESSAGE_TOOL_OUTPUT}",
                         for line in formatted.lines() {
                             if line.starts_with('+') && !line.starts_with("+++") {
                                 span { class: "text-success-foreground", "{line}\n" }
@@ -308,9 +334,9 @@ fn ToolLine(tool: ToolCall) -> Element {
 ///   （淡入 + 轻微上移）。
 /// - 结算后：`Thought · Ns`（aui "Thought for Ns" 词族；无真实耗时回退
 ///   `Thought`）。
-/// 默认**始终折叠**（运行时不自动展开，用户点击整行打开；
-/// #2 的无 chevron 决策）。思考正文走 markdown 渲染，左侧边框保留「过程
-/// 显示」观感。
+///   默认**始终折叠**（运行时不自动展开，用户点击整行打开；
+///   #2 的无 chevron 决策）。思考正文走 markdown 渲染，左侧边框保留「过程
+///   显示」观感。
 ///
 /// 「最后完成行」口径：只有到达换行符的行才算完成（当前未收尾的行仍在
 /// 生长，不进头行）；取最后一段非空行，截断到 80 字符（`truncate` 双保险）。

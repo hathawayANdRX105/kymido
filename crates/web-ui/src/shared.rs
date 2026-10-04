@@ -98,6 +98,10 @@ pub const STATUS_ABORTED: &str = "已中止";
 pub const STATUS_SUCCESS: &str = "成功";
 pub const STATUS_NO_COMPARE: &str = "无可比窗口";
 
+// ---- LBL_ : 任务看板表头 / 过滤词（H3 要求 rsx 内零 CJK 字面量；shared.rs 是规则正位）----
+pub const LBL_TASKPANEL_DONE: &str = "完成";
+pub const LBL_TASKPANEL_BLOCKED: &str = "阻塞";
+
 // ---- TTL_ : 弹窗 / 页面标题 ----
 pub const TTL_STATS: &str = "数据统计";
 pub const TTL_ABOUT: &str = "关于 kymido";
