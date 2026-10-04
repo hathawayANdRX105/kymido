@@ -21,7 +21,7 @@
 //! 空态不许把带锚点的节点整块删掉）。
 
 use dioxus::prelude::*;
-use ui_kit::SegmentedCapsule;
+use ui_kit::form::{TabList, TabTrigger, Tabs};
 use web_client::daemon::{StatsSummary, WebDaemon};
 
 /// 时间范围切换项，与 `daemon::state::parse_stats_range` 认的 token 对齐。
@@ -180,13 +180,25 @@ pub fn StatsView(mut range: Signal<String>) -> Element {
                     h1 { class: "role-heading font-semibold tracking-tight m-0", "数据统计" }
                     p { class: "role-caption mt-1 m-0", "{subtitle}" }
                 }
-                // 分段切换换成 ui-kit SegmentedCapsule（统一胶囊分段语言，
-                // 附送滚轮循环切换）；active 为下标，映射回 RANGES 字符串。
-                SegmentedCapsule {
-                    items: RANGES.iter().map(|r| r.to_string()).collect(),
-                    active: RANGES.iter().position(|r| *r == range()).unwrap_or(0),
-                    on_select: move |i: usize| range.set(RANGES[i].to_string()),
-                    testid_prefix: "stats-range",
+                // 时间范围切换用 ui-kit Tabs（受控：选择回写 Workspace 的 range
+                // 信号，侧栏「统计」入口与页内选择共用同一事实源）。
+                Tabs {
+                    default_value: range(),
+                    on_value_change: move |v: Option<String>| {
+                        if let Some(v) = v {
+                            range.set(v);
+                        }
+                    },
+                    TabList {
+                        for (i, r) in RANGES.iter().enumerate() {
+                            TabTrigger {
+                                key: "{r}",
+                                value: r.to_string(),
+                                "data-testid": "stats-range-{i}",
+                                "{r}"
+                            }
+                        }
+                    }
                 }
             }
 

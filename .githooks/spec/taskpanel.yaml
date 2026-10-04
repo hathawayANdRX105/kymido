@@ -6,8 +6,8 @@ target: crates/web-ui/src/components/taskpanel.rs
 description: 任务看板 dock（TaskPanel / FilterChip）——r16 浮层卡、h1 进度条、h26 r7 filter chip、r10 任务卡。
 anchors:
   - key: dock-card
-    find: 'w-full rounded-2xl border border-binv bg-secondary shadow-lv2 overflow-hidden'
-    expect: 'dock 卡 r16（rounded-2xl）、layer-2 底、lv2 阴影，宽度随父容器。'
+    find: 'const TASKPANEL_PANEL: &str = concat!('
+    expect: 'dock 卡 r16（rounded-2xl）、layer-2 底、lv2 阴影，宽度随父容器；样式成组抽 TASKPANEL_PANEL 常量。'
     source: 'kymido: crates/web-ui/src/components/taskpanel.rs:37'
   - key: panel-click-outside-exempt
     find: 'onclick: move |e: MouseEvent| e.stop_propagation()'
@@ -19,8 +19,8 @@ anchors:
     expect: 'dock 挂在 composer 悬浮列内，宽随消息列（max-w 780 之内），位于问题卡与输入卡之上；状态行在输入卡下方一行（ainnotation 波3 #4）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs:149（dock 座位）,155（{dock} 槽位）'
   - key: panel-header
-    find: 'flex items-center justify-between pl-4 pr-2 py-1.5 border-b border-border'
-    expect: '头部：任务看板标题 + n/m 完成计数 + 28px 圆形关闭钮。'
+    find: 'const TASKPANEL_HEADER: &str = concat!('
+    expect: '头部：任务看板标题 + n/m 完成计数 + 28px 圆形关闭钮；样式成组抽 TASKPANEL_HEADER 常量。'
     source: 'kymido: crates/web-ui/src/components/taskpanel.rs:39-44'
   - key: progress-track
     find: 'h-1 bg-secondary-hover'

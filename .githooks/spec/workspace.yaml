@@ -34,16 +34,16 @@ anchors:
     expect: '双栏折叠态为模块级全局信号（切视图保持）；展开 270 / 折叠 80 由该信号驱动。'
     source: 'kymido: workspace.rs（SIDEBAR_COLLAPSED，取代旧宽度/折叠双信号）'
   - key: collapse-toggle
-    find: 'IconChevronLeft { size: 16 }'
-    expect: '中栏顶层栏最左折叠钮（ui-kit NavTopBar 最左钮结构：data-testid=sidebar-collapse + ANIM_SCOPE），图标随展开态切换（展开=chevron-left 收起方向 / 折叠=chevron-right 展开方向，ui-kit icon-anim hover 微动效），点击切 sidebar_collapsed；取代旧侧栏 top 槽折叠钮。'
+    find: 'IconPanelLeft { size: 16 }'
+    expect: '中栏顶层栏最左折叠钮（ui-kit NavTopBar 最左钮结构：data-testid=sidebar-collapse + ANIM_SCOPE），图标用 ui-kit IconPanelLeft（圆横线「侧边收起」图标，自带 icon-anim hover 微动效；展开/折叠两态共用同一枚，按钮挂 ANIM_SCOPE 故动画一致），点击切 sidebar_collapsed；取代旧侧栏 top 槽折叠钮。'
     source: 'kymido: workspace.rs（header 槽折叠钮，BTN_EXPAND/COLLAPSE_SIDEBAR 标题）'
   - key: breadcrumb-header
-    find: 'min-h-[44px] pl-2 pr-5 pt-2.5 pb-2 border-b border-border'
-    expect: '中栏顶部是 44px 面包屑头（最左折叠钮 + 项目名/会话名/分支 chip 或 统计/设置 页标题），非独立顶栏。'
+    find: 'const WORKSPACE_PANEL_HEADER: &str = concat!('
+    expect: '中栏顶部是 44px 面包屑头（最左折叠钮 + 项目名/会话名/分支 chip 或 统计/设置 页标题），非独立顶栏；样式成组抽 WORKSPACE_PANEL_HEADER 常量。'
     source: 'kymido: workspace.rs（header 槽）'
   - key: branch-chip
-    find: 'bg-chip-brand text-brand-300 border border-border'
-    expect: '分支以 mono chip 呈现（chip-brand 底 + brand-300 字 + 1px 边）。'
+    find: 'const WORKSPACE_BRANCH_BADGE: &str = concat!('
+    expect: '分支以 mono chip 呈现（chip-brand 底 + brand-300 字 + 1px 边）；样式成组抽 WORKSPACE_BRANCH_BADGE 常量。'
     source: 'kymido: workspace.rs（会话页面包屑分支 chip）'
 notes: |
   数据接线（daemon 探测、流式转译层）不在本契约内——锚点只锁布局 class

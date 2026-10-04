@@ -131,8 +131,8 @@ pub async fn launch() {
                     else                {{ width = 10; op = 0.34; }}
                     bar.style.width = width + 'px';
                     bar.style.opacity = op.toFixed(3);
-                    bar.classList.toggle('bg-accent', off === 0);
-                    bar.classList.toggle('bg-subtle', off !== 0);
+                    // 统一条底（渲染层 bg-label 近白通吃所有横条，不做逐档换色；
+                    // 用户批注：minimap 横条统一白色底，聚光只走长度+亮度）
                 }}
             }}
             function nearestIndex(y) {{
@@ -244,58 +244,6 @@ pub async fn launch() {
             applyGradient(init);
         }}
 
-        // Track IME composition explicitly: isComposing alone is unreliable on fcitx/ibus + Linux
-        let composing = {{ active: false }};
-        document.addEventListener("compositionstart", function(e) {{
-            if (e.target && e.target.id === "chat-input-area") composing.active = true;
-        }}, true);
-        document.addEventListener("compositionend", function(e) {{
-            if (e.target && e.target.id === "chat-input-area") composing.active = false;
-        }}, true);
-
-        // Guard: liveview 解释器对 submit 不 preventDefault（见 chat.rs），
-        // 捕获阶段统一阻止聊天表单的原生 GET 提交；事件继续传播到解释器
-        // 的 onsubmit 处理器，Dioxus 侧逻辑不受影响
-        document.addEventListener("submit", function(e) {{
-            if (e.target && e.target.querySelector && e.target.querySelector('[id=chat-input-area]')) {{
-                e.preventDefault();
-            }}
-        }}, true);
-
-        // Handle Enter key on textarea to submit form
-        document.addEventListener("keydown", function(e) {{
-            if (e.target && e.target.id === "chat-input-area" && e.key === "Enter" && !e.shiftKey) {{
-                if (composing.active || e.isComposing || e.keyCode === 229) return;
-                e.preventDefault();
-                const form = e.target.closest("form");
-                if (form) {{
-                    form.requestSubmit();
-                    setTimeout(function() {{
-                        e.target.value = "";
-                    }}, 0);
-                    setTimeout(function() {{ scrollToBottom(false); }}, 40);
-                }}
-            }}
-        }}, true);
-
-        // Clear textarea when clicking submit button (never mid-composition)
-        document.addEventListener("click", function(e) {{
-            const btn = e.target.closest("button[type='submit']");
-            if (btn) {{
-                if (composing.active) return;
-                const form = btn.closest("form");
-                if (form) {{
-                    const ta = form.querySelector("textarea");
-                    if (ta) {{
-                        setTimeout(function() {{
-                            ta.value = "";
-                        }}, 0);
-                    }}
-                    setTimeout(function() {{ scrollToBottom(false); }}, 40);
-                }}
-            }}
-        }}, true);
-
         // Global Cmd+K / Ctrl+K for quick switcher (sidebar search button carries
         // the .nav-search-bar hook class)
         document.addEventListener("keydown", function(e) {{
@@ -343,6 +291,56 @@ pub async fn launch() {
         setTimeout(function() {{ scrollToBottom(false); }}, 150);
         observer.observe(document.body, {{ childList: true, subtree: true }});
         setupMinimap();
+
+        // ---- Composer 输入键守卫（kit Composer 接 LiveView 的两处补偿）----
+        //
+        // 1) IME：kit Composer 的 textarea（.chat-composer-input）没有组合态判别，
+        //    Enter 无条件走它的 onkeydown → on_submit；fcitx/ibus 上「回车选字」
+        //    同样是 Enter，会把还没成句的拼音发出去。组合态在 Rust 侧读不到
+        //    （KeyboardEvent 不带 isComposing），故在 document 捕获阶段拦：该阶段
+        //    严格先于元素上的处理器，stopImmediatePropagation 让这次 Enter 到不了
+        //    kit 的提交。isComposing 在 fcitx/ibus + Linux 上单靠它不可靠，故显式
+        //    跟踪 compositionstart/end；keyCode 229 是旧内核兼容位。Shift+Enter
+        //    （换行）不拦；组合结束后下一次单独 Enter 照常提交。
+        //
+        // 2) 原生 Enter 行为：Dioxus 的 Event::prevent_default 在 LiveView 下是
+        //    空操作（事件走 websocket，无法阻塞浏览器默认行为），所以 kit 侧的
+        //    prevent_default 拦不住 textarea 的换行插入——旧手写输入框靠这里的
+        //    原生 preventDefault 兜住。同理 textarea 一旦被用户输入过，属性回写
+        //    不会同步 DOM value，提交后草稿框仍留着旧文本（旧实现同样在这里
+        //    清空）。两件事都在捕获阶段做，且不拦传播：提交仍由 kit 的 Rust
+        //    处理器完成，这里只补浏览器侧的默认行为与视图同步。
+        const composer_composing = {{ active: false }};
+        function inComposerInput(el) {{
+            return !!(el && el.closest && el.closest(".chat-composer-input"));
+        }}
+        function clearComposerInput() {{
+            const el = document.querySelector(".chat-composer-input");
+            if (el && el.value.trim() !== "") el.value = "";
+        }}
+        document.addEventListener("compositionstart", function(e) {{
+            if (inComposerInput(e.target)) composer_composing.active = true;
+        }}, true);
+        document.addEventListener("compositionend", function(e) {{
+            if (inComposerInput(e.target)) composer_composing.active = false;
+        }}, true);
+        document.addEventListener("keydown", function(e) {{
+            if (e.key !== "Enter" || e.shiftKey) return;
+            if (!inComposerInput(e.target)) return;
+            if (composer_composing.active || e.isComposing || e.keyCode === 229) {{
+                e.stopImmediatePropagation();
+                return;
+            }}
+            e.preventDefault();
+            clearComposerInput();
+        }}, true);
+        // send 圆钮（kit 的 .chat-action-round）：点击提交后同样要清掉草稿框，
+        // 否则 textarea 的 DOM value 与已清空的 draft 信号不一致。
+        document.addEventListener("click", function(e) {{
+            const btn = e.target.closest && e.target.closest("button.chat-action-round");
+            if (!btn || btn.disabled || btn.title !== "Send") return;
+            setTimeout(clearComposerInput, 0);
+        }}, true);
 
         // ---- 附件桥：file input -> base64 JSON -> 隐藏 textarea ----
         // LiveView 只认 input/change 事件，所以文件不进 form post，而是读成

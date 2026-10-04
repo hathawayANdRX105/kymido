@@ -28,7 +28,7 @@ use crate::views::archive::ArchiveView;
 use crate::views::config::SettingsPage;
 use crate::views::stats::StatsView;
 use dioxus::prelude::*;
-use ui_kit::icons::{ANIM_SCOPE, IconChevronLeft, IconChevronRight};
+use ui_kit::icons::{ANIM_SCOPE, IconPanelLeft};
 use web_client::QuestionAnswer;
 use web_client::QuestionItem;
 use web_client::llm::LlmRuntimeConfig;
@@ -912,9 +912,8 @@ pub fn Workspace(
                     // 按钮结构跟 ui-kit NavTopBar 最左钮（data-testid / ANIM_SCOPE /
                     // hover 面）；但 kymido 中栏头中间是面包屑，NavTopBar 的
                     // justify-between 会把面包屑推到右缘，故只复用其按钮 markup。
-                    // 图标按展开态切换（动态）：展开 = chevron-left（收起方向），
-                    // 折叠 = chevron-right（展开方向），两枚都是 ui-kit icon-anim
-                    // hover 微动效图标。
+                    // 图标用 ui-kit IconPanelLeft（圆横线「侧边收起」图标，自带 hover
+                    // 微动效；展开/折叠两态共用同一枚图标，按钮挂 ANIM_SCOPE 故动画一致）。
                     button {
                         "data-testid": "sidebar-collapse",
                         "aria-label": "{collapse_aria}",
@@ -922,11 +921,7 @@ pub fn Workspace(
                         onclick: move |_| {
                             sidebar_collapsed.set(!sidebar_collapsed());
                         },
-                        if sidebar_collapsed() {
-                            IconChevronRight { size: 16 }
-                        } else {
-                            IconChevronLeft { size: 16 }
-                        }
+                        IconPanelLeft { size: 16 }
                     }
                     if view() == View::Stats {
                         span { class: "role-hint font-medium text-foreground", "{sh::TTL_STATS}" }

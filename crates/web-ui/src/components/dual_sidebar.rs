@@ -116,7 +116,7 @@ pub fn SessionTreePanel(
                                 IconFolder { size: 16, class: "shrink-0 text-muted-foreground" }
                                 span { class: "role-hint text-foreground truncate min-w-0 flex-1", "{space.name}" }
                                 button {
-                                    class: "{DUAL_SIDEBAR_ROW_BTN}",
+                                    class: "{DUAL_SIDEBAR_ROW_BTN} {ANIM_SCOPE}",
                                     title: sh::BTN_NEW_CHAT_IN_SPACE,
                                     onclick: move |e: MouseEvent| {
                                         e.stop_propagation();
