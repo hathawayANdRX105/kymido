@@ -264,7 +264,7 @@ impl Daemon {
         // tools don't exist for the daemon worker; omp peers have their own
         // external-tool registration path (task CLI).
         let orbit_setup = match cfg.orbit_model.as_ref() {
-            Some(model) => Some(Self::orbit_setup(&fiber, model, &cfg)?),
+            Some(model) => Some(Self::orbit_setup(&fiber, model, &cfg, &session_state)?),
             None => None,
         };
 
@@ -384,6 +384,7 @@ impl Daemon {
         fiber: &plugin::Fiber,
         model: &llm::Model,
         cfg: &DaemonConfig,
+        sessions: &crate::state::SessionState,
     ) -> Result<crate::rpc::worker::OrbitSetup, DaemonError> {
         let catalog = fiber
             .resolve::<tools::ToolCatalog>("harness.tools")
@@ -557,6 +558,12 @@ impl Daemon {
         // `ExecState` (plan runtime + scoped review port), so the template
         // ships `None` and the per-session assembly supplies the closure.
         let plan_policy_section: Option<std::sync::Arc<dyn Fn() -> String + Send + Sync>> = None;
+        // C01: build the orbit-compaction persistence sink once per daemon.
+        // The sink clones the shared SessionState (which internally shares
+        // one SessionDb Arc) so this is cheap; it owns a per-worker active
+        // session id cell refreshed by `Worker::resume_session` on the
+        // prompt path and a monotonic projection generation counter.
+        let persistence_sink = crate::rpc::worker::Sink::new(sessions.clone(), model.model.clone());
         Ok(crate::rpc::worker::OrbitSetup {
             model: model.clone(),
             backend,
@@ -570,6 +577,7 @@ impl Daemon {
                 plan_policy_section,
                 aside_queue,
             },
+            persistence_sink: Some(persistence_sink),
         })
     }
 

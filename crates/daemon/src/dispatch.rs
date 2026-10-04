@@ -15,7 +15,10 @@ use std::sync::mpsc::Sender;
 
 use crate::rpc::worker::WorkerEvent;
 use serde_json::{Value, json};
-use session::{SessionMessage, SessionRole, TurnRecord};
+use session::{
+    ContextEvent, ContextEventKind, SessionError, SessionMessage, SessionRole, ToolGroup,
+    TurnRecord,
+};
 
 use crate::protocol::{Command, EventFrame, Request, Response, ResponseError};
 use crate::state::{EventBus, RunLedger, SessionState, require_str, require_u32};
@@ -23,13 +26,23 @@ use crate::state::{EventBus, RunLedger, SessionState, require_str, require_u32};
 /// Topic fed by the `rpc` worker's push event stream (R2 3.3).
 pub const WORKER_TOPIC: &str = "worker";
 
-/// How many persisted messages a resume replays into the worker's live
-/// context on a `worker.prompt` that carries a `session_id` (B2a).  A hard
-/// cap: the tail of a long session can be tens of thousands of rows, and the
-/// orbit context only needs a working window, not the whole history.  50
-/// recent messages is enough to keep the turn coherent without forcing a
-/// respawned engine to swallow an unbounded body.
-const RESUME_CONTEXT_LIMIT: u32 = 50;
+/// How many complete runs a resume replays into the worker's live context
+/// on a `worker.prompt` that carries a `session_id` (C01).  Bounded on the
+/// run count, not the event count: a run is an atomic unit of work and
+/// cutting a run in half would leave a half-paired tool group.  A caller
+/// that wants more history can raise this without touching the projection.
+const RESUME_RUN_WINDOW: u32 = 50;
+
+/// Branch id of the default (non-branching) session history.  The C01 event
+/// ledger requires an explicit scope; the daemon's resume path currently
+/// covers only the default branch — branched histories are a follow-up, and
+/// replaying the wrong branch would silently corrupt the worker's context.
+const DEFAULT_BRANCH: &str = "main";
+
+/// Epoch of the default (non-branching) session history.  Rewind / truncate
+/// advance the history epoch, but the resume path currently covers only the
+/// current default-branch epoch.
+const DEFAULT_EPOCH: i64 = 1;
 
 /// Default `task.list` page size when the client sends no `limit`.  The
 /// kanban board renders one screen; anything past the 50 most recently
@@ -69,6 +82,151 @@ where
         }
         Err(e) => Response::err(id, ResponseError::new("internal", format!("store: {e}"))),
     }
+}
+
+/// Decode the text field of a context event payload.  C01 payloads for
+/// `Prompt` / `Assistant` events carry a single `text` string field
+/// (see [`ContextEvent::payload`]).  Returns `None` when the JSON is
+/// malformed or the field is absent, in which case the event is dropped
+/// from the resume projection rather than surfaced as an empty message.
+fn context_event_text(payload_json: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(payload_json).ok()?;
+    v.get("text").and_then(Value::as_str).map(str::to_string)
+}
+
+/// Convert one C01 [`ContextEvent`] into a [`SessionMessage`] suitable for
+/// [`WorkerHandle::resume_session`].  Returns `None` for events the orbit
+/// context does not consume (terminal markers, tool-side records — those
+/// travel as `tool_calls` payloads, not separate messages) or when the
+/// event's payload does not decode to a text field.
+///
+/// Never fabricates a success marker: an unpaired tool call keeps
+/// `result: null` so the resumed engine can distinguish interrupted work
+/// from completed work.  The pairing pass (`pair_tool_results`) fills in
+/// the result only for closed groups.
+fn event_to_message(session_id: &str, seq: i64, ev: &ContextEvent) -> Option<SessionMessage> {
+    let (role, text, tool_calls) = match ev.kind {
+        ContextEventKind::Prompt => (
+            SessionRole::User,
+            context_event_text(&ev.payload_json)?,
+            Vec::new(),
+        ),
+        ContextEventKind::Assistant => {
+            let payload: Value = serde_json::from_str(&ev.payload_json).unwrap_or(Value::Null);
+            let body = payload
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let tool_calls = ev.tool_call_id.as_deref().map(|id| {
+                vec![json!({
+                    "id": id,
+                    // Tool name lives in the payload (the ledger has no
+                    // tool_name column); never expose the raw payload blob.
+                    "name": payload.get("name").and_then(Value::as_str).unwrap_or_default(),
+                    "result": Value::Null,
+                })]
+            });
+            let tool_calls = tool_calls.unwrap_or_default();
+            // An assistant turn that is only a tool-call carrier may have no
+            // text; dropping it would lose the call. Drop only when there is
+            // neither text nor a tool call.
+            if body.is_empty() && tool_calls.is_empty() {
+                return None;
+            }
+            (SessionRole::Assistant, body, tool_calls)
+        }
+        _ => return None,
+    };
+    Some(SessionMessage {
+        session_id: session_id.to_string(),
+        seq,
+        role,
+        text,
+        created_at_ms: ev.created_at,
+        attachments: Vec::new(),
+        tool_calls,
+    })
+}
+
+/// Pair each assistant message's `tool_calls` entry with its closed result
+/// if a [`ToolGroup`] was found for its `tool_call_id`.  Unmatched calls
+/// keep `result: null` — that is the honest interruption marker.
+fn pair_tool_results(
+    msg: SessionMessage,
+    results: &std::collections::HashMap<String, Value>,
+) -> SessionMessage {
+    if msg.role != SessionRole::Assistant || msg.tool_calls.is_empty() {
+        return msg;
+    }
+    let tool_calls = msg
+        .tool_calls
+        .into_iter()
+        .map(|tc| {
+            let id = tc
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let mut v = tc;
+            if !id.is_empty() {
+                if let Some(r) = results.get(&id) {
+                    v["result"] = r.clone();
+                }
+            }
+            v
+        })
+        .collect();
+    SessionMessage { tool_calls, ..msg }
+}
+
+/// Build a resume context by walking complete runs + closed tool groups
+/// (C01).  Replaces the old "last 50 raw messages" tail slice with a
+/// run-bounded projection that keeps `tool_call_id` pairs intact.
+///
+/// Missing results are *not* synthesized: a tool call whose result is not
+/// yet in the ledger stays in the assistant message's `tool_calls` array
+/// with `result: null`, so a resumed engine can tell interrupted work
+/// from completed work.  This is the honest projection — inventing a
+/// success would poison the next LLM turn.
+///
+/// Scope: the default branch (`main`) at epoch 1.  Branched histories and
+/// rewound epochs are not covered by the current resume path — the caller
+/// (`worker.prompt` with a session id) targets one canonical history.
+fn build_resume_context(
+    sessions: &SessionState,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, SessionError> {
+    let runs = sessions.recent_complete_runs(session_id, RESUME_RUN_WINDOW)?;
+    let branch_id = DEFAULT_BRANCH;
+    let epoch = DEFAULT_EPOCH;
+
+    // Closed call/result pairs, keyed by tool_call_id for O(1) lookup
+    // while walking the run events below.  Only closed groups are
+    // returned by the store — unpaired results never enter this map, so
+    // they cannot leak into a paired call's result field.
+    let groups: Vec<ToolGroup> = sessions.closed_tool_groups(session_id, branch_id, epoch)?;
+    let mut result_by_call_id: std::collections::HashMap<String, Value> =
+        std::collections::HashMap::new();
+    for g in groups {
+        result_by_call_id.insert(g.tool_call_id, Value::String(g.result.payload_json.clone()));
+    }
+
+    // `recent_complete_runs` is newest-first; walk oldest-first so the
+    // resume context reads chronologically.
+    let mut msgs = Vec::new();
+    let mut seq = 0i64;
+    for run_id in runs.iter().rev() {
+        let events = sessions.context_events_for_run(session_id, branch_id, epoch, run_id)?;
+        for ev in &events {
+            if let Some(mut m) = event_to_message(session_id, seq, ev) {
+                m = pair_tool_results(m, &result_by_call_id);
+                seq += 1;
+                msgs.push(m);
+            }
+        }
+    }
+    Ok(msgs)
 }
 
 /// One worker behind a session key in the [`crate::registry::SessionRegistry`]
@@ -1021,15 +1179,21 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
             // prompt goes out.  The pump stamps it on every frame it pushes
             // while the slot holds it (sticky — see `set_active_run`).
             ctx.worker.set_active_run(run_id);
-            // B2a resume: replay the session's persisted history into the
-            // worker's live context before the prompt so a restarted daemon
-            // (or a respawned engine) does not start from a blank slate.
-            // Best-effort — a load or replay failure must not block the
-            // prompt (the turn still runs, it just misses the history).
-            // In orbit mode the engine dedupes per session id, so calling
-            // this on every prompt is safe; in omp mode it is `Ok(0)`.
+            // B2a / C01 resume: replay the session's persisted history
+            // into the worker's live context before the prompt so a
+            // restarted daemon (or a respawned engine) does not start
+            // from a blank slate.  Best-effort — a load or replay failure
+            // must not block the prompt (the turn still runs, it just
+            // misses the history).  In orbit mode the engine dedupes per
+            // session id, so calling this on every prompt is safe; in
+            // omp mode it is `Ok(0)`.
+            //
+            // C01: context is rebuilt by walking complete runs and
+            // pairing closed tool groups, so `tool_call_id` pairs stay
+            // intact and missing results are surfaced as interruptions
+            // (never fabricated as successes).  See `build_resume_context`.
             if !session_id.is_empty() {
-                match ctx.sessions.load_messages(session_id, RESUME_CONTEXT_LIMIT) {
+                match build_resume_context(&ctx.sessions, session_id) {
                     Ok(msgs) => {
                         if let Err(e) = ctx.worker.resume_session(session_id, &msgs) {
                             eprintln!(
@@ -1039,7 +1203,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     }
                     Err(e) => {
                         eprintln!(
-                            "daemon: could not load session {session_id} for resume (continuing without history): {e}"
+                            "daemon: could not rebuild session {session_id} context for resume (continuing without history): {e}"
                         );
                     }
                 }
@@ -1260,6 +1424,7 @@ fn session_error_response(
         | SessionError::Io(_)
         | SessionError::RuntimeBuild(_)
         | SessionError::Archive(_) => "session_io",
+        SessionError::Context(_) => "context_error",
     };
     Response::err(id, ResponseError::new(code, format!("{command}: {e}")))
 }

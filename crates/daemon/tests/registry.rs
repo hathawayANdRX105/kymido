@@ -45,6 +45,7 @@ fn stub_setup() -> OrbitSetup {
             plan_policy_section: None,
             aside_queue: Arc::new(Mutex::new(VecDeque::new())),
         },
+        persistence_sink: None,
     }
 }
 

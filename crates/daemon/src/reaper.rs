@@ -249,6 +249,7 @@ mod tests {
                 plan_policy_section: None,
                 aside_queue: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             },
+            persistence_sink: None,
         }
     }
 

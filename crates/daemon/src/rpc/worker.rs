@@ -39,7 +39,7 @@
 //! ```
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -233,6 +233,244 @@ pub struct OrbitSetup {
     pub model: llm::Model,
     pub backend: std::sync::Arc<dyn agent_loop::orbit::LlmBackend + Send + Sync>,
     pub config: OrbitConfig,
+    /// C01 persistence sink for orbit compaction. When `Some`, the
+    /// engine's compaction maintenance commits each summary as a durable
+    /// projection via the session crate's `commit_projection` API *before*
+    /// the in-memory context is swapped to the compacted form — a failure
+    /// of either the projection commit or the request-outcome record
+    /// leaves the context untouched, so a resumed session never finds an
+    /// in-memory summary without a matching projection pointer. `None`
+    /// (default for tests and legacy daemon wiring) reproduces the
+    /// pre-C01 in-memory-only compaction behavior byte for byte.
+    ///
+    /// The sink is constructed once per daemon by `Daemon::orbit_setup`
+    /// against the daemon-wide [`SessionState`] and cloned into every
+    /// engine (re)spawn. Ownership of the sink state (session id binding,
+    /// generation counter) is per-worker: [`Worker::resume_session`] and
+    /// [`Worker::prompt`] refresh the sink's active session id so a
+    /// switched session does not overwrite a stale session's projection.
+    pub persistence_sink: Option<Arc<Sink>>,
+}
+
+/// C01 orbit-compaction persistence sink. Owns the active session id and
+/// the next projection generation; `commit_projection` is a two-step
+/// write through the session crate: `commit_projection` (writes the
+/// projection row and moves the authoritative pointer when the generation
+/// is newer) then `record_request_outcome` (audit row for the attempt).
+///
+/// `commit_projection` returns `Some(projection_id)` on success; `None`
+/// when the session id is empty (unbound engine, e.g. omp-compat) or the
+/// store write failed. On failure the caller —
+/// [`compact_context_with_persist`] — MUST NOT swap the in-memory context,
+/// because a derived summary that never landed in the projection ledger
+/// would be unreachable from any resumed session.
+///
+/// Not `Clone` on purpose: `active_session_id` is a per-worker cell
+/// refreshed by the prompt path. Sharing across threads goes through
+/// `Arc<Sink>` — the sink is invoked from the orbit run thread's
+/// maintenance closure but its active session id is written by the
+/// prompt thread.
+pub struct Sink {
+    sessions: crate::state::SessionState,
+    model_name: String,
+    /// Session id the current engine run is producing projections for.
+    /// Refreshed by [`Worker::resume_session`] and [`Worker::prompt`].
+    /// `Mutex<String>` (std has no atomic `String` cell); the lock is held
+    /// for a single field assignment, never across I/O.
+    active_session_id: Arc<Mutex<String>>,
+    /// Next projection generation to commit. Monotonic within a worker —
+    /// the store's `commit_projection` compares generations and only
+    /// promotes a strictly newer one, so a per-worker counter suffices.
+    next_generation: Mutex<i64>,
+}
+
+impl Sink {
+    /// Construct a persistence sink against a daemon-wide session store.
+    /// `sessions` is a cheap clone (the underlying `SessionDb` is Arc-shared
+    /// inside [`crate::state::SessionState`]), so this is safe to call once
+    /// per engine (re)spawn.
+    pub fn new(sessions: crate::state::SessionState, model_name: String) -> Arc<Self> {
+        Arc::new(Sink {
+            sessions,
+            model_name,
+            active_session_id: Arc::new(Mutex::new(String::new())),
+            next_generation: Mutex::new(0),
+        })
+    }
+
+    /// Bind the sink to the session the current prompt / resume belongs to.
+    /// Called by the worker on every session-bound operation so the
+    /// compaction maintenance closure — which runs on a different thread —
+    /// knows which `(session_id, branch_id)` pair to commit under.
+    pub fn set_active_session_id(&self, session_id: &str) {
+        *self
+            .active_session_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = session_id.to_string();
+    }
+
+    /// Read the current active session id (empty when unbound).
+    pub fn active_session_id(&self) -> String {
+        self.active_session_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Commit one orbit-compaction projection. Returns `Some(projection_id)`
+    /// on success; `None` when unbound or on any store error.
+    ///
+    /// The caller MUST NOT swap the in-memory context on `None`: the
+    /// derived summary would then be unreachable from the persisted store
+    /// and a resumed session would see the pre-compaction conversation
+    /// with no projection pointer at all.
+    pub fn commit_projection(&self, summary: &str, compacted: &[llm::Message]) -> Option<String> {
+        let session_id = self.active_session_id();
+        if session_id.is_empty() {
+            return None;
+        }
+        let branch_id = "main";
+        // Payload captures both the summary text and the compacted message
+        // list so a resumed session can rebuild the in-memory context
+        // verbatim without re-deriving from raw events. Serialization is
+        // infallible for the wire shape (mirrors `chat::Message` DTO); a
+        // hard failure here is a store bug, not a transient condition.
+        let payload = serde_json::json!({
+            "summary": summary,
+            "context": compacted,
+        });
+        let payload_json = match serde_json::to_string(&payload) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "daemon: orbit compaction payload serialize failed for {session_id}: {e}"
+                );
+                return None;
+            }
+        };
+        let mut counter = self
+            .next_generation
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *counter += 1;
+        let generation = *counter;
+        drop(counter);
+        let projection_id = format!("orbit-compaction-{session_id}-{generation}");
+        let draft = session::ProjectionDraft {
+            projection_id: projection_id.clone(),
+            session_id: session_id.clone(),
+            branch_id: branch_id.to_string(),
+            source_epoch: 1,
+            covered_through_event_id: None,
+            method_id: "orbit_compaction".to_string(),
+            method_version: "1.0".to_string(),
+            config_revision: "1".to_string(),
+            focus_revision: "1".to_string(),
+            projection_generation: generation,
+            payload_kind: session::PayloadKind::InlineJson,
+            payload_json: Some(payload_json),
+            object_id: None,
+        };
+        let (projection, _authoritative) = match self.sessions.commit_projection(draft) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("daemon: orbit compaction projection commit failed: {e}");
+                return None;
+            }
+        };
+        // Body hash: compaction is in-process (no separate provider
+        // request), so this is a content stub that ties the outcome row
+        // to the projection row for audit.
+        let body_hash = format!("orbit-compaction:{}", generation);
+        let now = crate::state::now_ms();
+        let outcome_draft = session::RequestOutcomeDraft {
+            request_id: projection.projection_id.clone(),
+            attempt: 1,
+            session_id: projection.session_id.clone(),
+            source_epoch: projection.source_epoch,
+            projection_generation: projection.projection_generation,
+            request_body_object_id: None,
+            request_body_hash: Some(body_hash),
+            route: self.model_name.clone(),
+            model: self.model_name.clone(),
+            outcome_status: session::OutcomeStatus::Completed,
+            usage: None,
+            error_kind: None,
+            sent_at: now,
+            completed_at: Some(now),
+        };
+        if let Err(e) = self.sessions.record_request_outcome(outcome_draft) {
+            eprintln!("daemon: orbit compaction outcome record failed (projection committed): {e}");
+            // Projection is durable — the outcome row is a bookkeeping
+            // stub. Surface but do NOT revert: resume correctness hinges
+            // on the projection row, not the outcome row.
+        }
+        Some(projection.projection_id)
+    }
+}
+
+/// Persistence-aware orbit compaction: compacts `context` under `policy`,
+/// then commits the summary as a durable projection via `sink` *before*
+/// swapping the in-memory context. A `None` return from
+/// [`Sink::commit_projection`] (empty session id, store error, whatever)
+/// leaves `context.messages` untouched so a resumed session never finds an
+/// in-memory summary without a matching projection pointer — the
+/// pre-compaction conversation remains recoverable from the ledger.
+///
+/// Returns `Some(projection_id)` on success. Callers in the loop path can
+/// ignore the return: the loop's compaction trigger is budget-based and
+/// the next compaction attempt will retry independently.
+fn compact_context_with_persist(
+    backend: &dyn agent_loop::orbit::LlmBackend,
+    model: &llm::Model,
+    context: &mut llm::Context,
+    signal: &std::sync::atomic::AtomicBool,
+    policy: &agent_loop::compaction::CharBudgetPolicy,
+    sink: &Sink,
+) -> Option<String> {
+    if signal.load(std::sync::atomic::Ordering::Relaxed) || sink.active_session_id().is_empty() {
+        return None;
+    }
+    // Same compact path the pre-C01 `compact_context_with` uses, but we
+    // split the two steps (compute compacted, swap later) so we can
+    // commit the projection BEFORE swapping the context. `compact_with`
+    // takes the summarizer directly; we construct an `LlmSummarizer`
+    // over the loop's own backend so the summary stream is identical to
+    // the pre-C01 path.
+    let dto: Vec<_> = context
+        .messages
+        .iter()
+        .map(|m| agent_loop::compaction::to_dto(m))
+        .collect();
+    let (out, summary_msg) = agent_loop::compaction::compact_with(
+        &agent_loop::orbit::LlmSummarizer(backend, model, signal),
+        context.system_prompt.as_deref(),
+        &dto,
+        policy.total_chars(),
+        &policy.region(),
+    );
+    let Some(summary_msg) = summary_msg else {
+        // No summary was produced (backend failure, empty result, abort,
+        // below budget, no older content). No artifact to persist; the
+        // context is already untouched — `compact_with` returned the
+        // verbatim clone in that branch.
+        return None;
+    };
+    let compacted: Vec<llm::Message> = out
+        .iter()
+        .map(|m| agent_loop::compaction::to_wire(m))
+        .collect();
+    // Extract the summary text: the wire Message is a user_text call, so
+    // content is Content::Text. Fall back to an empty string defensively.
+    let summary_text = match &summary_msg.content {
+        protocol::chat::Content::Text(s) => s.clone(),
+        _ => String::new(),
+    };
+    // Commit BEFORE swap. On failure the context stays intact and the
+    // next compaction attempt can retry.
+    let projection_id = sink.commit_projection(&summary_text, &compacted)?;
+    context.messages = compacted;
+    Some(projection_id)
 }
 
 /// harness `Tool` -> kymido `tools::Tool`. orbit's loop dispatches
@@ -415,6 +653,13 @@ struct OrbitEngine {
     /// loop's `get_aside` pull at the same boundary, but never extending
     /// the run.
     aside_queue: AsideQueue,
+    /// C01 persistence sink for orbit compaction. `None` = legacy
+    /// in-memory-only compaction; `Some` = the maintenance closure calls
+    /// [`compact_context_with_persist`] which commits each summary as a
+    /// durable projection *before* the in-memory context is swapped, so a
+    /// resumed session never finds an in-memory summary without a
+    /// matching projection pointer (C01 T3).
+    persistence_sink: Option<Arc<Sink>>,
 }
 
 impl OrbitEngine {
@@ -434,6 +679,7 @@ impl OrbitEngine {
                     plan_policy_section,
                     aside_queue,
                 },
+            persistence_sink,
         } = setup;
         let (pull_push, pull_queue) = std::sync::mpsc::channel();
         let (run_tx, run_rx) = std::sync::mpsc::channel::<llm::Message>();
@@ -464,6 +710,7 @@ impl OrbitEngine {
                 std::collections::VecDeque::new(),
             )),
             aside_queue,
+            persistence_sink,
         };
         // 专用 run 线程：串行消费 prompt，LLM 调用不占 dispatch 锁，
         // abort 标志（Arc）随时可从别的连接置位
@@ -476,6 +723,7 @@ impl OrbitEngine {
         let run_cwd = engine.cwd.clone();
         let run_max_turns = engine.max_turns;
         let run_compaction = std::sync::Arc::clone(&engine.compaction);
+        let run_persistence_sink = engine.persistence_sink.clone();
         let run_plan_section = engine.plan_policy_section.clone();
         let run_steering = std::sync::Arc::clone(&engine.steering_queue);
         let run_aside = std::sync::Arc::clone(&engine.aside_queue);
@@ -506,20 +754,31 @@ impl OrbitEngine {
                         });
                         // 压缩钩子：容器解析出的 policy 供预算/最近窗口，
                         // 摘要流走 loop 自己的后端（orbit 接缝，G6 缺口 A）。
+                        // C01: 若宿主注入了持久化 sink，维护钩子改走
+                        // compact_context_with_persist —— 先在内存算出压缩
+                        // 产物，再通过 sink 提交投影行；提交失败则不切内存
+                        // Context，保住 C01 T3（落盘失败不得使内存先切到
+                        // 无法恢复的投影）。
                         let compaction = std::sync::Arc::clone(&run_compaction);
+                        let persist_sink = run_persistence_sink.clone();
                         let maintain =
                             |b: &dyn agent_loop::orbit::LlmBackend,
                              m: &llm::Model,
                              c: &mut llm::Context,
                              s: &std::sync::atomic::AtomicBool| {
-                                agent_loop::orbit::compact_context_with(
-                                    b,
-                                    m,
-                                    c,
-                                    s,
-                                    None,
-                                    &compaction,
-                                );
+                                if let Some(sink) = persist_sink.as_ref() {
+                                    let _ =
+                                        compact_context_with_persist(b, m, c, s, &compaction, sink);
+                                } else {
+                                    agent_loop::orbit::compact_context_with(
+                                        b,
+                                        m,
+                                        c,
+                                        s,
+                                        None,
+                                        &compaction,
+                                    );
+                                }
                             };
                         // Explicit-completion guard (freebuff task_completed
                         // shape): the run may end only after the model calls
@@ -652,6 +911,16 @@ impl OrbitEngine {
     ) -> usize {
         if session_id.is_empty() {
             return 0;
+        }
+        // C01: bind the persistence sink to this session so any compaction
+        // summary produced on the run thread's maintenance closure commits
+        // a projection under the correct `(session_id, branch_id)` pair.
+        // `set_active_session_id` is a cheap atomic store; calling it here
+        // (rather than on the dispatch.rs prompt path) keeps the sink's
+        // binding scoped to the engine and works even when a resume is
+        // followed by an immediate prompt without a session id refresh.
+        if let Some(sink) = &self.persistence_sink {
+            sink.set_active_session_id(session_id);
         }
         let mut ctx = self.ctx.lock().unwrap_or_else(|e| e.into_inner());
         if self.resumed_session.as_deref() != Some(session_id) {

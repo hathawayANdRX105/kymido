@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use session::{SessionDb, SessionError, SessionMessage, SessionRole, SessionSummary};
+use session::{
+    ContextEvent, SessionDb, SessionError, SessionMessage, SessionRole, SessionSummary, ToolGroup,
+};
 
 pub use session::RunRecord;
 
@@ -716,6 +718,76 @@ impl SessionState {
     /// were backed up. Backs the `session.rewind` command (T13 turn rewind).
     pub fn rewind_messages(&self, session_id: &str, from_seq: i64) -> Result<u64, SessionError> {
         self.inner.rewind_messages(session_id, from_seq)
+    }
+
+    /// Delegates to the C01 event ledger (`context_events`): ids of the most
+    /// recently *completed* runs (ended with `turn_end` or `abort`), newest
+    /// first. Used by resume to rebuild history by run instead of taking an
+    /// arbitrary tail of messages.
+    pub fn recent_complete_runs(
+        &self,
+        session_id: &str,
+        limit: u32,
+    ) -> Result<Vec<String>, SessionError> {
+        self.inner.recent_complete_runs(session_id, limit)
+    }
+
+    /// Tool calls whose result is also present in the same scope, paired by
+    /// `tool_call_id`. Used by resume to keep tool pairs intact.
+    pub fn closed_tool_groups(
+        &self,
+        session_id: &str,
+        branch_id: &str,
+        epoch: i64,
+    ) -> Result<Vec<ToolGroup>, SessionError> {
+        self.inner.closed_tool_groups(session_id, branch_id, epoch)
+    }
+
+    /// Every ledger event belonging to one run, in `event_order`.
+    pub fn context_events_for_run(
+        &self,
+        session_id: &str,
+        branch_id: &str,
+        epoch: i64,
+        run_id: &str,
+    ) -> Result<Vec<ContextEvent>, SessionError> {
+        self.inner
+            .context_events_for_run(session_id, branch_id, epoch, run_id)
+    }
+
+    /// Bounded slice of ledger events by `event_order` range, for the
+    /// uncovered tail after a committed projection.
+    pub fn context_events_in_range(
+        &self,
+        session_id: &str,
+        branch_id: &str,
+        epoch: i64,
+        from_order: i64,
+        to_order: i64,
+        limit: u32,
+    ) -> Result<Vec<ContextEvent>, SessionError> {
+        self.inner
+            .context_events_in_range(session_id, branch_id, epoch, from_order, to_order, limit)
+    }
+
+    /// Commit a new authoritative projection into the C01 ledger.  Returns
+    /// `(projection, inserted)`; `inserted=false` when the commit was
+    /// superseded by a newer generation inside the store's own transaction
+    /// and the incoming draft was therefore not written.
+    pub fn commit_projection(
+        &self,
+        draft: session::ProjectionDraft,
+    ) -> Result<(session::ContextProjection, bool), SessionError> {
+        self.inner.commit_projection(draft)
+    }
+
+    /// Record the outcome of a request (compaction / call attempt) into the
+    /// C01 request-outcomes ledger.  Returns `(outcome, inserted)`.
+    pub fn record_request_outcome(
+        &self,
+        draft: session::RequestOutcomeDraft,
+    ) -> Result<(session::RequestOutcome, bool), SessionError> {
+        self.inner.record_request_outcome(draft)
     }
 
     pub fn load_messages(
