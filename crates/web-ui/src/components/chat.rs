@@ -418,7 +418,7 @@ pub fn Chat(
                         div { class: "px-1",
                             span {
                                 id: "attachment-reading",
-                                class: "hidden font-mono role-label",
+                                class: "hidden role-mono",
                                 {sh::MSG_ATTACHMENT_READING},
                             }
                             div {

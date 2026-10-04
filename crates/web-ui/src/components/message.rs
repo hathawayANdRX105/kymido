@@ -289,7 +289,7 @@ fn ToolLine(tool: ToolCall) -> Element {
                     Spinner {}
                 }
                 if is_err {
-                    span { class: "role-label font-medium text-destructive shrink-0", {sh::MSG_TOOL_FAILED} }
+                    span { class: "role-caption font-medium text-destructive shrink-0", {sh::MSG_TOOL_FAILED} }
                 }
                 if !running && !is_err {
                     // aui ToolCall 完成勾

@@ -86,12 +86,12 @@
   --shadow-lv2: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-lv3: 0 16px 48px rgba(0, 0, 0, 0.55);
 
-  /* dsh font stacks (base.css / ui-theme) */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
-    sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
-    "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+  /* 字体族：映射到 ui-kit 的 --ui-font-*，kit 是唯一真身（改 kit 即生效）。
+     原为 dsh 本地栈（-apple-system / SF Mono / JetBrains），与 kit 的
+     Inter / i-ist 不同族——迁移时按名字对号入座，正文观感偏离 kit demo。
+     这里只做映射不改值，kit 定义见其 theme.css 的 --ui-font-*。 */
+  --font-sans: var(--ui-font-sans);
+  --font-mono: var(--ui-font-mono);
 }
 
 /* kymido 整页 / 侧栏表面对齐 ui-kit 的 --background（全黑统一）：

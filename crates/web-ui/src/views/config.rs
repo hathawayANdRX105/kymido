@@ -174,7 +174,7 @@ fn ConfigForm(
             div { class: "bg-card border border-border rounded-2xl px-6 py-5 flex flex-col gap-4",
                 div { class: "flex items-center justify-between pb-3 border-b border-border",
                     div { class: "role-desc font-medium text-foreground", "LLM API 凭证与端点" }
-                    span { class: "font-mono role-label", "OpenAI-compatible" }
+                    span { class: "role-mono", "OpenAI-compatible" }
                 }
 
                 div { class: "grid grid-cols-2 gap-4 gap-x-5",
@@ -383,7 +383,7 @@ fn ConfigForm(
             div { class: "bg-card border border-border rounded-2xl px-6 py-5 flex flex-col gap-4",
                 div { class: "flex items-center justify-between pb-3 border-b border-border",
                     div { class: "role-desc font-medium text-foreground", "在线可用模型 ({models.len()})" }
-                    span { class: "role-label", "点击选用" }
+                    span { class: "role-caption", "点击选用" }
                 }
 
                 div { class: "grid grid-cols-2 gap-2.5",
@@ -401,7 +401,7 @@ fn ConfigForm(
                                     div { class: "flex items-center gap-2",
                                         span { class: "text-brand-300 font-mono role-caption font-medium", "{m}" }
                                         if is_current {
-                                            span { class: "bg-success text-success-foreground px-1.5 py-px rounded-md role-label font-semibold", "默认" }
+                                            span { class: "bg-success text-success-foreground px-1.5 py-px rounded-md role-caption font-semibold", "默认" }
                                         }
                                     }
                                     div { class: "mt-2",
