@@ -61,6 +61,10 @@ pub(crate) fn MenuPicker(
                         rsx! {
                             DropdownMenuItem {
                                 key: "{item_value}",
+                                // ui-anim-scope 让 hover 整行驱动选中项 IconCheck 的
+                                // tick 动效；行宽与左对齐显式写死，间距与 padding
+                                // 仍由 kit item 基串管，不在此覆盖。
+                                class: "w-full text-left ui-anim-scope",
                                 "data-dropdown-close": "true",
                                 onclick: move |_| on_select.call(item_value.clone()),
                                 span { class: "truncate {mono_class}", "{item_label}" }
