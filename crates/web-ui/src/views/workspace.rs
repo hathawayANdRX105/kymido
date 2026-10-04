@@ -60,7 +60,7 @@ const WORKSPACE_SIDEBAR_TOGGLE: &str = concat!(
     "hover:text-foreground md:flex",
 );
 const WORKSPACE_BRANCH_BADGE: &str = concat!(
-    "font-mono role-label px-2 py-0.5 rounded-full bg-chip-brand ",
+    "role-mono px-2 py-0.5 rounded-full bg-chip-brand ",
     "text-brand-300 border border-border shrink-0",
 );
 const WORKSPACE_TEXT_INPUT: &str = concat!(
@@ -1046,7 +1046,7 @@ pub fn Workspace(
                                                 span { class: "w-2 h-2 rounded-full {dot} shrink-0" }
                                                 span { class: "role-hint text-foreground truncate", "{session.title}" }
                                             }
-                                            span { class: "font-mono role-label shrink-0", "{session.id}" }
+                                            span { class: "role-mono shrink-0", "{session.id}" }
                                         }
                                     }
                                 }

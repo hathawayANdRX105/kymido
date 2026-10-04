@@ -214,7 +214,7 @@ pub fn StatsView(mut range: Signal<String>) -> Element {
                     for bar in bars.iter() {
                         StatusBarRow { key: "{bar.label}", bar: bar.clone() }
                     }
-                    p { class: "role-label m-0", "{unavailable_note}" }
+                    p { class: "role-caption m-0", "{unavailable_note}" }
                 }
 
                 div { class: "bg-card border border-border rounded-xl p-5 flex flex-col gap-4",
@@ -245,7 +245,7 @@ fn KpiCardView(kpi: Kpi) -> Element {
         div { class: "bg-card border border-border rounded-xl px-4 py-4 flex flex-col gap-2 hover:border-border transition-colors",
             div { class: "role-caption font-medium", "{kpi.label}" }
             div { class: "role-value font-mono", "{kpi.value}" }
-            span { class: "{delta_class} role-label font-mono font-semibold px-2 py-0.5 rounded-md w-fit", "{kpi.delta}" }
+            span { class: "{delta_class} role-mono font-semibold px-2 py-0.5 rounded-md w-fit", "{kpi.delta}" }
         }
     }
 }
@@ -257,8 +257,8 @@ fn StatusBarRow(bar: StatusBar) -> Element {
             div { class: "flex items-center justify-between role-caption",
                 span { class: "font-medium text-foreground", "{bar.label}" }
                 div { class: "flex items-center gap-2",
-                    span { class: "font-mono role-label", "{bar.count}" }
-                    span { class: "font-semibold text-brand font-mono role-label", "{bar.pct:.1}%" }
+                    span { class: "role-mono", "{bar.count}" }
+                    span { class: "font-semibold text-brand role-mono", "{bar.pct:.1}%" }
                 }
             }
             div { class: "h-1.5 bg-secondary rounded-full overflow-hidden",
@@ -333,10 +333,10 @@ fn FeedRow(item: Feed) -> Element {
     rsx! {
         div { class: "flex items-center justify-between px-3 py-2 bg-background border border-border rounded-lg role-caption hover:bg-muted transition-colors",
             div { class: "flex items-center gap-2 min-w-0",
-                span { class: "font-medium text-brand-300 font-mono role-label truncate", "{item.run_id}" }
-                span { class: "role-label bg-secondary px-1.5 py-px rounded-md truncate", "{item.session_id}" }
+                span { class: "font-medium text-brand-300 role-mono truncate", "{item.run_id}" }
+                span { class: "role-caption bg-secondary px-1.5 py-px rounded-md truncate", "{item.session_id}" }
             }
-            div { class: "flex items-center gap-2.5 font-mono role-label shrink-0",
+            div { class: "flex items-center gap-2.5 role-mono shrink-0",
                 span { class: "text-muted-foreground", "{item.duration}" }
                 span { class: "{item.status_class} font-medium", "{item.status}" }
             }

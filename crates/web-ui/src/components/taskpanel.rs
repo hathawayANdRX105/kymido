@@ -24,8 +24,8 @@ const TASKPANEL_CARD_OFF: &str = concat!(
     "cursor-pointer transition-colors hover:border-border",
 );
 const TASKPANEL_STATUS_CHIP: &str =
-    "px-1.5 py-px rounded-md role-label text-foreground font-medium";
-const TASKPANEL_PRIORITY_CHIP: &str = "px-1.5 py-px rounded-md font-mono role-label font-semibold";
+    "px-1.5 py-px rounded-md role-caption text-foreground font-medium";
+const TASKPANEL_PRIORITY_CHIP: &str = "px-1.5 py-px rounded-md font-mono role-mono font-semibold";
 
 #[component]
 pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
@@ -142,7 +142,7 @@ pub fn TaskPanel(tasks: Vec<TaskItem>, on_close: EventHandler<()>) -> Element {
                                 div { class: "flex items-center justify-between mb-1",
                                     div { class: "flex items-center gap-1.5",
                                         span { class: "{status_chip} {TASKPANEL_STATUS_CHIP}", "{status_label}" }
-                                        span { class: "font-mono role-label", "#{task.id}" }
+                                        span { class: "role-mono", "#{task.id}" }
                                     }
                                     div { class: "flex items-center gap-1.5",
                                         span { class: "font-mono role-overline", "{task.kind}" }

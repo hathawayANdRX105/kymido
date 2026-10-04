@@ -140,27 +140,31 @@ pub const SHADOW_POP: &str = "shadow-lv3";
 // ⑤ 字号行高（text scale，常用组合）
 // ===========================================================================
 
-/// 14px 正文行（组件内最常用的尺寸）：`role-hint`。
+/// 正文行（组件内最常用）：`role-hint`（kit `--ui-type-hint-size` = 14px）。
+/// 密集组件正文档；与 kit demo 同档。
 pub const TYPE_BODY: &str = "role-hint";
 
-/// 14px medium 标题：`role-hint` + `font-medium`。
+/// medium 标题：`role-hint` + `font-medium`（同正文档，靠字重分层）。
 pub const TYPE_TITLE: &str = "role-hint font-medium";
 
-/// 13px 次级行：`role-caption`。
+/// 次级行：`role-caption`（13px，kit caption 档）。
 pub const TYPE_DESC2: &str = "role-caption";
 
-/// 12px 弱化行（时间戳/说明）：`role-caption`。
+/// 弱化行（时间戳/说明）：`role-caption`（13px）。kit 无独立「弱化小字」档
+/// ——原 dsh 12px 档并入 caption；小字区地板是 12px `role-overline`。
 pub const TYPE_SMALL: &str = "role-caption";
 
-/// 12px 小注行（caption 高密度）：`role-caption`。
-pub const TYPE_CAPTION: &str = "role-caption";
+/// 高密度小注：`role-overline`（12px，kit 小字区地板档，含 uppercase 特性，
+/// 不需 uppercase 时与 caption 同色）。
+pub const TYPE_CAPTION: &str = "role-overline";
 
-/// 11px 微注（mono 计数/编号）：`role-label`（kit 最小常用档）。
-pub const TYPE_TINY: &str = "role-label";
+/// 微注（mono 计数/编号）：`role-caption`（13px）。原映射到 `role-label`
+/// （14px，semibold）与正文同值失去区分——小字区最细档应是 caption。
+pub const TYPE_TINY: &str = "role-caption";
 
-/// 10px 极微（chip/大写标签）：`role-label`；带 `uppercase` 的场景用
-/// `role-overline`。
-pub const TYPE_MICRO: &str = "role-label";
+/// 极微（chip/大写标签）：`role-overline`（12px，kit 为 chip/大写标签设计的档，
+/// 自带 uppercase + letter-spacing，正合此类语义）。
+pub const TYPE_MICRO: &str = "role-overline";
 
 // ===========================================================================
 // ⑥ 组合件外壳（>=2 处同构的语义壳，B2.5 收敛点）
