@@ -205,9 +205,9 @@ mod scroll_to_bottom {
 /// T12：焦点行标记（route §3 注记④「焦点消息行最小标记」）——transcript
 /// **只读消费**：行坐标 = [`transcript::total_lines`] + [`search_overlay::line_offset`]
 /// + 视口 `view_top`（与渲染同一套断行口径，行数只数一次，`transcript.rs`
-/// 内核零触碰）；标记 = 该消息首条**可见**行（滚动到首行之上时取窗口内
-/// 第一行）加 [`theme::focus`] 下划线，叠在本帧 buffer 上、下一帧由重绘
-/// 复原——聚焦是瞬时状态，不回写渲染数据。
+///   内核零触碰）；标记 = 该消息首条**可见**行（滚动到首行之上时取窗口内
+///   第一行）加 [`theme::focus`] 下划线，叠在本帧 buffer 上、下一帧由重绘
+///   复原——聚焦是瞬时状态，不回写渲染数据。
 fn mark_focus(frame: &mut Frame, area: Rect, app: &App) {
     let Some(idx) = app.focused_message() else {
         return;

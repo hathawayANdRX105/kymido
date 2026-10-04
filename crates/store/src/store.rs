@@ -261,7 +261,7 @@ impl Store {
 
         // Lock released on drop, then atomically replace the original.
         drop(file);
-        std::fs::rename(&tmp, &self.path("tasks.jsonl"))?;
+        std::fs::rename(&tmp, self.path("tasks.jsonl"))?;
         Ok(())
     }
 }

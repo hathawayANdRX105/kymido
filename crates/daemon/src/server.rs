@@ -641,9 +641,8 @@ impl Daemon {
             "[background] job {} ({}) {}",
             summary.id, summary.state, summary.label
         );
-        match summary.exit_code {
-            Some(code) => line.push_str(&format!(" — exit {code}")),
-            None => {}
+        if let Some(code) = summary.exit_code {
+            line.push_str(&format!(" — exit {code}"))
         }
         line
     }
@@ -1021,17 +1020,16 @@ fn connection_read_loop(
                 attached.push(target.clone());
             }
         }
-        if matches!(req.command, Command::EventSubscribe) {
-            if let Some(s) = req
+        if matches!(req.command, Command::EventSubscribe)
+            && let Some(s) = req
                 .params
                 .get("session")
                 .and_then(serde_json::Value::as_str)
-            {
-                let s = s.trim();
-                if !s.is_empty() && !attached.iter().any(|x| x == s) {
-                    attach.attach(s);
-                    attached.push(s.to_string());
-                }
+        {
+            let s = s.trim();
+            if !s.is_empty() && !attached.iter().any(|x| x == s) {
+                attach.attach(s);
+                attached.push(s.to_string());
             }
         }
         let resp = workers.with_session(&target, |w| {
@@ -1046,7 +1044,7 @@ fn connection_read_loop(
                 out: out.clone(),
                 task_data_dir: task_data_dir.to_path_buf(),
                 questions: Arc::clone(questions),
-                projects: projects,
+                projects,
             };
             crate::dispatch::dispatch(&mut ctx, req)
         });

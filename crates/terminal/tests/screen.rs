@@ -16,7 +16,7 @@ fn cells_of(text: &str) -> u16 {
     text.chars().map(|c| display_width(&c.to_string())).sum()
 }
 
-fn run_text<'a>(runs: &'a [StyledRun], i: usize) -> &'a str {
+fn run_text(runs: &[StyledRun], i: usize) -> &str {
     &runs[i].text
 }
 

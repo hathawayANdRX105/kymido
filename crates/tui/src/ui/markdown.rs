@@ -216,10 +216,10 @@ fn segments(text: &str, width: usize) -> Vec<Seg> {
     let mut table: Option<TableAcc> = None;
 
     let flush_para = |out: &mut Vec<Seg>, para: &mut Option<Seg>| {
-        if let Some(seg) = para.take() {
-            if !seg.text.trim().is_empty() {
-                out.push(seg);
-            }
+        if let Some(seg) = para.take()
+            && !seg.text.trim().is_empty()
+        {
+            out.push(seg);
         }
     };
 
@@ -285,23 +285,23 @@ fn segments(text: &str, width: usize) -> Vec<Seg> {
             },
             Event::End(tag) => match tag {
                 TagEnd::Heading(_) => {
-                    if let Some(level) = heading_level.take() {
-                        if let Some(mut seg) = para.take() {
-                            let hashes: &'static str = match level {
-                                1 => "# ",
-                                2 => "## ",
-                                3 => "### ",
-                                4 => "#### ",
-                                5 => "##### ",
-                                _ => "###### ",
-                            };
-                            seg.text.insert_str(0, hashes);
-                            seg.prefix = "";
-                            // 标题加粗由角色色 + 字重共同承担。
-                            seg.style = theme::heading().add_modifier(Modifier::BOLD);
-                            if !seg.text.trim().is_empty() {
-                                out.push(seg);
-                            }
+                    if let Some(level) = heading_level.take()
+                        && let Some(mut seg) = para.take()
+                    {
+                        let hashes: &'static str = match level {
+                            1 => "# ",
+                            2 => "## ",
+                            3 => "### ",
+                            4 => "#### ",
+                            5 => "##### ",
+                            _ => "###### ",
+                        };
+                        seg.text.insert_str(0, hashes);
+                        seg.prefix = "";
+                        // 标题加粗由角色色 + 字重共同承担。
+                        seg.style = theme::heading().add_modifier(Modifier::BOLD);
+                        if !seg.text.trim().is_empty() {
+                            out.push(seg);
                         }
                     }
                 }

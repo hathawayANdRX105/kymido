@@ -205,8 +205,7 @@ fn active_route_typo_is_a_load_error() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject an unknown provider");
+        .expect_err("must reject an unknown provider");
     std::env::set_current_dir(&original).expect("restore cwd");
     let msg = err.to_string();
     assert!(msg.contains("no such provider"), "got: {msg}");
@@ -226,8 +225,7 @@ fn unknown_model_in_declared_table_is_a_load_error() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject an undeclared model");
+        .expect_err("must reject an undeclared model");
     std::env::set_current_dir(&original).expect("restore cwd");
     assert!(err.to_string().contains("no model `ghost`"), "got: {err}");
 }
@@ -260,8 +258,7 @@ fn legacy_llm_section_is_rejected_with_migration_hint() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject the legacy [llm] section");
+        .expect_err("must reject the legacy [llm] section");
     std::env::set_current_dir(&original).expect("restore cwd");
     let msg = err.to_string();
     assert!(msg.contains("retired"), "got: {msg}");
@@ -282,8 +279,7 @@ fn duplicate_model_ids_are_rejected() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject duplicate model ids");
+        .expect_err("must reject duplicate model ids");
     std::env::set_current_dir(&original).expect("restore cwd");
     assert!(err.to_string().contains("duplicate model id"), "got: {err}");
 }
@@ -302,8 +298,7 @@ fn zero_context_window_is_rejected() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject a zero window");
+        .expect_err("must reject a zero window");
     std::env::set_current_dir(&original).expect("restore cwd");
     assert!(err.to_string().contains("positive"), "got: {err}");
 }
@@ -322,8 +317,7 @@ fn unknown_input_modality_is_rejected() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject an unknown modality");
+        .expect_err("must reject an unknown modality");
     std::env::set_current_dir(&original).expect("restore cwd");
     assert!(
         err.to_string().contains("unknown input modality"),
@@ -501,8 +495,7 @@ fn combo_missing_provider_is_a_load_error() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject a combo whose target provider is missing");
+        .expect_err("must reject a combo whose target provider is missing");
     std::env::set_current_dir(&original).expect("restore cwd");
     let msg = err.to_string();
     assert!(
@@ -525,8 +518,7 @@ fn combo_bare_provider_target_is_a_load_error() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject a bare-provider combo target");
+        .expect_err("must reject a bare-provider combo target");
     std::env::set_current_dir(&original).expect("restore cwd");
     let msg = err.to_string();
     assert!(
@@ -549,8 +541,7 @@ fn combo_to_combo_is_a_load_error() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject combo-to-combo indirection");
+        .expect_err("must reject combo-to-combo indirection");
     std::env::set_current_dir(&original).expect("restore cwd");
     let msg = err.to_string();
     assert!(
@@ -573,8 +564,7 @@ fn combo_target_model_not_in_table_is_a_load_error() {
     std::env::set_current_dir(dir.path()).expect("switch cwd");
     let err = std::panic::catch_unwind(config::Config::load)
         .expect("no panic")
-        .err()
-        .expect("must reject a combo target missing from the declared table");
+        .expect_err("must reject a combo target missing from the declared table");
     std::env::set_current_dir(&original).expect("restore cwd");
     let msg = err.to_string();
     assert!(

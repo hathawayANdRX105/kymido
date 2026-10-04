@@ -112,15 +112,11 @@ pub struct McpReconnectConfig {
 /// the child agent's permission prompts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SubagentPermission {
     Allow,
+    #[default]
     Reject,
-}
-
-impl Default for SubagentPermission {
-    fn default() -> Self {
-        Self::Reject
-    }
 }
 
 /// One out-of-process subagent provider (`[[subagent.providers]]`): a spawned

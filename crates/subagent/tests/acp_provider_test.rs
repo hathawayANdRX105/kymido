@@ -92,7 +92,7 @@ fn expect_completed(result: SubagentResult) -> String {
 }
 
 /// 1. The happy path: `MOCK_TEXT` is streamed and collected, and a custom
-/// `MOCK_SESSION_ID` is accepted (the turn could not complete otherwise).
+///    `MOCK_SESSION_ID` is accepted (the turn could not complete otherwise).
 #[test]
 fn happy_path_streams_text() {
     let dir = tempdir().unwrap();
@@ -113,7 +113,7 @@ fn happy_path_streams_text() {
 }
 
 /// 2. `MOCK_ECHO_CWD`: the child streams its own cwd and the cwd announced at
-/// `session/new`, so one assertion covers both the spawn and the handshake.
+///    `session/new`, so one assertion covers both the spawn and the handshake.
 #[test]
 fn echo_cwd_streams_working_directory() {
     let dir = tempdir().unwrap();
@@ -128,7 +128,7 @@ fn echo_cwd_streams_working_directory() {
 }
 
 /// 3. A stop reason that is not `end_turn` or `cancelled` is a failure —
-/// never a silently completed turn (dsh's `acpStopReason`).
+///    never a silently completed turn (dsh's `acpStopReason`).
 #[test]
 fn non_terminal_stop_reason_fails() {
     let dir = tempdir().unwrap();
@@ -146,7 +146,7 @@ fn non_terminal_stop_reason_fails() {
 }
 
 /// 4. `MOCK_NO_SESSION_ID`: the handshake is malformed, so the run fails and
-/// the child is torn down (the worker's startup rollback).
+///    the child is torn down (the worker's startup rollback).
 #[test]
 fn missing_session_id_fails_and_reaps_child() {
     let dir = tempdir().unwrap();
@@ -166,7 +166,7 @@ fn missing_session_id_fails_and_reaps_child() {
 }
 
 /// 5. `MOCK_PERMISSION` under the default `Allow` policy: the provider
-/// approves the first offered option and the turn completes.
+///    approves the first offered option and the turn completes.
 #[test]
 fn permission_allow_completes_turn() {
     let dir = tempdir().unwrap();
@@ -181,7 +181,7 @@ fn permission_allow_completes_turn() {
 }
 
 /// 6. `MOCK_PERMISSION` under a `Reject` policy: the denied request settles
-/// the turn `cancelled`, which the backend reports as an abort.
+///    the turn `cancelled`, which the backend reports as an abort.
 #[test]
 fn permission_reject_aborts_turn() {
     let dir = tempdir().unwrap();
@@ -195,9 +195,9 @@ fn permission_reject_aborts_turn() {
 }
 
 /// 7. `MOCK_HANG` + `MOCK_EOF_FLUSH_MS`: the child never answers and exits
-/// `MOCK_EOF_FLUSH_MS` after EOF, so tier 1 reaps it *inside* `eof_grace`. If
-/// the cooperative tier were broken the ladder would have to kill, and the
-/// elapsed time would reach the grace first.
+///    `MOCK_EOF_FLUSH_MS` after EOF, so tier 1 reaps it *inside* `eof_grace`. If
+///    the cooperative tier were broken the ladder would have to kill, and the
+///    elapsed time would reach the grace first.
 #[test]
 fn hang_is_reaped_within_eof_grace() {
     let dir = tempdir().unwrap();
@@ -216,8 +216,8 @@ fn hang_is_reaped_within_eof_grace() {
 }
 
 /// 8. `MOCK_HANG` + `MOCK_IGNORE_CANCEL`: the child swallows the cancel and
-/// outlives stdin EOF — cooperative teardown cannot touch it, so the ladder
-/// must exhaust `eof_grace` and then SIGKILL.
+///    outlives stdin EOF — cooperative teardown cannot touch it, so the ladder
+///    must exhaust `eof_grace` and then SIGKILL.
 #[test]
 fn ignore_cancel_escalates_to_sigkill() {
     let dir = tempdir().unwrap();
@@ -240,7 +240,7 @@ fn ignore_cancel_escalates_to_sigkill() {
 }
 
 /// 9. `MOCK_CRASH`: the agent dies mid-turn. No `dispose` is needed — the
-/// exit watcher closes the transport, and the run fails instead of hanging.
+///    exit watcher closes the transport, and the run fails instead of hanging.
 #[test]
 fn crash_fails_without_dispose() {
     let dir = tempdir().unwrap();

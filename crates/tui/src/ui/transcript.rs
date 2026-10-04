@@ -303,7 +303,7 @@ fn wrap_with(text: &str, width: usize, mut f: impl FnMut(&str)) {
 fn cell_boundary(s: &str, cells: usize) -> usize {
     let mut used = 0usize;
     for (offset, ch) in s.char_indices() {
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0) as usize;
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
         if used + w > cells {
             return offset;
         }

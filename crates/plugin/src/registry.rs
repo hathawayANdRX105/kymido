@@ -85,9 +85,7 @@ impl PluginRegistry {
         if self.plugins.iter().any(|p| p.name() == plugin.name()) {
             return Err(PluginError::Duplicate(plugin.name().to_string()));
         }
-        if let Err(e) = plugin.validate_config(config) {
-            return Err(e);
-        }
+        plugin.validate_config(config)?;
         plugin.register(ctx);
         self.plugins.push(plugin);
         Ok(())

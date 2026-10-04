@@ -8,6 +8,22 @@ use ui_kit::icons::IconTrash;
 
 use super::dual_sidebar::depth_indent_class;
 
+/// 会话行样式：选中 / 默认，及行尾归档钮（hover 行才出现）。
+const SESSION_ROW_ACTIVE: &str = concat!(
+    "group h-8 px-2 rounded-lg flex items-center gap-2 ",
+    "bg-accent cursor-pointer transition-colors",
+);
+const SESSION_ROW_INACTIVE: &str = concat!(
+    "group h-8 px-2 rounded-lg flex items-center gap-2 ",
+    "hover:bg-muted cursor-pointer transition-colors",
+);
+const SESSION_ROW_ARCHIVE_BTN: &str = concat!(
+    "shrink-0 flex items-center justify-center w-4 h-4 ",
+    "text-muted-foreground hover:text-destructive opacity-0 ",
+    "group-hover:opacity-100 transition-opacity ",
+    "cursor-pointer bg-transparent border-none",
+);
+
 #[component]
 pub(crate) fn SessionRow(
     session: Session,
@@ -22,9 +38,9 @@ pub(crate) fn SessionRow(
     let running = session.status == SessionStatus::Active;
 
     let row_class = if active {
-        "group h-8 px-2 rounded-lg flex items-center gap-2 bg-accent cursor-pointer transition-colors"
+        SESSION_ROW_ACTIVE
     } else {
-        "group h-8 px-2 rounded-lg flex items-center gap-2 hover:bg-muted cursor-pointer transition-colors"
+        SESSION_ROW_INACTIVE
     };
     let title_class = if active {
         "role-hint text-foreground truncate min-w-0 flex-1"
@@ -42,7 +58,7 @@ pub(crate) fn SessionRow(
             span { class: "role-caption shrink-0", "{session.last_active}" }
             // 归档会话钮（软删：移入「归档」而非硬删）：hover 行才出现，排在行最右
             button {
-                class: "shrink-0 flex items-center justify-center w-4 h-4 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                class: "{SESSION_ROW_ARCHIVE_BTN}",
                 title: sh::BTN_ARCHIVE_SESSION,
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();

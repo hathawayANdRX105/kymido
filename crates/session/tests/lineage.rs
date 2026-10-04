@@ -113,7 +113,7 @@ fn parent_id_column_added_idempotently() {
 #[test]
 fn create_with_parent_round_trips() {
     let dir = tempdir().expect("temp dir");
-    let db = SessionDb::open(&dir.path().join("sessions.db")).expect("open db");
+    let db = SessionDb::open(dir.path().join("sessions.db")).expect("open db");
 
     let row = db
         .create_session_with_parent("rt-1", "往返测试", Some("rt-parent"))
@@ -132,7 +132,7 @@ fn create_with_parent_round_trips() {
 #[test]
 fn orphans_have_no_parent() {
     let dir = tempdir().expect("temp dir");
-    let db = SessionDb::open(&dir.path().join("sessions.db")).expect("open db");
+    let db = SessionDb::open(dir.path().join("sessions.db")).expect("open db");
 
     let explicit_none = db
         .ensure_session_with_parent("solo", "无父", None)
@@ -159,7 +159,7 @@ fn orphans_have_no_parent() {
 #[test]
 fn lineage_chain_queries() {
     let dir = tempdir().expect("temp dir");
-    let db = SessionDb::open(&dir.path().join("sessions.db")).expect("open db");
+    let db = SessionDb::open(dir.path().join("sessions.db")).expect("open db");
 
     db.ensure_session("a", "chain-a").expect("root");
     db.ensure_session_with_parent("b", "chain-b", Some("a"))

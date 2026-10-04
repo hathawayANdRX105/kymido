@@ -434,10 +434,10 @@ impl Tool for WebSearchTool {
             .post(&endpoint)
             .set("content-type", "application/json")
             .set("accept", "application/json");
-        if let Ok(key) = std::env::var("KYMIDO_WEB_SEARCH_API_KEY") {
-            if !key.trim().is_empty() {
-                request = request.set("authorization", &format!("Bearer {key}"));
-            }
+        if let Ok(key) = std::env::var("KYMIDO_WEB_SEARCH_API_KEY")
+            && !key.trim().is_empty()
+        {
+            request = request.set("authorization", &format!("Bearer {key}"));
         }
         let payload = json!({ "queries": queries });
         let response = request

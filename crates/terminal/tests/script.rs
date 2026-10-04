@@ -24,7 +24,7 @@ fn fresh_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn outcome<'a>(report: &'a RunReport, step: usize) -> &'a StepOutcome {
+fn outcome(report: &RunReport, step: usize) -> &StepOutcome {
     &report.steps[step]
 }
 

@@ -189,7 +189,7 @@ pub fn add_space(mut sig: WorkspaceSignals, path: String) {
     (sig.space_sessions)
         .write()
         .entry(path.clone())
-        .or_insert_with(Vec::new);
+        .or_default();
     // 持久化：Daemon 侧 project.create（后台线程；校验 + 写注册表）。
     if let DataBackend::Daemon(d) = (sig.backend)() {
         let path_daemon = path.clone();
@@ -460,35 +460,32 @@ pub fn send_message(
         let sid_fail = sid.clone();
         let run_id_fail = run_id.clone();
         spawn(async move {
-            match fail_rx.await {
-                Ok(kind) => {
-                    {
-                        let mut map = space_sessions.write();
-                        for list in map.values_mut() {
-                            for s in list.iter_mut() {
-                                if s.id == sid_fail {
-                                    s.status = SessionStatus::Idle;
-                                }
+            if let Ok(kind) = fail_rx.await {
+                {
+                    let mut map = space_sessions.write();
+                    for list in map.values_mut() {
+                        for s in list.iter_mut() {
+                            if s.id == sid_fail {
+                                s.status = SessionStatus::Idle;
                             }
                         }
                     }
-                    if live_run_id() == run_id_fail {
-                        live_run_id.set(String::new());
-                        run_target_sid.set(String::new());
-                    }
-                    // 计时结算（5.6）：prompt 直接失败时事件路径不会有
-                    // TurnEnd，不结算耗时会一直按「在飞」实时增长
-                    let mut st = statusline();
-                    st.finish_run(now_ms());
-                    // known-issue 1：失败在状态行可见（此前只有 eprintln，
-                    // 用户看到 32ms 空 turn 却无从知晓原因）
-                    st.last_error = match kind {
-                        SendFailure::NotReady => "daemon 未就绪，消息未发送".into(),
-                        SendFailure::Prompt => "run 启动失败，请重发".into(),
-                    };
-                    statusline.set(st);
                 }
-                Err(_) => {}
+                if live_run_id() == run_id_fail {
+                    live_run_id.set(String::new());
+                    run_target_sid.set(String::new());
+                }
+                // 计时结算（5.6）：prompt 直接失败时事件路径不会有
+                // TurnEnd，不结算耗时会一直按「在飞」实时增长
+                let mut st = statusline();
+                st.finish_run(now_ms());
+                // known-issue 1：失败在状态行可见（此前只有 eprintln，
+                // 用户看到 32ms 空 turn 却无从知晓原因）
+                st.last_error = match kind {
+                    SendFailure::NotReady => "daemon 未就绪，消息未发送".into(),
+                    SendFailure::Prompt => "run 启动失败，请重发".into(),
+                };
+                statusline.set(st);
             }
         });
     }

@@ -33,6 +33,12 @@ pub struct SkillRuntime {
     cwd: PathBuf,
 }
 
+impl Default for SkillRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillRuntime {
     pub fn new() -> Self {
         Self {
@@ -94,17 +100,18 @@ impl SkillRuntime {
                     Err(_) => continue,
                 };
 
-                if let Some(parsed) = parse_skill_file(&content) {
-                    if parsed.model_invocable && !seen.contains(&parsed.name) {
-                        seen.insert(parsed.name.clone());
-                        entries.insert(
-                            parsed.name.clone(),
-                            SkillCatalogEntry {
-                                name: parsed.name,
-                                description: parsed.description,
-                            },
-                        );
-                    }
+                if let Some(parsed) = parse_skill_file(&content)
+                    && parsed.model_invocable
+                    && !seen.contains(&parsed.name)
+                {
+                    seen.insert(parsed.name.clone());
+                    entries.insert(
+                        parsed.name.clone(),
+                        SkillCatalogEntry {
+                            name: parsed.name,
+                            description: parsed.description,
+                        },
+                    );
                 }
             }
         }
@@ -129,10 +136,12 @@ impl SkillRuntime {
         // Simple component check
         if let Ok(rel) = path.strip_prefix(root) {
             for comp in rel.components() {
-                if let std::path::Component::Normal(name) = comp {
-                    if name.to_string_lossy().starts_with('.') && name != "." && name != ".." {
-                        return Ok(false); // hidden
-                    }
+                if let std::path::Component::Normal(name) = comp
+                    && name.to_string_lossy().starts_with('.')
+                    && name != "."
+                    && name != ".."
+                {
+                    return Ok(false); // hidden
                 }
             }
         }
@@ -189,33 +198,31 @@ impl SkillRuntime {
             let dir_path = root.join(name);
             if dir_path.is_dir() {
                 let md_path = dir_path.join("SKILL.md");
-                if md_path.is_file() && !self.is_symlink(&md_path) {
-                    if let Ok(content) = self.read_bounded(&md_path) {
-                        if let Some(parsed) = parse_skill_file(&content) {
-                            if parsed.name == name {
-                                if !parsed.model_invocable {
-                                    return Err(SkillLoadError::NotModelInvocable);
-                                }
-                                return Ok(self.render_skill(&parsed, &dir_path));
-                            }
-                        }
+                if md_path.is_file()
+                    && !self.is_symlink(&md_path)
+                    && let Ok(content) = self.read_bounded(&md_path)
+                    && let Some(parsed) = parse_skill_file(&content)
+                    && parsed.name == name
+                {
+                    if !parsed.model_invocable {
+                        return Err(SkillLoadError::NotModelInvocable);
                     }
+                    return Ok(self.render_skill(&parsed, &dir_path));
                 }
             }
 
             // Try flat .md
             let flat_path = root.join(format!("{}.md", name));
-            if flat_path.is_file() && !self.is_symlink(&flat_path) {
-                if let Ok(content) = self.read_bounded(&flat_path) {
-                    if let Some(parsed) = parse_skill_file(&content) {
-                        if parsed.name == name {
-                            if !parsed.model_invocable {
-                                return Err(SkillLoadError::NotModelInvocable);
-                            }
-                            return Ok(self.render_skill(&parsed, root));
-                        }
-                    }
+            if flat_path.is_file()
+                && !self.is_symlink(&flat_path)
+                && let Ok(content) = self.read_bounded(&flat_path)
+                && let Some(parsed) = parse_skill_file(&content)
+                && parsed.name == name
+            {
+                if !parsed.model_invocable {
+                    return Err(SkillLoadError::NotModelInvocable);
                 }
+                return Ok(self.render_skill(&parsed, root));
             }
         }
 

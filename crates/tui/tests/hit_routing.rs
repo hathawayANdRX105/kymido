@@ -328,5 +328,5 @@ fn find_hit(app: &App, pred: impl Fn(HitAction) -> bool) -> Option<(u16, u16)> {
     let map = app.hit().borrow();
     (0..80u16)
         .flat_map(|x| (0..24u16).map(move |y| (x, y)))
-        .find(|&(x, y)| map.hit(x, y).is_some_and(|a| pred(a)))
+        .find(|&(x, y)| map.hit(x, y).is_some_and(&pred))
 }

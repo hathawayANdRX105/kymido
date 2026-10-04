@@ -60,16 +60,8 @@ impl GuardService {
 /// Guard config with repeat and timeout settings.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[derive(Default)]
 pub struct GuardConfig {
     pub repeat: RepeatConfig,
     pub timeout: TimeoutConfig,
-}
-
-impl Default for GuardConfig {
-    fn default() -> Self {
-        Self {
-            repeat: RepeatConfig::default(),
-            timeout: TimeoutConfig::default(),
-        }
-    }
 }

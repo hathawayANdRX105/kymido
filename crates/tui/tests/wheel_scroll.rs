@@ -346,10 +346,10 @@ fn scroll_lines_mirrors_page_semantics_and_clamps() {
 fn thumb_rows(buffer: &Buffer, x: u16) -> Vec<u16> {
     let mut rows = Vec::new();
     for y in 0..buffer.area.height {
-        if let Some(cell) = buffer.cell((x, y)) {
-            if cell.symbol() == "█" {
-                rows.push(y);
-            }
+        if let Some(cell) = buffer.cell((x, y))
+            && cell.symbol() == "█"
+        {
+            rows.push(y);
         }
     }
     rows

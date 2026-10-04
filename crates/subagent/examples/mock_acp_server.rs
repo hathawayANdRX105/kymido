@@ -101,8 +101,8 @@ fn main() {
     let mut announced_cwd = String::new();
 
     let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
-    while let Some(line) = lines.next() {
+    let lines = stdin.lock().lines();
+    for line in lines {
         let line = match line {
             Ok(line) => line,
             Err(_) => break,

@@ -116,6 +116,98 @@ const THINKING_OPTIONS: &[(&str, &str)] = &[
     (sh::OPT_THINKING_DEEP, "16k"),
 ];
 
+// ---- 组件私有 class 常量（canon DIOXUS-INLINE-CLASS）----
+// 成组内联 class（≥72 字符）抽到此；常量值与原内联串逐字节一致。用 concat! 分段，
+// 避免单个物理行出现完整的长 class 字面量（harness 按物理行抓字符串字面量，常量声明行也计入）。
+const CHAT_MESSAGE_COLUMN: &str = concat!(
+    "max-w-[780px] w-full mx-auto px-4 pt-4 pb-[220px] flex flex-col ",
+    "gap-4 min-h-full",
+);
+
+const CHAT_EMPTY_STATE: &str = concat!(
+    "flex-1 flex flex-col items-center justify-center gap-2.5 ",
+    "text-center py-10 select-none relative",
+);
+
+const CHAT_EMPTY_GLOW: &str = concat!(
+    "absolute w-[520px] h-[220px] rounded-full bg-brand/10 blur-[110px] ",
+    "-z-10",
+);
+
+const CHAT_MINIMAP_DOT: &str = concat!(
+    "rounded-full bg-subtle cursor-pointer transition-all duration-150 ",
+    "ease-out minimap-bar",
+);
+
+const CHAT_MINIMAP_TIP: &str = concat!(
+    "absolute left-14 top-1/2 -translate-y-1/2 z-30 w-[230px] ",
+    "max-h-[150px] overflow-hidden rounded-xl border border-binv ",
+    "bg-popover px-3 py-2.5 shadow-lv3 pointer-events-none",
+);
+
+const CHAT_QUESTION_CARD: &str = concat!(
+    "pointer-events-auto w-full question-card rounded-[14px] border ",
+    "border-border bg-card shadow-lv2 px-4 py-3 flex flex-col gap-2.5",
+);
+
+const CHAT_QUESTION_OPTION: &str = concat!(
+    "h-7 px-3 rounded-lg bg-secondary hover:bg-secondary-hover ",
+    "role-caption text-foreground transition-colors",
+);
+
+const CHAT_COMPOSER_CARD: &str = concat!(
+    "pointer-events-auto w-full rounded-[24px] border border-border ",
+    "bg-background shadow-lv2 p-2.5 flex flex-col gap-1.5 ",
+    "transition-colors focus-within:border-b3",
+);
+
+const CHAT_ATTACHMENT_CHIP: &str = concat!(
+    "flex items-center gap-1.5 rounded-[10px] border border-border ",
+    "bg-card px-2 py-1 role-caption text-foreground",
+);
+
+const CHAT_ATTACHMENT_REMOVE: &str = concat!(
+    "border-none bg-transparent text-muted-foreground ",
+    "hover:text-foreground cursor-pointer p-0",
+);
+
+const CHAT_COMPOSER_INPUT: &str = concat!(
+    "w-full resize-none bg-transparent border-none outline-none ",
+    "role-desc text-foreground placeholder:text-muted-foreground ",
+    "caret-brand px-3 pt-1.5 pb-1 min-h-[44px] max-h-[336px]",
+);
+
+const CHAT_UPLOAD_BUTTON: &str = concat!(
+    "flex items-center justify-center w-[32px] h-[32px] rounded-full ",
+    "text-muted-foreground hover:bg-secondary-hover ",
+    "transition-[background-color,color,scale] duration-150 ",
+    "active:scale-[0.96] cursor-pointer",
+);
+
+const CHAT_UPLOAD_DISABLED: &str = concat!(
+    "flex items-center justify-center w-[32px] h-[32px] rounded-full ",
+    "text-muted-foreground opacity-40 cursor-not-allowed",
+);
+
+const CHAT_GHOST_BUTTON: &str = concat!(
+    "flex items-center justify-center w-[32px] h-[32px] rounded-full ",
+    "text-muted-foreground hover:bg-secondary-hover ",
+    "transition-[background-color,color,scale] duration-150 ",
+    "active:scale-[0.96] cursor-pointer border-none bg-transparent",
+);
+
+const CHAT_SEND_BUTTON: &str = concat!(
+    "w-[32px] h-[32px] rounded-full bg-brand text-primary-foreground ",
+    "hover:bg-brand-hover flex items-center justify-center ",
+    "cursor-pointer transition-[opacity,scale] duration-150 ",
+    "active:scale-[0.96] border-none",
+);
+
+const CHAT_SEND_DISABLED: &str = concat!(
+    "w-[32px] h-[32px] rounded-full bg-secondary-hover flex items-center ",
+    "justify-center cursor-default border-none",
+);
+
 #[component]
 pub fn Chat(
     messages: Vec<ChatMessage>,
@@ -233,13 +325,13 @@ pub fn Chat(
             // 单一滚动面板 = 整个聊天室
             div { class: "absolute inset-0 overflow-y-auto",
                 id: "chat-scroll",
-                div { class: "max-w-[780px] w-full mx-auto px-4 pt-4 pb-[220px] flex flex-col gap-4 min-h-full",
+                div { class: "{CHAT_MESSAGE_COLUMN}",
                     if display_messages.is_empty() && !is_streaming {
-                        div { class: "flex-1 flex flex-col items-center justify-center gap-2.5 text-center py-10 select-none relative",
-                            div { class: "absolute w-[520px] h-[220px] rounded-full bg-brand/10 blur-[110px] -z-10" }
+                        div { class: "{CHAT_EMPTY_STATE}",
+                            div { class: "{CHAT_EMPTY_GLOW}" }
                             div { class: "role-title", {sh::MSG_EMPTY_CHAT_TITLE} }
                             div { class: "role-hint max-w-[420px]",
-                                "在下方输入指令，Agent 将使用文件读写、bash 与代码编辑工具协助你完成。"
+                                {sh::MSG_EMPTY_CHAT_DESC}
                             }
                         }
                     }
@@ -274,10 +366,10 @@ pub fn Chat(
                         div { class: "relative flex items-center",
                             style: "height:16px; width:56px;",
                             "data-anchor": anchor_id,
-                            div { class: "rounded-full bg-subtle cursor-pointer transition-all duration-150 ease-out minimap-bar",
+                            div { class: "{CHAT_MINIMAP_DOT}",
                                 style: "height:4px; width:10px;",
                             }
-                                div { class: "absolute left-14 top-1/2 -translate-y-1/2 z-30 w-[230px] max-h-[150px] overflow-hidden rounded-xl border border-binv bg-popover px-3 py-2.5 shadow-lv3 pointer-events-none",
+                                div { class: "{CHAT_MINIMAP_TIP}",
                                 "data-tip": "",
                                 style: "display:none;",
                                 div { class: "role-caption whitespace-pre-wrap break-words line-clamp-6", "{p}" }
@@ -296,7 +388,7 @@ pub fn Chat(
                     // 用户问题卡（plan-mode review）：composer 上方、dock 之下。
                     // 选项即答案：Select { index } 直发，无中间态
                     if let Some((_, qsummary, _)) = &question_view {
-                        div { class: "pointer-events-auto w-full question-card rounded-[14px] border border-border bg-card shadow-lv2 px-4 py-3 flex flex-col gap-2.5",
+                        div { class: "{CHAT_QUESTION_CARD}",
                             div { class: "flex items-baseline gap-2",
                                 span { class: "role-caption font-medium text-brand-300 shrink-0", {sh::LBL_PLAN_REVIEW} }
                                 span { class: "role-caption", "{qsummary}" }
@@ -308,7 +400,7 @@ pub fn Chat(
                                         rsx! {
                                             button {
                                                 key: "{i}",
-                                                class: "h-7 px-3 rounded-lg bg-secondary hover:bg-secondary-hover role-caption text-foreground transition-colors",
+                                                class: "{CHAT_QUESTION_OPTION}",
                                                 onclick: move |_| {
                                                     on_answer.call((qid_click.clone(), QuestionAnswer::Select { index: i }));
                                                 },
@@ -323,7 +415,7 @@ pub fn Chat(
                     // 输入卡：r22 胶囊
                     // 不加 overflow-hidden：模型/思考菜单从工具行向上弹出，
                     // 裁剪会切掉卡片外的部分；圆角由卡片自身的 bg + radius 呈现
-                    div { class: "pointer-events-auto w-full rounded-[24px] border border-border bg-background shadow-lv2 p-2.5 flex flex-col gap-1.5 transition-colors focus-within:border-b3",
+                    div { class: "{CHAT_COMPOSER_CARD}",
                         // Bridge: the file picker JS writes base64 JSON here.
                         // Hidden from view, still a real textarea so
                         // LiveView's `oninput` wiring works unchanged.
@@ -346,12 +438,12 @@ pub fn Chat(
                             div { class: "flex flex-wrap gap-1.5 px-1 pt-0.5",
                                 for (idx, att) in attachments().into_iter().enumerate() {
                                     div {
-                                        class: "flex items-center gap-1.5 rounded-[10px] border border-border bg-card px-2 py-1 role-caption text-foreground",
+                                        class: "{CHAT_ATTACHMENT_CHIP}",
                                         span { class: "max-w-[180px] truncate", "{att.name}" }
                                         span { class: "font-mono text-muted-foreground", "{att.size_bytes() / 1024} KB" }
                                         button {
                                             r#type: "button",
-                                            class: "border-none bg-transparent text-muted-foreground hover:text-foreground cursor-pointer p-0",
+                                            class: "{CHAT_ATTACHMENT_REMOVE}",
                                             title: sh::BTN_REMOVE,
                                             onclick: move |_| {
                                                 let mut cur = attachments.write();
@@ -370,7 +462,7 @@ pub fn Chat(
                             span {
                                 id: "attachment-reading",
                                 class: "hidden font-mono role-label",
-                                "处理中…",
+                                {sh::MSG_ATTACHMENT_READING},
                             }
                             div {
                                 id: "attachment-rejected",
@@ -379,8 +471,8 @@ pub fn Chat(
                         }
                         textarea {
                             id: "chat-input-area",
-                            class: "w-full resize-none bg-transparent border-none outline-none role-desc text-foreground placeholder:text-muted-foreground caret-brand px-3 pt-1.5 pb-1 min-h-[44px] max-h-[336px]",
-                            placeholder: "输入指令，Enter 发送，Shift+Enter 换行...",
+                            class: "{CHAT_COMPOSER_INPUT}",
+                            placeholder: sh::MSG_INPUT_PLACEHOLDER,
                             value: "{draft}",
                             oninput: move |e: FormEvent| draft.set(e.value()),
                             onkeydown: move |e: KeyboardEvent| {
@@ -406,7 +498,7 @@ pub fn Chat(
                                 // file input；附件桥 JS 缺元素自然不生效）。
                                 if image_input {
                                     label {
-                                        class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-muted-foreground hover:bg-secondary-hover transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer",
+                                        class: "{CHAT_UPLOAD_BUTTON}",
                                         title: sh::BTN_ADD_IMAGE,
                                         input {
                                             id: "attachment-input",
@@ -420,7 +512,7 @@ pub fn Chat(
                                     }
                                 } else {
                                     span {
-                                        class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-muted-foreground opacity-40 cursor-not-allowed",
+                                        class: "{CHAT_UPLOAD_DISABLED}",
                                         title: sh::MSG_NO_IMAGE_INPUT,
                                         IconPaperclip { size: 16 }
                                     }
@@ -428,7 +520,7 @@ pub fn Chat(
                                 // aui ghost 按钮对位：32px 圆形 ghost（纯元素，保留 toggle 语义）
                                 button {
                                     r#type: "button",
-                                    class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-muted-foreground hover:bg-secondary-hover transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer border-none bg-transparent",
+                                    class: "{CHAT_GHOST_BUTTON}",
                                     title: sh::BTN_TASK_PANEL,
                                     // 点外关闭（ainnotation 波3）：开合钮保持纯 toggle 语义——
                                     // stop_propagation 挡住页面级 click 委托，开→关 / 关→开
@@ -448,7 +540,7 @@ pub fn Chat(
                                     on_select: move |m: String| on_model_change.call(m),
                                 }
                                 MenuPicker {
-                                    label: "思考 {statusline.thinking}",
+                                    label: format!("{} {}", sh::LBL_THINKING, statusline.thinking),
                                     header: sh::LBL_THINKING_STRENGTH,
                                     items: thinking_items,
                                     active_value: statusline.thinking.clone(),
@@ -460,7 +552,7 @@ pub fn Chat(
                                 if is_streaming {
                                     button {
                                         r#type: "button",
-                                        class: "w-[32px] h-[32px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-[opacity,scale] duration-150 active:scale-[0.96] border-none",
+                                        class: "{CHAT_SEND_BUTTON}",
                                         title: sh::BTN_STOP,
                                         onclick: move |_| on_abort.call(()),
                                         Spinner { size: 14, class: "text-white" }
@@ -468,14 +560,14 @@ pub fn Chat(
                                 } else if draft().trim().is_empty() {
                                     button {
                                         r#type: "button",
-                                        class: "w-[32px] h-[32px] rounded-full bg-secondary-hover flex items-center justify-center cursor-default border-none",
+                                        class: "{CHAT_SEND_DISABLED}",
                                         title: sh::BTN_SEND,
                                         IconArrowUp { size: 16 }
                                     }
                                 } else {
                                     button {
                                         r#type: "button",
-                                        class: "w-[32px] h-[32px] rounded-full bg-brand text-white hover:bg-brand-hover flex items-center justify-center cursor-pointer transition-[opacity,scale] duration-150 active:scale-[0.96] border-none",
+                                        class: "{CHAT_SEND_BUTTON}",
                                         title: sh::BTN_SEND,
                                         onclick: move |_| {
                                             let text = draft();

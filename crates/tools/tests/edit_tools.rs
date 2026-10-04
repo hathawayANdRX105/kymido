@@ -1,7 +1,7 @@
 //! Tests for apply_patch and str_replace_editor tools.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
@@ -21,7 +21,7 @@ fn cleanup_temp(dir: &PathBuf) {
 }
 
 /// Build a test file with given content
-fn write_test_file(dir: &PathBuf, name: &str, content: &str) -> PathBuf {
+fn write_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, content).unwrap();
     path
