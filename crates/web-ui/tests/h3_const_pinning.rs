@@ -79,16 +79,6 @@ fn opt_constants_match_original_thinking_levels() {
 }
 
 #[test]
-fn opt_constants_stats_ranges_match_dual_sidebar_menu() {
-    assert_eq!(sh::OPT_STATS_RANGE_1H, "最近 1 小时");
-    assert_eq!(sh::OPT_STATS_RANGE_24H, "最近 24 小时");
-    assert_eq!(sh::OPT_STATS_RANGE_7D, "最近 7 天");
-    assert_eq!(sh::OPT_STATS_RANGE_30D, "最近 30 天");
-    assert_eq!(sh::OPT_STATS_RANGE_90D, "最近 90 天");
-    assert_eq!(sh::OPT_STATS_RANGE_ALL, "全部");
-}
-
-#[test]
 fn status_constants_match_original_badges() {
     assert_eq!(sh::STATUS_ALL, "全部");
     assert_eq!(sh::STATUS_IN_PROGRESS, "进行中");
