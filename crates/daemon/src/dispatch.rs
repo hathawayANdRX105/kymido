@@ -188,41 +188,45 @@ fn turn_event_key(session_id: &str, role: &str, run_id: &str) -> String {
     format!("turn:{session_id}:{role}:{run_id}")
 }
 
+/// The caller-supplied half of one ledger event. Everything the writer fills
+/// in for itself (`event_id`, `branch_id`, `epoch`, `turn_id`, `event_order`)
+/// stays in [`record_context_event`] so those derivations cannot drift apart
+/// between call sites.
+struct LedgerEvent<'a> {
+    session_id: &'a str,
+    run_id: Option<&'a str>,
+    kind: ContextEventKind,
+    source_kind: SourceKind,
+    role: &'a str,
+    payload: Value,
+    tool_call_id: Option<&'a str>,
+    idempotency_key: String,
+}
+
 /// Write one canonical event into the C01 ledger. Best-effort: a storage
 /// failure is logged and swallowed, because the turn must not fail just
 /// because its bookkeeping row did — the same policy as [`record_turn`].
 /// `event_id` is derived from the idempotency key so a retry of the same
 /// logical event reuses the same primary key instead of colliding under a
 /// fresh one.
-#[allow(clippy::too_many_arguments)]
-fn record_context_event(
-    sessions: &SessionState,
-    session_id: &str,
-    run_id: Option<&str>,
-    kind: ContextEventKind,
-    source_kind: SourceKind,
-    role: &str,
-    payload: Value,
-    tool_call_id: Option<&str>,
-    idempotency_key: String,
-) -> Option<ContextEvent> {
-    if session_id.is_empty() {
+fn record_context_event(sessions: &SessionState, event: LedgerEvent<'_>) -> Option<ContextEvent> {
+    if event.session_id.is_empty() {
         return None;
     }
     let draft = ContextEventDraft {
-        event_id: format!("ev:{idempotency_key}"),
-        session_id: session_id.to_string(),
+        event_id: format!("ev:{}", event.idempotency_key),
+        session_id: event.session_id.to_string(),
         branch_id: DEFAULT_BRANCH.to_string(),
         epoch: DEFAULT_EPOCH,
-        turn_id: run_id.map(str::to_string),
-        run_id: run_id.map(str::to_string),
+        turn_id: event.run_id.map(str::to_string),
+        run_id: event.run_id.map(str::to_string),
         event_order: crate::state::next_event_order(),
-        role: role.to_string(),
-        kind,
-        payload,
-        source_kind,
-        tool_call_id: tool_call_id.map(str::to_string),
-        idempotency_key,
+        role: event.role.to_string(),
+        kind: event.kind,
+        payload: event.payload,
+        source_kind: event.source_kind,
+        tool_call_id: event.tool_call_id.map(str::to_string),
+        idempotency_key: event.idempotency_key,
     };
     match sessions.append_context_event(draft) {
         Ok((event, _inserted)) => Some(event),
@@ -590,14 +594,16 @@ impl WorkerHandle {
                     if !assistant_text.is_empty() {
                         record_context_event(
                             &sessions,
-                            &session_id,
-                            Some(run),
-                            ContextEventKind::Assistant,
-                            SourceKind::Model,
-                            "assistant",
-                            json!({ "text": assistant_text }),
-                            None,
-                            turn_event_key(&session_id, "assistant", run),
+                            LedgerEvent {
+                                session_id: &session_id,
+                                run_id: Some(run),
+                                kind: ContextEventKind::Assistant,
+                                source_kind: SourceKind::Model,
+                                role: "assistant",
+                                payload: json!({ "text": assistant_text }),
+                                tool_call_id: None,
+                                idempotency_key: turn_event_key(&session_id, "assistant", run),
+                            },
                         );
                     }
                     assistant_text.clear();
@@ -1010,14 +1016,16 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     };
                     record_context_event(
                         &ctx.sessions,
-                        sid,
-                        attributed_run.as_deref(),
-                        kind,
-                        source_kind,
-                        role_str,
-                        json!({ "text": text }),
-                        None,
-                        key,
+                        LedgerEvent {
+                            session_id: sid,
+                            run_id: attributed_run.as_deref(),
+                            kind,
+                            source_kind,
+                            role: role_str,
+                            payload: json!({ "text": text }),
+                            tool_call_id: None,
+                            idempotency_key: key,
+                        },
                     );
                     Response::ok(id, json!({ "seq": seq, "created_at_ms": ts }))
                 }
@@ -1362,14 +1370,16 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                 };
                 record_context_event(
                     &ctx.sessions,
-                    session_id,
-                    Some(run_id),
-                    ContextEventKind::Prompt,
-                    SourceKind::User,
-                    "user",
-                    json!({ "text": msg }),
-                    None,
-                    key,
+                    LedgerEvent {
+                        session_id,
+                        run_id: Some(run_id),
+                        kind: ContextEventKind::Prompt,
+                        source_kind: SourceKind::User,
+                        role: "user",
+                        payload: json!({ "text": msg }),
+                        tool_call_id: None,
+                        idempotency_key: key,
+                    },
                 );
             }
             // G8: in orbit mode the run's AgentEnd is consumed by the event
@@ -1661,14 +1671,16 @@ fn record_terminal_event(
     };
     record_context_event(
         sessions,
-        session_id,
-        Some(run_id),
-        kind,
-        SourceKind::System,
-        "system",
-        json!({ "status": status, "stop_reason": stop_reason }),
-        None,
-        format!("turn:{session_id}:{key_role}:{run_id}"),
+        LedgerEvent {
+            session_id,
+            run_id: Some(run_id),
+            kind,
+            source_kind: SourceKind::System,
+            role: "system",
+            payload: json!({ "status": status, "stop_reason": stop_reason }),
+            tool_call_id: None,
+            idempotency_key: format!("turn:{session_id}:{key_role}:{run_id}"),
+        },
     );
 }
 
