@@ -721,6 +721,25 @@ impl SessionState {
         self.inner
             .append_message(session_id, role, text, attachments, tool_calls)
     }
+    /// Append a daemon-owned UI projection keyed by its canonical event id.
+    pub fn append_message_for_event(
+        &self,
+        session_id: &str,
+        role: SessionRole,
+        text: &str,
+        attachments: &[session::Attachment],
+        tool_calls: &[Value],
+        source_event_id: &str,
+    ) -> Result<(i64, i64), SessionError> {
+        self.inner.append_message_for_event(
+            session_id,
+            role,
+            text,
+            attachments,
+            tool_calls,
+            Some(source_event_id),
+        )
+    }
 
     /// Drop every message with `seq >= from_seq`; returns how many rows
     /// went away. Backs the `session.truncate` command (T12 retry/edit).

@@ -30,9 +30,7 @@ use crate::termguard::{CrosstermOps, TermGuard};
 use crate::theme;
 use crate::ui::footer;
 use crate::ui::questions::{AnswerRequest, QuestionPanel};
-use crate::{
-    TuiError, TuiOptions, client_error, persist_assistant, push_user_message, resolve_session,
-};
+use crate::{TuiError, TuiOptions, client_error, resolve_session};
 
 /// 事件循环的按键轮询间隔（draw 在每次轮询前，事件来了即刻重画）。
 const POLL: Duration = Duration::from_millis(50);
@@ -1094,11 +1092,6 @@ impl App {
         format!("r-{}", self.run_clock)
     }
 
-    /// 本轮投影（`persist_assistant` 落库读它）。
-    pub(crate) fn ui_state(&self) -> &UiState {
-        &self.ui
-    }
-
     /// 一次按键路由（route §3 键位契约；非 Press/Repeat 直接忽略）。
     pub fn handle_key(&mut self, key: KeyEvent) -> KeyAction {
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
@@ -1742,7 +1735,7 @@ impl App {
     }
 
     /// T9：一条本地输出进 transcript（`system` 角色：与 user/assistant 区分，
-    /// 渲染走无前缀正文；`persist_assistant` 只挑 `assistant`，它永不落库）。
+    /// 渲染走无前缀正文；事件流直接更新本地投影，不由客户端落库。
     ///
     /// 流式进行中 `messages.last()` 必须保持 `assistant`——`UiState::apply`
     /// 的 `last_assistant_or_placeholder` 按最后一条的 role 决定增量落在哪，
@@ -1832,7 +1825,7 @@ fn user_message(text: &str) -> ChatMessage {
 }
 
 /// T9：本地命令输出的投影（`system` 角色——渲染走无前缀正文，
-/// `persist_assistant` 的 assistant 过滤天然跳过它，永不落库）。
+/// T9：本地命令输出的投影（`system` 角色——渲染走无前缀正文）。
 fn local_message(text: &str) -> ChatMessage {
     let now = now_epoch_ms();
     ChatMessage {
@@ -2026,19 +2019,15 @@ fn event_loop(
     // 切台后的 run 作用域流：`Some((run_id, 接收端))`，每个 prompt 重建
     //（旧接收端丢弃即旧泵收线、旧订阅随之断开）。
     let mut run_rx: Option<(String, Receiver<AgentEvent>)> = None;
-    let (ptx, prx) = mpsc::channel::<Result<(), ClientError>>();
+    let (ptx, prx) = mpsc::channel::<Result<Option<i64>, ClientError>>();
     loop {
-        // 出站：user 消息先落库（T1 同序：daemon 不自动落），切台后先
-        // 订阅当前 run 再起 prompt（先订阅后 prompt，避免丢帧），最后
-        // prompt 线程阻塞到 turn 结束、不占事件循环线程。
-        // T12：copy 的 OSC52 写 stdout（`c` 只入队，App 无 IO）——写失败即
-        // 退出：不能假装复制成功（同 prompt 落库的真值口径）。
+        // 出站先订阅当前 run，再由 daemon 在接受 prompt 时写入 user
+        // 事件和 UI 消息投影；客户端不再调用 `session.append` 写当前 run。
+        // T12：copy 的 OSC52 写 stdout（`c` 只入队，App 无 IO）。
         while let Some(text) = app.take_copy() {
             write_osc52(&text)?;
         }
-        // T15：批次完成通知（BEL / 附 OSC9）——App 无 IO，字节从接线层
-        // 旁路写 stdout（同 T12 OSC52 的写出口径，写出 + flush 归
-        // [`crate::write_raw`]）。
+        // T15：批次完成通知写出。
         while let Some(bytes) = app.take_notice() {
             crate::write_raw(&bytes)?;
         }
@@ -2063,18 +2052,13 @@ fn event_loop(
             }
         }
         if let Some(delivery) = app.take_prompt() {
-            // T12：retry/edit 的截断必须**先于**重发文落库（否则重发的那条
-            // 自己也被删）。截断点只在 idle + 空队列时挂得上（`message_key`
-            // 单点 fencing），命中的必然是本次出站的那条改写。
+            // daemon 在接受 prompt 时同时写入 Prompt 事件与 UI 投影；
+            // 客户端只负责订阅、发送和消费序号回执。
             if let Some(from_seq) = app.take_truncate() {
                 client
                     .truncate_session(&delivery.session_id, from_seq)
                     .map_err(client_error)?;
             }
-            let seq = push_user_message(client, &delivery.session_id, &delivery.text)?;
-            // T12：出站回执把本地投影里的这条 user 消息回填成 ledger 序号，
-            // 后续 retry/edit 才截得中它（`user-{ts}` 占位 id 解析不出 seq）。
-            app.note_appended_seq(seq);
             if app.run_scoped() {
                 run_rx = Some((
                     delivery.run_id.clone(),
@@ -2234,9 +2218,11 @@ fn event_loop(
                 absorb(client, &mut app, &ev, Some(run_id.as_str()), &mut panels)?;
             }
         }
-        // prompt RPC 结果：失败即退出（错误映射同 T1：Connect→3，余→1）。
+        // prompt RPC 结果：失败即退出；成功回执携带 daemon 分配的序号。
         while let Ok(res) = prx.try_recv() {
-            res.map_err(client_error)?;
+            if let Some(seq) = res.map_err(client_error)? {
+                app.note_appended_seq(seq);
+            }
         }
     }
     Ok(())
@@ -2273,7 +2259,7 @@ fn spawn_question_sub(client: &WebDaemon, tx: mpsc::Sender<()>) -> Result<(), Tu
     Ok(())
 }
 
-/// 一条事件进视图 + turn 收尾（assistant 落库 → 清在飞 run → 刷新任务面板）。
+/// 一条事件进视图 + turn 收尾（清在飞 run + 刷新任务面板）。
 ///
 /// `run_id`：`Some` = 切台后的 run 作用域流（按 run_id 校准入），`None`
 /// = 切台前的会话级 `rx`（T2 语义，直接投影）。
@@ -2290,7 +2276,6 @@ fn absorb(
         None => app.apply_event(ev),
     }
     if turn_end {
-        persist_assistant(client, app.session_id(), app.ui_state())?;
         app.note_turn_end();
         *panels = crate::ui::panels::load_panels(client);
     }
@@ -2325,7 +2310,7 @@ fn spawn_prompt(
     sid: &str,
     run_id: &str,
     msg: String,
-    tx: mpsc::Sender<Result<(), ClientError>>,
+    tx: mpsc::Sender<Result<Option<i64>, ClientError>>,
 ) -> Result<(), TuiError> {
     let client = client.clone();
     let sid = sid.to_string();
@@ -2335,7 +2320,7 @@ fn spawn_prompt(
         .spawn(move || {
             let res = client
                 .worker_prompt_run(&sid, &run_id, &msg, &[])
-                .map(|_| ());
+                .map(|value| value.get("message_seq").and_then(|value| value.as_i64()));
             let _ = tx.send(res);
         })?;
     Ok(())

@@ -84,16 +84,6 @@ where
     }
 }
 
-/// Decode the text field of a context event payload.  C01 payloads for
-/// `Prompt` / `Assistant` events carry a single `text` string field
-/// (see [`ContextEvent::payload`]).  Returns `None` when the JSON is
-/// malformed or the field is absent, in which case the event is dropped
-/// from the resume projection rather than surfaced as an empty message.
-fn context_event_text(payload_json: &str) -> Option<String> {
-    let v: Value = serde_json::from_str(payload_json).ok()?;
-    v.get("text").and_then(Value::as_str).map(str::to_string)
-}
-
 /// Convert one C01 [`ContextEvent`] into a [`SessionMessage`] suitable for
 /// [`WorkerHandle::resume_session`].  Returns `None` for events the orbit
 /// context does not consume (terminal markers, tool-side records — those
@@ -105,12 +95,16 @@ fn context_event_text(payload_json: &str) -> Option<String> {
 /// from completed work.  The pairing pass (`pair_tool_results`) fills in
 /// the result only for closed groups.
 fn event_to_message(session_id: &str, seq: i64, ev: &ContextEvent) -> Option<SessionMessage> {
-    let (role, text, tool_calls) = match ev.kind {
-        ContextEventKind::Prompt => (
-            SessionRole::User,
-            context_event_text(&ev.payload_json)?,
-            Vec::new(),
-        ),
+    let (role, text, tool_calls, attachments) = match ev.kind {
+        ContextEventKind::Prompt => {
+            let payload: Value = serde_json::from_str(&ev.payload_json).ok()?;
+            let text = payload.get("text").and_then(Value::as_str)?.to_string();
+            let attachments = payload
+                .get("attachments")
+                .and_then(|value| serde_json::from_value(value.clone()).ok())
+                .unwrap_or_default();
+            (SessionRole::User, text, Vec::new(), attachments)
+        }
         ContextEventKind::Assistant => {
             let payload: Value = serde_json::from_str(&ev.payload_json).unwrap_or(Value::Null);
             let body = payload
@@ -121,20 +115,15 @@ fn event_to_message(session_id: &str, seq: i64, ev: &ContextEvent) -> Option<Ses
             let tool_calls = ev.tool_call_id.as_deref().map(|id| {
                 vec![json!({
                     "id": id,
-                    // Tool name lives in the payload (the ledger has no
-                    // tool_name column); never expose the raw payload blob.
                     "name": payload.get("name").and_then(Value::as_str).unwrap_or_default(),
                     "result": Value::Null,
                 })]
             });
             let tool_calls = tool_calls.unwrap_or_default();
-            // An assistant turn that is only a tool-call carrier may have no
-            // text; dropping it would lose the call. Drop only when there is
-            // neither text nor a tool call.
             if body.is_empty() && tool_calls.is_empty() {
                 return None;
             }
-            (SessionRole::Assistant, body, tool_calls)
+            (SessionRole::Assistant, body, tool_calls, Vec::new())
         }
         _ => return None,
     };
@@ -144,7 +133,7 @@ fn event_to_message(session_id: &str, seq: i64, ev: &ContextEvent) -> Option<Ses
         role,
         text,
         created_at_ms: ev.created_at,
-        attachments: Vec::new(),
+        attachments,
         tool_calls,
     })
 }
@@ -203,13 +192,12 @@ struct LedgerEvent<'a> {
     idempotency_key: String,
 }
 
-/// Write one canonical event into the C01 ledger. Best-effort: a storage
-/// failure is logged and swallowed, because the turn must not fail just
-/// because its bookkeeping row did — the same policy as [`record_turn`].
-/// `event_id` is derived from the idempotency key so a retry of the same
-/// logical event reuses the same primary key instead of colliding under a
-/// fresh one.
-fn record_context_event(sessions: &SessionState, event: LedgerEvent<'_>) -> Option<ContextEvent> {
+/// Write one canonical event into the C01 ledger. Returns the stored event and
+/// whether this call inserted it (`false` means an idempotent replay).
+fn record_context_event(
+    sessions: &SessionState,
+    event: LedgerEvent<'_>,
+) -> Option<(ContextEvent, bool)> {
     if event.session_id.is_empty() {
         return None;
     }
@@ -229,12 +217,53 @@ fn record_context_event(sessions: &SessionState, event: LedgerEvent<'_>) -> Opti
         idempotency_key: event.idempotency_key,
     };
     match sessions.append_context_event(draft) {
-        Ok((event, _inserted)) => Some(event),
+        Ok(result) => Some(result),
         Err(e) => {
             eprintln!("daemon: context ledger write failed: {e}");
             None
         }
     }
+}
+
+/// Append one UI transcript projection after its canonical event is durable.
+/// The UI table remains a read projection; the event id makes replays safe.
+fn append_ui_message(
+    sessions: &SessionState,
+    session_id: &str,
+    role: SessionRole,
+    text: &str,
+    attachments: &[session::Attachment],
+    tool_calls: &[Value],
+    source_event_id: &str,
+) -> Option<i64> {
+    if text.is_empty() {
+        return None;
+    }
+    match sessions.append_message_for_event(
+        session_id,
+        role,
+        text,
+        attachments,
+        tool_calls,
+        source_event_id,
+    ) {
+        Ok((seq, _created_at)) => Some(seq),
+        Err(e) => {
+            eprintln!("daemon: UI transcript projection failed for {session_id}: {e}");
+            None
+        }
+    }
+}
+
+/// Add the daemon-assigned UI projection sequence to a prompt acknowledgement.
+/// Older callers ignore this optional field; TUI retry/edit consumes it.
+fn with_message_seq(mut value: Value, message_seq: Option<i64>) -> Value {
+    if let Some(seq) = message_seq
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("message_seq".to_string(), json!(seq));
+    }
+    value
 }
 
 /// Map a [`SessionRole`] to the canonical ledger `role` string.
@@ -538,29 +567,14 @@ impl WorkerHandle {
         let session_id = self.session_id.clone();
         active.store(true, Ordering::SeqCst);
         std::thread::spawn(move || {
-            // C01: the pump accumulates the run's streamed assistant text and
-            // flushes it as the run's `Assistant` event at AgentEnd.  Tool
-            // events are recorded by the orbit run thread, which is the only
-            // layer that has the provider tool-call id (the wire frame the
-            // pump sees carries none).
             let mut assistant_text = String::new();
-            // Ends when the worker dies (rpc pump clears its subscriber
-            // table).  Events with no subscribers are dropped by broadcast.
+            let mut tool_cards: Vec<Value> = Vec::new();
+            let mut tool_seq = 0u64;
             while let Ok(event) = rx.recv() {
                 let Ok(payload) = serde_json::to_value(&event) else {
                     continue;
                 };
                 let mut frame = EventFrame::new(WORKER_TOPIC, payload);
-                // G7-B: attribute the frame to the run the in-flight prompt
-                // declared, so subscribers route it to the owning run.
-                // Read-only here; a prompt on another connection may be
-                // setting the slot concurrently (the server serializes
-                // prompts by the worker mutex, but the pump keeps draining
-                // this run's events after that prompt returned).
-                //
-                // The run is snapshotted once and reused below: the finish
-                // must close exactly the run this frame was attributed to,
-                // not whatever a concurrent prompt left in the slot later.
                 let attributed = exec.running_run_id();
                 if let Some(run) = attributed.as_deref() {
                     frame = frame.with_run_id(run);
@@ -568,31 +582,50 @@ impl WorkerHandle {
                 if !session_id.is_empty() {
                     frame = frame.with_session_id(&session_id);
                 }
-                // C01: accumulate the run's streamed assistant text under the
-                // run this frame belongs to; it is flushed as the `Assistant`
-                // event at AgentEnd below.
-                if attributed.is_some()
-                    && let WorkerEvent::Message { text } = &event
-                {
-                    assistant_text.push_str(text);
+                if attributed.is_some() {
+                    match &event {
+                        WorkerEvent::Message { text } => assistant_text.push_str(text),
+                        WorkerEvent::ToolExecutionStart { name, input } => {
+                            tool_seq += 1;
+                            let id = format!("{name}-{tool_seq}");
+                            tool_cards.push(json!({
+                                "id": id,
+                                "title": name,
+                                "kind": "tool",
+                                "summary": "正在执行...",
+                                "detail": serde_json::to_string_pretty(input).unwrap_or_default(),
+                                "status": "running",
+                            }));
+                        }
+                        WorkerEvent::ToolExecutionEnd { name, result } => {
+                            let result_text = result
+                                .as_ref()
+                                .map(|value| {
+                                    serde_json::to_string_pretty(value).unwrap_or_default()
+                                })
+                                .unwrap_or_default();
+                            let failed =
+                                result_text.starts_with("error") || result_text.contains("[exit ");
+                            if let Some(card) = tool_cards.iter_mut().rev().find(|card| {
+                                card.get("title").and_then(Value::as_str) == Some(name)
+                            }) {
+                                card["summary"] = json!(if failed {
+                                    "执行失败"
+                                } else {
+                                    "执行完成"
+                                });
+                                card["status"] = json!(if failed { "error" } else { "success" });
+                                card["detail"] = json!(result_text);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
-                // G8: an orbit turn's terminal event is AgentEnd on this
-                // stream, not the prompt's ack. Close the ledger run and the
-                // turn log here, before the frame goes out, so a subscriber
-                // reading the end frame sees a run that is already closed.
-                // Then release the sticky slot (compare-and-set — see
-                // [`try_clear_active_run`]) so later unattributed events do
-                // not keep stamping a run that already ended.
-                if is_orbit
-                    && let WorkerEvent::AgentEnd { stop_reason } = &event
+                if let WorkerEvent::AgentEnd { stop_reason } = &event
                     && let Some(run) = attributed.as_deref()
                 {
-                    // Flush the accumulated assistant text as the run's
-                    // `Assistant` event before the run closes, keyed by turn
-                    // identity so the client's post-turn `session.append`
-                    // import of the same message collapses onto this row.
-                    if !assistant_text.is_empty() {
-                        record_context_event(
+                    if !assistant_text.is_empty()
+                        && let Some((assistant_event, _)) = record_context_event(
                             &sessions,
                             LedgerEvent {
                                 session_id: &session_id,
@@ -604,11 +637,25 @@ impl WorkerHandle {
                                 tool_call_id: None,
                                 idempotency_key: turn_event_key(&session_id, "assistant", run),
                             },
+                        )
+                    {
+                        let _ = append_ui_message(
+                            &sessions,
+                            &session_id,
+                            SessionRole::Assistant,
+                            &assistant_text,
+                            &[],
+                            &tool_cards,
+                            &assistant_event.event_id,
                         );
                     }
                     assistant_text.clear();
-                    let user_paused = user_abort.load(std::sync::atomic::Ordering::SeqCst);
-                    close_run_on_agent_end(&runs, &sessions, run, stop_reason, user_paused);
+                    tool_cards.clear();
+                    tool_seq = 0;
+                    if is_orbit {
+                        let user_paused = user_abort.load(std::sync::atomic::Ordering::SeqCst);
+                        close_run_on_agent_end(&runs, &sessions, run, stop_reason, user_paused);
+                    }
                     exec.try_clear_run(run);
                 }
                 let Ok(line) = serde_json::to_string(&frame) else {
@@ -621,8 +668,6 @@ impl WorkerHandle {
         Ok(())
     }
 }
-
-/// Finish a run and append its `TurnEnd` when the orbit engine signals the
 /// end of the turn (G8).  Idempotent: a run already closed (a repeated
 /// `AgentEnd` for the same turn) is left alone, so the turn log keeps exactly
 /// one `TurnEnd` per `TurnStart` — that start/end balance is exactly what
@@ -979,22 +1024,13 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                 .append_message(sid, role, text, &attachments, &tool_calls)
             {
                 Ok((seq, ts)) => {
-                    // C01: `session.append` stays the UI read model
-                    // (`messages`, a different fact store) *and* feeds the
-                    // canonical ledger as the explicit import interface.  To
-                    // avoid booking the same turn twice, an append that
-                    // belongs to a turn reuses that turn's idempotency key:
-                    //   * user  → keyed by the assigned `seq`; the daemon's
-                    //     prompt-time `Prompt` write looks up the newest
-                    //     message and reuses this same key, so one user turn
-                    //     is one row (the import lands first and wins);
-                    //   * assistant → attributed to the session's most recent
-                    //     run, matching the daemon's AgentEnd `Assistant` key;
-                    //   * no turn identity (external history) → a seq-keyed
-                    //     run-less import replayed by resume as such.
+                    // `session.append` is the explicit history-import path.
+                    // It still populates the legacy UI read model, but its
+                    // ledger source is always Import so a client cannot claim
+                    // ownership of a daemon-controlled current run.
                     let (kind, source_kind) = match role {
-                        SessionRole::User => (ContextEventKind::Prompt, SourceKind::User),
-                        SessionRole::Assistant => (ContextEventKind::Assistant, SourceKind::Model),
+                        SessionRole::User => (ContextEventKind::Prompt, SourceKind::Import),
+                        SessionRole::Assistant => (ContextEventKind::Assistant, SourceKind::Import),
                         SessionRole::System | SessionRole::Tool => {
                             (ContextEventKind::Imported, SourceKind::Import)
                         }
@@ -1341,34 +1377,17 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     ts_ms: started,
                 },
             );
-            // C01: the daemon owns the canonical write for the current run.
-            // Record the accepted prompt as the run's opening `Prompt` event.
-            // When the client already imported the same user turn through
-            // `session.append` (the UI path), this write reuses the import's
-            // seq-derived key and is an idempotent no-op, so one turn stays
-            // one ledger row.  A prompt with no run id has no turn identity to
-            // key on, so it is left to the explicit import path rather than
-            // written twice.
-            if !run_id.is_empty() {
-                // A client that persisted the user message just before
-                // prompting (`session.append`, the UI path) already owns the
-                // canonical row, keyed by that message's `seq`.  Reuse the
-                // same key so one user turn is booked once — the import lands
-                // first and this write becomes an idempotent no-op.  With no
-                // preceding user append (a bare prompt) the turn identity is
-                // the only key available.
-                let appended_seq = ctx
-                    .sessions
-                    .load_messages(session_id, 1)
-                    .ok()
-                    .and_then(|mut rows| rows.pop())
-                    .filter(|m| m.role == SessionRole::User)
-                    .map(|m| m.seq);
-                let key = match appended_seq {
-                    Some(seq) => format!("import:{session_id}:user:{seq}"),
-                    None => turn_event_key(session_id, "user", run_id),
-                };
-                record_context_event(
+            let attachments = match crate::state::optional_attachments(&req.params) {
+                Ok(a) => a,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            // C01: the daemon owns both the canonical prompt event and the
+            // legacy UI transcript projection.  `messages` remains a read
+            // model for existing clients; it is no longer a current-run
+            // write path owned by TUI/web-ui.
+            let mut message_seq = None;
+            if !run_id.is_empty()
+                && let Some((event, _inserted)) = record_context_event(
                     &ctx.sessions,
                     LedgerEvent {
                         session_id,
@@ -1376,23 +1395,27 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                         kind: ContextEventKind::Prompt,
                         source_kind: SourceKind::User,
                         role: "user",
-                        payload: json!({ "text": msg }),
+                        payload: json!({ "text": msg, "attachments": attachments }),
                         tool_call_id: None,
-                        idempotency_key: key,
+                        idempotency_key: turn_event_key(session_id, "user", run_id),
                     },
+                )
+            {
+                message_seq = append_ui_message(
+                    &ctx.sessions,
+                    session_id,
+                    SessionRole::User,
+                    msg,
+                    &attachments,
+                    &[],
+                    &event.event_id,
                 );
             }
-            // G8: in orbit mode the run's AgentEnd is consumed by the event
-            // pump, which was previously started lazily on the first
-            // `event.subscribe`. A client that prompts without subscribing
-            // would leave every run half-open forever — the exact state
-            // this change exists to eliminate. Start the pump before the
-            // prompt goes out so the close path is wired regardless of
-            // subscriptions. Idempotent (`pump_active` guards the spawn).
-            if ctx.worker.is_orbit()
-                && let Err(e) = ctx
-                    .worker
-                    .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
+            // The pump is also required in omp-compatible mode: it owns the
+            // streamed events that produce the assistant UI projection.
+            if let Err(e) = ctx
+                .worker
+                .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
             {
                 return e;
             }
@@ -1449,10 +1472,6 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     }
                 }
             }
-            let attachments = match crate::state::optional_attachments(&req.params) {
-                Ok(a) => a,
-                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
-            };
             let w = ctx.worker.inner.as_mut().expect("ensured");
             let resp = w.prompt(msg, &attachments);
             let finished = crate::state::now_ms();
@@ -1470,7 +1489,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                         // `interrupted_run_closers` exists to repair could
                         // never appear in a live log.  Just ack the client;
                         // `ensure_event_pump` owns the close.
-                        return Response::ok(id, v.clone());
+                        return Response::ok(id, with_message_seq(v.clone(), message_seq));
                     }
                     // omp-compat: `prompt` blocks for the whole turn, so its
                     // return *is* the terminal state — close synchronously.
@@ -1490,7 +1509,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                         },
                     );
                     record_terminal_event(&ctx.sessions, session_id, run_id, "ok", "ok");
-                    Response::ok(id, v.clone())
+                    Response::ok(id, with_message_seq(v.clone(), message_seq))
                 }
                 Err(e) => {
                     // The message never reached the engine (orbit: run

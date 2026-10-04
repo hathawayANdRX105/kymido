@@ -41,10 +41,7 @@ use web_state::ui_state::{AgentEvent, UiState};
 
 use crate::app::{App, KeyAction};
 use crate::ui::footer;
-use crate::{
-    TuiError, TuiOptions, client_error, persist_assistant, push_user_message, render_linear_line,
-    resolve_session,
-};
+use crate::{TuiError, TuiOptions, client_error, render_linear_line, resolve_session};
 
 use unicode_width::UnicodeWidthChar;
 /// dock 行数（route §3 T8 设计注记 ③ 定稿：单行 composer + 状态行，恒 2）。
@@ -669,8 +666,7 @@ pub fn run_inline(
 /// 事件循环（薄接线：状态机全在 [`Screen`] / [`App`]，这里只搬运）。
 ///
 /// 每轮：收帧上屏 → 按键（T6 翻页键过滤）/ resize（先 adopt 再落笔）/
-/// paste → 出站 prompt（先落库再订阅后 prompt 同序，T1 边界）→ 事件流
-/// 投影（`TurnEnd` = commit + persist）→ prompt RPC 结果 → stats 轮询。
+/// paste → daemon 接受 prompt 并写入投影 → 事件流投影 → stats 轮询。
 fn drive(
     client: &WebDaemon,
     sid: &str,
@@ -750,14 +746,12 @@ fn drive(
                 _ => {}
             }
         }
-        // 出站：user 消息先落库（T1 同序）→ transcript 写用户行 → 起
-        // prompt 线程（RPC 结果经 ptx/prx 回收，失败即退出码语义）。
+        // daemon 在接受 prompt 时写入 user 事件与 UI 投影。
         if let Some(delivery) = app.take_prompt() {
             if let Some(last) = app.messages().last() {
-                proj.push_message(last.clone()); // 与 App 的 user 落点同步
+                proj.push_message(last.clone());
             }
             screen.write_user_line(&delivery.text);
-            push_user_message(client, &delivery.session_id, &delivery.text)?;
             spawn_prompt(
                 client,
                 &delivery.session_id,
@@ -766,15 +760,13 @@ fn drive(
                 &ptx,
             )?;
         }
-        // 会话级事件流：投影 → TurnEnd = 回合落定（generation++ 于
-        // `Screen::feed` 内）+ assistant 落库 + dock 状态收尾（下一帧上屏）。
+        // TurnEnd 只负责本地事件投影与状态收尾，assistant 不再由客户端落库。
         loop {
             match rx.try_recv() {
                 Ok(ev) => {
                     let settle = matches!(ev, AgentEvent::TurnEnd { .. });
                     screen.feed(&ev, &mut proj);
                     if settle {
-                        persist_assistant(client, sid, &proj)?;
                         app.note_turn_end();
                     }
                 }

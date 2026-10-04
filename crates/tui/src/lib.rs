@@ -132,9 +132,7 @@ pub fn run(opts: TuiOptions) -> Result<(), TuiError> {
         if msg.trim().is_empty() {
             continue;
         }
-        // user 消息先落库（daemon 不自动落，page-workspace 同序）：resume
-        // 上下文回放（dispatch 的 WorkerPrompt 臂）读的就是这张表。
-        push_user_message(&daemon, &sid, &msg)?;
+        // user 事件与 UI 投影由 daemon 在接受 prompt 时写入。
         let run_id = format!("r-{}", now_epoch_ms());
         // 先订阅后 prompt（route §3 边界）：prompt 返回即可能开跑，事件一帧
         // 都不能漏——语义见 daemon dispatch.rs 的 G7-B set_active_run 注释。
@@ -158,7 +156,6 @@ pub fn run(opts: TuiOptions) -> Result<(), TuiError> {
         if let Some(bytes) = batch.take_bytes() {
             write_raw(&bytes)?;
         }
-        persist_assistant(&daemon, &sid, &state)?;
     }
 }
 
@@ -261,40 +258,6 @@ fn resolve_session(daemon: &WebDaemon, opts: &TuiOptions) -> Result<String, TuiE
         .create_session(&sid, &format!("会话 {ms}"))
         .map_err(client_error)?;
     Ok(sid)
-}
-
-/// user 消息落库（`role_user = true`），必须发生在 prompt 之前。返回
-/// ledger 分配的 `seq`——出站消息的序号由这里带回（T12 retry/edit 读它）。
-fn push_user_message(daemon: &WebDaemon, sid: &str, text: &str) -> Result<i64, TuiError> {
-    daemon
-        .append_message(sid, true, text, &[], &[])
-        .map_err(client_error)
-}
-
-/// 本轮 assistant 正文落库（`role_user = false`）。回复同样不自动落库
-/// （page-workspace 在 turn 结束后自己 append，见其 worker_event_loop），
-/// 不补这一笔则 `session attach` 只看得到提问、resume 回放读不到上一轮
-/// 回答。空回复不落。
-fn persist_assistant(daemon: &WebDaemon, sid: &str, state: &UiState) -> Result<(), TuiError> {
-    let text: String = last_assistant_content(state);
-    if text.is_empty() {
-        return Ok(());
-    }
-    daemon
-        .append_message(sid, false, &text, &[], &[])
-        .map_err(client_error)?;
-    Ok(())
-}
-
-/// 最近一条 assistant 的正文（每轮 state 是本轮新建的，即本轮回复）。
-fn last_assistant_content(state: &UiState) -> String {
-    state
-        .messages
-        .iter()
-        .rev()
-        .find(|m| m.role == "assistant")
-        .map(|m| m.content.clone())
-        .unwrap_or_default()
 }
 
 /// daemon 通信错误 → TuiError：连接失败（Connect）→ 退出码 3 的

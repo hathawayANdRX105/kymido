@@ -297,7 +297,6 @@ pub fn Workspace(
             return;
         };
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
-        let d_consumer = d.clone();
         let ready = readiness();
         let ready_for_worker = ready.clone();
         std::thread::spawn(move || worker_event_loop(d, tx, ready_for_worker));
@@ -386,41 +385,8 @@ pub fn Workspace(
                                             messages: map.get(&sid).cloned().unwrap_or_default(),
                                         };
                                         ui.apply(ev);
-                                        // 最后一条 assistant 消息即最终回复文本，连同其
-                                        // 工具调用卡持久化到 daemon（线程内；空文本跳过，
-                                        // 存储侧拒绝空消息）。tool_calls 一并落库，历史
-                                        // 重载才能重建「工作过程」折叠区。
-                                        let final_msg = ui
-                                            .messages
-                                            .iter()
-                                            .rev()
-                                            .find(|m| m.role == "assistant")
-                                            .cloned();
-                                        let final_text = final_msg
-                                            .as_ref()
-                                            .map(|m| m.content.clone())
-                                            .unwrap_or_default();
-                                        let final_tool_calls: Vec<serde_json::Value> = final_msg
-                                            .map(|m| {
-                                                m.tool_calls
-                                                    .iter()
-                                                    .filter_map(|tc| serde_json::to_value(tc).ok())
-                                                    .collect()
-                                            })
-                                            .unwrap_or_default();
-                                        if !final_text.is_empty() {
-                                            let sid_daemon = sid.clone();
-                                            let d_turn = d_consumer.clone();
-                                            std::thread::spawn(move || {
-                                                let _ = d_turn.append_message(
-                                                    &sid_daemon,
-                                                    false,
-                                                    &final_text,
-                                                    &[],
-                                                    &final_tool_calls,
-                                                );
-                                            });
-                                        }
+                                        // daemon 的事件泵在 AgentEnd 前写入 assistant
+                                        // UI 投影；web 只维护当前屏幕上的本地状态。
                                         map.insert(sid.clone(), ui.messages);
                                     }
 
