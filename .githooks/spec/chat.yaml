@@ -75,21 +75,21 @@ anchors:
     expect: 'StatsLine 状态行 12/20 tertiary 居中：model · ↑in ↓out · $cost · context %；单行 12px 居中，置于输入卡下方一行（ainnotation 波3 #4 由卡上方移到下方）。'
     source: 'kymido: crates/web-ui/src/components/chat.rs:151；dsh: StatsLine.module.css:8-16（center 12px/20px tertiary）'
   - key: composer-card
-    find: 'rounded-[24px] border border-b1 bg-input-bg shadow-lv2'
-    expect: 'composer 输入卡 r24 胶囊（max-w 780 随消息列），focus-within 提亮边框。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs 输入卡段；dsh: InputBar.module.css（胶囊卡）'
+    find: '输入卡：ui-kit Composer（kit 自带 .chat-composer-card 胶囊壳'
+    expect: 'composer 输入卡由 ui-kit Composer 接管（kit 自带 .chat-composer-card 胶囊壳 + 附件 chips 行），本仓不再自建卡片/输入区。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 输入卡段；ui-kit Composer'
   - key: send-button
-    find: 'IconArrowUp { size: 16 }'
-    expect: '发送钮两态：空闲（输入空置灰 bg-selector cursor-default）/ 可发（32px 圆形 bg-brand + hover 提亮 + active 缩放），点击发送并清草稿。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs 发送钮段；dsh: InputBar.module.css（圆形发送钮）'
+    find: 'on_submit: move |text: String|'
+    expect: '发送链：Composer 的 on_submit 走 trim 判空 + is_streaming 不重入，发出后清 draft 与待发附件；send/stop 圆钮由 kit Composer 渲染。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs Composer 调用段'
   - key: stop-button
-    find: 'title: sh::BTN_STOP'
-    expect: '运行态停止钮 32px 圆形 bg-brand + 白色 Spinner 14px 描边环（stop-button-spinner），is_streaming 时同位替换静止态发送钮。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs 发送/停止钮段；ainnotation 波3 #3'
+    find: 'on_cancel: move |_| on_abort.call(())'
+    expect: '运行态停止：Composer running 接 is_streaming、on_cancel 接 on_abort，停止钮由 kit Composer 同位替换发送钮。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs Composer 调用段'
   - key: stop-button-spinner
-    find: 'Spinner { size: 14, class: "text-white" }'
-    expect: '运行态动态效果：ui-kit Spinner 14px animate-spin 描边环替代旧白色小方块，表达「正在跑」（ainnotation 波3 #3）。'
-    source: 'kymido: crates/web-ui/src/components/chat.rs 停止钮；ui-kit Spinner'
+    find: 'ui-kit Composer'
+    expect: '输入卡由 ui-kit Composer 整体接管（发送/停止动效与禁用态在 kit 侧实现，本仓无自绘 spinner）。'
+    source: 'kymido: crates/web-ui/src/components/chat.rs 输入卡注释；ui-kit Composer'
   - key: picker-no-chevron
     file: crates/web-ui/src/components/menu_picker.rs
     find: 'span { class: "{mono_class}", "{label}" }'

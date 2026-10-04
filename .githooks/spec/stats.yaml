@@ -10,9 +10,9 @@ anchors:
     expect: '页面内容限宽 1200 居中，px-10 留白。'
     source: 'kymido: crates/web-ui/src/views/stats.rs:13'
   - key: range-switch
-    find: 'SegmentedCapsule {'
-    expect: '头部时间范围分段切换（1h–All）为 ui-kit SegmentedCapsule（胶囊分段容器 + 激活段 bg-primary + 滚轮循环）。'
-    source: 'kymido: crates/web-ui/src/views/stats.rs:184（ui-kit SegmentedCapsule）；原 dsh r10 分段控件已随 ui-kit 统一替换'
+    find: 'TabList {'
+    expect: '头部时间范围分段切换（1h–All）为 ui-kit Tabs（TabList + TabTrigger 受控，on_value_change 回写 range 信号，与侧栏「统计」入口共用同一事实源）。'
+    source: 'kymido: crates/web-ui/src/views/stats.rs:185（ui-kit Tabs）；原 SegmentedCapsule 分段控件已随 ui-kit 统一替换'
   - key: kpi-grid
     find: 'grid grid-cols-5 gap-3.5'
     expect: 'KPI 卡五列网格。'

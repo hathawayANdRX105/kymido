@@ -20,7 +20,7 @@ anchors:
     source: 'kymido: crates/web-ui/src/views/config.rs（About 段字标，原挂 dual_sidebar footer 槽）'
   - key: new-session-button
     find: 'IconPlus { size: 15 }'
-    expect: '「会话」二级菜单头部小按钮行：搜索钮（nav-search-bar，IconSearch）+ 新建项目钮（ui-kit Button Ghost IconSm，IconPlus）；旧 h34 文字按钮已换成这两个图标小钮。'
+    expect: '「会话」二级菜单头部小按钮行：搜索钮（nav-search-bar，IconSearch）+ 新建项目钮（IconPlus），均为中性面图标小钮（透明底、hover 才出 bg-ihover 中性面、无蓝底；挂 ANIM_SCOPE 走 icon-anim）；旧 h34 文字按钮与蓝底 ui-kit Button Ghost 已换成这两个中性图标小钮。'
     source: 'kymido: dual_sidebar.rs（SessionTreePanel 小按钮行）'
   - key: cmdk-search
     find: 'nav-search-bar'
