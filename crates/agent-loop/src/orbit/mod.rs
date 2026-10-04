@@ -579,7 +579,7 @@ pub fn run_agent_streaming(
         // LLM round is owed (unlike a bare stop the host may continue).
         let marked = tool_calls
             .iter()
-            .any(|tc| config.completion_tool.map_or(false, |f| f(&tc.name)));
+            .any(|tc| config.completion_tool.is_some_and(|f| f(&tc.name)));
         if marked {
             emit(AgentEvent::TurnEnd {
                 stop_reason: TurnStop::EndTurn,

@@ -123,13 +123,13 @@ impl QuestionItem {
             return Err(QuestionValidationError::InvalidOptionCount);
         }
         for opt in &options {
-            if opt.label.as_bytes().len() > MAX_OPTION_LABEL_BYTES {
+            if opt.label.len() > MAX_OPTION_LABEL_BYTES {
                 return Err(QuestionValidationError::OptionLabelTooLong);
             }
             if opt
                 .description
                 .as_ref()
-                .is_some_and(|desc| desc.as_bytes().len() > MAX_OPTION_DESCRIPTION_BYTES)
+                .is_some_and(|desc| desc.len() > MAX_OPTION_DESCRIPTION_BYTES)
             {
                 return Err(QuestionValidationError::OptionDescriptionTooLong);
             }
@@ -320,7 +320,7 @@ impl QuestionBroker {
                 }
             }
             QuestionAnswer::Custom { text } => {
-                if text.as_bytes().len() > MAX_CUSTOM_ANSWER_BYTES {
+                if text.len() > MAX_CUSTOM_ANSWER_BYTES {
                     return Err(AnswerError::CustomAnswerTooLong);
                 }
                 if text.trim().is_empty() {
@@ -476,7 +476,7 @@ fn interpret_answer(answer: QuestionAnswer) -> Result<ReviewOutcome, ReviewError
 
 /// Truncate to at most `max_bytes`, ending on a char boundary.
 fn truncate(s: &str, max_bytes: usize) -> String {
-    if s.as_bytes().len() <= max_bytes {
+    if s.len() <= max_bytes {
         return s.to_string();
     }
     let mut end = max_bytes;

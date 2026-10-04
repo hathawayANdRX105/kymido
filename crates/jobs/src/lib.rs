@@ -515,10 +515,9 @@ impl JobRegistry for LocalJobRegistry {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .clone()
+                    && let Some(summary) = summary.as_ref()
                 {
-                    if let Some(summary) = summary.as_ref() {
-                        hook(summary);
-                    }
+                    hook(summary);
                 }
             })
             .expect("job thread spawn");

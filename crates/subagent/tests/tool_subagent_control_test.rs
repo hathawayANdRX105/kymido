@@ -31,9 +31,8 @@ fn tool_subagent_control_registers_into_catalog() {
     let mut fiber = Fiber::default();
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();
     let specs = catalog.specs();
     assert!(
@@ -47,9 +46,8 @@ fn tool_subagent_control_list_reports_registered_provider() {
     let mut fiber = Fiber::default();
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let runtime: Arc<SubagentRuntimeService> = fiber.resolve("harness.subagents").unwrap();
     runtime.register("mock", Arc::new(MockProvider));
 
@@ -84,9 +82,8 @@ fn tool_subagent_control_rejects_unsupported_action() {
     let mut fiber = Fiber::default();
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();
     let spec = catalog
         .specs()
@@ -101,8 +98,7 @@ fn tool_subagent_control_rejects_unsupported_action() {
             &serde_json::json!({"action": "bogus"}),
             &AbortSignal::new(),
         )
-        .err()
-        .expect("unsupported action must be a tool error, not a fake success");
+        .expect_err("unsupported action must be a tool error, not a fake success");
     assert!(
         err.to_string()
             .contains("unsupported subagent control action: bogus"),
@@ -115,9 +111,8 @@ fn tool_subagent_control_list_with_zero_providers_is_valid_json() {
     let mut fiber = Fiber::default();
     let mut ctx = fiber.context();
     ctx.provide("harness.tools", ToolCatalog::new());
-    SubagentRuntime::default().register(&mut ctx);
+    SubagentRuntime.register(&mut ctx);
     ToolSubagentControlPlugin::default().register(&mut ctx);
-    drop(ctx);
     let catalog: Arc<ToolCatalog> = fiber.resolve("harness.tools").unwrap();
     let spec = catalog
         .specs()

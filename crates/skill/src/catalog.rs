@@ -26,6 +26,12 @@ pub struct SkillService {
     runtime: SkillRuntime,
 }
 
+impl Default for SkillService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillService {
     pub fn new() -> Self {
         Self {

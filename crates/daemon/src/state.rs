@@ -504,7 +504,7 @@ pub fn aggregate_stats(runs: &[RunRecord], range: &str, now_ms: i64) -> StatsSum
 
     // Recent feed, newest first.
     let mut recent_src = in_window.clone();
-    recent_src.sort_by(|a, b| b.started_at_ms.cmp(&a.started_at_ms));
+    recent_src.sort_by_key(|b| std::cmp::Reverse(b.started_at_ms));
     let recent: Vec<StatsRecentRun> = recent_src
         .iter()
         .take(STATS_BUCKETS)

@@ -149,10 +149,13 @@ enum Job {
     Shutdown,
 }
 
+/// Subscriber table shared across pump threads: session id → worker sender.
+type Subs = std::sync::Arc<std::sync::Mutex<Vec<(String, std::sync::mpsc::Sender<WorkerEvent>)>>>;
+
 /// Handle on the pump thread started by the first `subscribe()`.
 struct Pump {
     job_tx: std::sync::mpsc::Sender<Job>,
-    subs: std::sync::Arc<std::sync::Mutex<Vec<(String, std::sync::mpsc::Sender<WorkerEvent>)>>>,
+    subs: Subs,
     handle: Option<std::thread::JoinHandle<()>>,
     /// PID captured at pump start (reconnect is unavailable in push mode).
     pid: u32,
@@ -392,7 +395,7 @@ struct OrbitEngine {
     /// live worker).
     resumed_session: Option<String>,
     abort_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    subs: std::sync::Arc<std::sync::Mutex<Vec<(String, std::sync::mpsc::Sender<WorkerEvent>)>>>,
+    subs: Subs,
     pull_push: std::sync::mpsc::Sender<WorkerEvent>,
     pull_queue: std::sync::mpsc::Receiver<WorkerEvent>,
     /// prompt → 专用 run 线程：LLM 调用不占 dispatch 锁，abort 随时可达
@@ -999,7 +1002,7 @@ fn frame_to_event(raw: Value) -> Option<WorkerEvent> {
 fn run_pump(
     mut client: super::client::Client,
     job_rx: std::sync::mpsc::Receiver<Job>,
-    subs: &std::sync::Arc<std::sync::Mutex<Vec<(String, std::sync::mpsc::Sender<WorkerEvent>)>>>,
+    subs: &Subs,
 ) {
     let mut pending: std::collections::HashMap<
         String,

@@ -216,7 +216,8 @@ fn run_once(backend: &dyn LlmBackend) -> Vec<StreamEvent> {
         system_prompt: None,
         messages: vec![Message::user_text("hi")],
     };
-    let events = backend.stream(
+
+    backend.stream(
         &Model {
             api_key: "test-key".into(),
             model: "mock".into(),
@@ -228,8 +229,7 @@ fn run_once(backend: &dyn LlmBackend) -> Vec<StreamEvent> {
         &ctx,
         &[],
         &signal,
-    );
-    events
+    )
 }
 
 fn terminal(events: &[StreamEvent]) -> &StreamEvent {

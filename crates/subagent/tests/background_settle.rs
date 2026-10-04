@@ -9,10 +9,10 @@ use std::sync::{Arc, Mutex};
 use subagent::provider::SubagentResult;
 use subagent::runtime::SubagentRuntimeService;
 
-fn settle_and_probe() -> (
-    SubagentRuntimeService,
-    Arc<Mutex<Vec<(String, SubagentResult)>>>,
-) {
+/// Settled-run log the probe hands back: (run id, result).
+type SettledLog = Arc<Mutex<Vec<(String, SubagentResult)>>>;
+
+fn settle_and_probe() -> (SubagentRuntimeService, SettledLog) {
     let service = SubagentRuntimeService::default();
     let seen = Arc::new(Mutex::new(Vec::<(String, SubagentResult)>::new()));
     let seen_hook = Arc::clone(&seen);

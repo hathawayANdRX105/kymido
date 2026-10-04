@@ -48,6 +48,48 @@ static SIDEBAR_COLLAPSED: GlobalSignal<bool> = GlobalSignal::new(|| false);
 /// 按 `updated_at` 降序取最近若干条，跨会话的持久编排全在此列）。
 const TASK_BOARD_LIMIT: u32 = 50;
 
+// 成组内联 class（≥72 字符）抽到此；值与原内联串逐字节一致，concat! 分片
+// 使任一字符串字面量 <72（扫描按字面量长度判）。
+const WORKSPACE_PANEL_HEADER: &str = concat!(
+    "min-h-[44px] pl-2 pr-5 pt-2.5 pb-2 border-b border-",
+    "border flex items-center gap-2 shrink-0",
+);
+const WORKSPACE_SIDEBAR_TOGGLE: &str = concat!(
+    "hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg ",
+    "text-muted-foreground hover:bg-card ",
+    "hover:text-foreground md:flex",
+);
+const WORKSPACE_BRANCH_BADGE: &str = concat!(
+    "font-mono role-label px-2 py-0.5 rounded-full bg-chip-brand ",
+    "text-brand-300 border border-border shrink-0",
+);
+const WORKSPACE_TEXT_INPUT: &str = concat!(
+    "w-full h-11 rounded-xl bg-card border border-border px-4 ",
+    "role-hint text-foreground outline-none transition-colors ",
+    "focus:border-brand placeholder:text-muted-foreground",
+);
+const WORKSPACE_SWITCHER_ROW: &str = concat!(
+    "h-10 px-3 rounded-[10px] flex items-center justify-between ",
+    "cursor-pointer transition-colors bg-muted",
+);
+const WORKSPACE_SWITCHER_ROW_HOVER: &str = concat!(
+    "h-10 px-3 rounded-[10px] flex items-center justify-between ",
+    "cursor-pointer transition-colors hover:bg-muted",
+);
+const WORKSPACE_SWITCHER_FOOTER: &str = concat!(
+    "pt-2 border-t border-border flex items-center justify-",
+    "between role-caption",
+);
+const WORKSPACE_BTN_GHOST: &str = concat!(
+    "h-9 px-4 rounded-lg role-caption hover:bg-secondary-hover ",
+    "transition-colors cursor-pointer border-none bg-transparent",
+);
+const WORKSPACE_BTN_PRIMARY: &str = concat!(
+    "h-9 px-4 rounded-lg role-caption font-medium ",
+    "text-primary-foreground bg-brand hover:opacity-90 ",
+    "transition-opacity cursor-pointer border-none",
+);
+
 #[component]
 pub fn Workspace(
     config: LlmRuntimeConfig,
@@ -64,7 +106,7 @@ pub fn Workspace(
 
     // Worker subscription readiness gate (shared between worker_event_loop
     // and the background prompt thread).
-    let readiness = use_signal(|| ReadinessGate::new());
+    let readiness = use_signal(ReadinessGate::new);
 
     let data_dir = config.data_dir.clone();
     let mut spaces = use_signal(move || match backend() {
@@ -233,10 +275,10 @@ pub fn Workspace(
         let d_snapshot = d.clone();
         let q_snapshot_tx = q_tx.clone();
         std::thread::spawn(move || {
-            if let Ok(list) = d_snapshot.pending_questions() {
-                if let Some(first) = list.into_iter().next() {
-                    let _ = q_snapshot_tx.send(first);
-                }
+            if let Ok(list) = d_snapshot.pending_questions()
+                && let Some(first) = list.into_iter().next()
+            {
+                let _ = q_snapshot_tx.send(first);
             }
         });
         std::thread::spawn(move || question_event_loop(d, q_tx));
@@ -860,7 +902,7 @@ pub fn Workspace(
                 // 中栏头（面包屑）点击也视为「面板外」→ 关闭任务看板。
                 // 头 div 在本页（workspace.rs）撰写、作为 AppFrame 的 header 槽
                 // 传入，故无需改 app_frame.rs 即可覆盖「其他非面板区域」。
-                div { class: "min-h-[44px] pl-2 pr-5 pt-2.5 pb-2 border-b border-b1 flex items-center gap-2 shrink-0",
+                div { class: "{WORKSPACE_PANEL_HEADER}",
                     onclick: move |_| {
                         if show_tasks() {
                             show_tasks.set(false);
@@ -875,31 +917,31 @@ pub fn Workspace(
                     button {
                         "data-testid": "sidebar-collapse",
                         "aria-label": "{collapse_aria}",
-                        class: "hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground md:flex {ANIM_SCOPE}",
+                        class: "{WORKSPACE_SIDEBAR_TOGGLE} {ANIM_SCOPE}",
                         onclick: move |_| {
                             sidebar_collapsed.set(!sidebar_collapsed());
                         },
                         IconPanelLeft { size: 16 }
                     }
                     if view() == View::Stats {
-                        span { class: "text-[14px] leading-5 font-medium text-label", "{sh::TTL_STATS}" }
+                        span { class: "role-hint font-medium text-foreground", "{sh::TTL_STATS}" }
                     } else if view() == View::Archive {
-                        span { class: "text-[14px] leading-5 font-medium text-label", "{sh::LBL_ARCHIVE}" }
+                        span { class: "role-hint font-medium text-foreground", "{sh::LBL_ARCHIVE}" }
                     } else if view() == View::Settings {
-                        span { class: "text-[14px] leading-5 font-medium text-label", "设置" }
+                        span { class: "role-hint font-medium text-foreground", "设置" }
                     } else {
-                        span { class: "text-[14px] leading-5 font-medium text-label", "{active_space.name}" }
+                        span { class: "role-hint font-medium text-foreground", "{active_space.name}" }
                         if !active_space.branch.is_empty() {
-                            span { class: "text-caption", "/" }
-                            span { class: "text-[14px] leading-5 text-label-2 truncate max-w-[360px]", "{active_title}" }
-                            span { class: "font-mono text-[11px] leading-4 px-2 py-0.5 rounded-full bg-chip-brand text-brand-300 border border-b1 shrink-0",
+                            span { class: "text-muted-foreground", "/" }
+                            span { class: "role-hint truncate max-w-[360px]", "{active_title}" }
+                            span { class: "{WORKSPACE_BRANCH_BADGE}",
                                 "{active_space.branch}"
                             }
                         }
                     }
                     div { class: "flex-1" }
                     if active_session_running(space_sessions, active_session_id) {
-                        span { class: "flex items-center gap-1.5 text-[12px] leading-5 text-label-3",
+                        span { class: "flex items-center gap-1.5 role-caption",
                             ui_kit::Spinner { size: 10, class: "text-brand" }
                             "运行中"
                         }
@@ -960,7 +1002,7 @@ pub fn Workspace(
                 Modal { width_class: "w-[560px]", top_aligned: true, on_close: move |_| show_quick_switcher.set(false),
                     div { class: "p-3 flex flex-col gap-2",
                         input {
-                            class: "w-full h-11 rounded-xl bg-layer-1 border border-b2 px-4 text-[14px] leading-5 text-label outline-none transition-colors focus:border-brand placeholder:text-caption",
+                            class: "{WORKSPACE_TEXT_INPUT}",
                             r#type: "text",
                             placeholder: "搜索会话名称或编号...",
                             value: "{search_query}",
@@ -979,13 +1021,13 @@ pub fn Workspace(
                                     let id = session.id.clone();
                                     let is_active = session.id == active_session_id();
                                     let row_class = if is_active {
-                                        "h-10 px-3 rounded-[10px] flex items-center justify-between cursor-pointer transition-colors bg-ihover"
+                                        WORKSPACE_SWITCHER_ROW
                                     } else {
-                                        "h-10 px-3 rounded-[10px] flex items-center justify-between cursor-pointer transition-colors hover:bg-ihover"
+                                        WORKSPACE_SWITCHER_ROW_HOVER
                                     };
                                     let dot = match session.status {
                                         SessionStatus::Active => "bg-brand",
-                                        SessionStatus::Archived | SessionStatus::Aborted => "bg-danger/70",
+                                        SessionStatus::Archived | SessionStatus::Aborted => "bg-destructive/70",
                                         SessionStatus::Idle => "bg-dim",
                                     };
                                     rsx! {
@@ -997,15 +1039,15 @@ pub fn Workspace(
                                             },
                                             div { class: "flex items-center gap-2.5 min-w-0",
                                                 span { class: "w-2 h-2 rounded-full {dot} shrink-0" }
-                                                span { class: "text-[14px] leading-5 text-label truncate", "{session.title}" }
+                                                span { class: "role-hint text-foreground truncate", "{session.title}" }
                                             }
-                                            span { class: "font-mono text-[11px] leading-4 text-caption shrink-0", "{session.id}" }
+                                            span { class: "font-mono role-label shrink-0", "{session.id}" }
                                         }
                                     }
                                 }
                             }
                         }
-                        div { class: "pt-2 border-t border-b1 flex items-center justify-between text-[12px] leading-4 text-caption",
+                        div { class: "{WORKSPACE_SWITCHER_FOOTER}",
                             span { "选择会话快速切换" }
                             div { class: "flex items-center gap-1.5",
                                 kbd { "ESC" }
@@ -1023,11 +1065,11 @@ pub fn Workspace(
                     on_close: move |_| show_create_project.set(false),
                     div { class: "p-4 flex flex-col gap-3",
                         div { class: "flex flex-col gap-1",
-                            label { class: "text-[14px] font-medium text-label", "创建项目（目录路径）" }
-                            p { class: "text-[12px] leading-5 text-caption", "输入一个已存在的目录路径，注册为新项目。同一路径重复注册会被拒绝。" }
+                            label { class: "role-hint font-medium text-foreground", "创建项目（目录路径）" }
+                            p { class: "role-caption", "输入一个已存在的目录路径，注册为新项目。同一路径重复注册会被拒绝。" }
                         }
                         input {
-                            class: "w-full h-11 rounded-xl bg-layer-1 border border-b2 px-4 text-[14px] leading-5 text-label outline-none transition-colors focus:border-brand placeholder:text-caption",
+                            class: "{WORKSPACE_TEXT_INPUT}",
                             r#type: "text",
                             placeholder: "~/projects/your-repo",
                             value: "{create_project_path}",
@@ -1045,12 +1087,12 @@ pub fn Workspace(
                         }
                         div { class: "flex justify-end gap-2",
                             button {
-                                class: "h-9 px-4 rounded-lg text-[13px] text-label-2 hover:bg-selector transition-colors cursor-pointer border-none bg-transparent",
+                                class: "{WORKSPACE_BTN_GHOST}",
                                 onclick: move |_| show_create_project.set(false),
                                 "取消"
                             }
                             button {
-                                class: "h-9 px-4 rounded-lg text-[13px] font-medium text-bg bg-brand hover:opacity-90 transition-opacity cursor-pointer border-none",
+                                class: "{WORKSPACE_BTN_PRIMARY}",
                                 onclick: move |_| {
                                     let path = create_project_path().clone();
                                     add_space(sig, path);

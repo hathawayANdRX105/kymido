@@ -3,7 +3,7 @@
 //! - 会话二级 = 自定义 content 槽（项目 → 会话两级折叠树 + ⌘K 搜索小按钮）；
 //! - 设置二级 = 默认列表（模型与渠道 / MCP 服务器 / 关于），点击切设置页分区；
 //! - 统计 = 一级叶子（点击切统计页；时间范围由页内胶囊选，无二级清单）。
-//! 折叠态 = 一级 icon rail（hover 浮出二级 popover，kit 内置）。
+//!   折叠态 = 一级 icon rail（hover 浮出二级 popover，kit 内置）。
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,6 +21,24 @@ use ui_kit::icons::{
 use ui_kit::layout::{DualPaneChild, DualPaneGroup, DualPaneNav};
 
 use super::session_row::SessionRow;
+
+/// 会话树样式常量：项目行、行内小按钮（普通 / 危险）。
+const DUAL_SIDEBAR_SPACE_ROW: &str = concat!(
+    "group h-[34px] mx-0 px-2 rounded-lg flex items-center gap-2 ",
+    "hover:bg-muted cursor-pointer transition-colors",
+);
+const DUAL_SIDEBAR_ROW_BTN: &str = concat!(
+    "shrink-0 flex items-center justify-center w-4 h-4 ",
+    "text-muted-foreground hover:text-foreground opacity-40 ",
+    "group-hover:opacity-100 transition-opacity ",
+    "cursor-pointer bg-transparent border-none",
+);
+const DUAL_SIDEBAR_ROW_BTN_DANGER: &str = concat!(
+    "shrink-0 flex items-center justify-center w-4 h-4 ",
+    "text-muted-foreground hover:text-destructive opacity-40 ",
+    "group-hover:opacity-100 transition-opacity ",
+    "cursor-pointer bg-transparent border-none",
+);
 
 /// 「会话」二级菜单 content：项目 → 会话两级折叠树（项目行 h34 / 会话行
 /// 缩进 22px，markup 与原单栏侧栏同源）+ ⌘K 搜索小按钮（「+ 创建项目 / 归档」属 Batch 3）。
@@ -84,7 +102,7 @@ pub fn SessionTreePanel(
                         let count = sessions_for_space.len();
                         rsx! {
                             // 项目行 h34
-                            div { class: "group h-[34px] mx-0 px-2 rounded-lg flex items-center gap-2 hover:bg-ihover cursor-pointer transition-colors",
+                            div { class: "{DUAL_SIDEBAR_SPACE_ROW}",
                                 onclick: move |_| {
                                     let mut set = expanded_spaces.write();
                                     if set.contains(&space_path_toggle) {
@@ -95,10 +113,10 @@ pub fn SessionTreePanel(
                                     drop(set);
                                     on_select_space.call(space_path.clone());
                                 },
-                                IconFolder { size: 16, class: "shrink-0 text-label-3" }
-                                span { class: "text-[14px] leading-5 text-label truncate min-w-0 flex-1", "{space.name}" }
+                                IconFolder { size: 16, class: "shrink-0 text-muted-foreground" }
+                                span { class: "role-hint text-foreground truncate min-w-0 flex-1", "{space.name}" }
                                 button {
-                                    class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none {ANIM_SCOPE}",
+                                    class: "{DUAL_SIDEBAR_ROW_BTN} {ANIM_SCOPE}",
                                     title: sh::BTN_NEW_CHAT_IN_SPACE,
                                     onclick: move |e: MouseEvent| {
                                         e.stop_propagation();
@@ -106,10 +124,10 @@ pub fn SessionTreePanel(
                                     },
                                     IconPlus { size: 13 }
                                 }
-                                span { class: "text-[12px] leading-5 text-label-3 tabular-nums", "{count}" }
+                                span { class: "role-caption tabular-nums", "{count}" }
                                 // 移除项目钮：hover 行才出现，排在行最右
                                 button {
-                                    class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-danger opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                                    class: "{DUAL_SIDEBAR_ROW_BTN_DANGER}",
                                     title: sh::BTN_REMOVE_SPACE,
                                     onclick: move |e: MouseEvent| {
                                         e.stop_propagation();

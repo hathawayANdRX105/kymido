@@ -15,6 +15,12 @@ struct ReadinessState {
     generation: u64,
 }
 
+impl Default for ReadinessGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReadinessGate {
     pub fn new() -> Self {
         Self(Arc::new((

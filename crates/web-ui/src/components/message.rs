@@ -13,6 +13,32 @@ use crate::utils::markdown::markdown_to_html;
 
 use super::chat::{KindIcon, format_tool_output, kind_chip, kind_label, line_is_error};
 
+/// 消息树样式常量（成组样式抽常量；copy 钮有带/不带 border 两态）。
+const MESSAGE_USER_ACTIONS: &str = concat!(
+    "flex items-center gap-1.5 opacity-0 group-hover:opacity-100 ",
+    "transition-opacity duration-75 pr-2",
+);
+const MESSAGE_COPY_BTN: &str = concat!(
+    "size-5 rounded flex items-center justify-center text-muted-foreground ",
+    "hover:text-foreground cursor-pointer border-none bg-transparent",
+);
+const MESSAGE_ASSISTANT_ACTIONS: &str = concat!(
+    "flex items-center gap-2 -ml-1 h-5 opacity-0 group-hover:opacity-100 ",
+    "transition-opacity duration-75",
+);
+const MESSAGE_COPY_BTN_PLAIN: &str = concat!(
+    "size-5 rounded flex items-center justify-center text-muted-foreground ",
+    "hover:text-foreground cursor-pointer",
+);
+const MESSAGE_PROCESS_HEADER: &str = concat!(
+    "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit ",
+    "role-hint hover:text-foreground",
+);
+const MESSAGE_TOOL_OUTPUT: &str = concat!(
+    "tool-output bg-codeblock rounded-lg px-3 py-2 font-mono ",
+    "role-caption whitespace-pre-wrap break-all",
+);
+
 /// 单条消息：用户右侧气泡 / assistant 按发生顺序（过程折叠 + 最终回复）。
 #[component]
 pub(crate) fn MessageItem(
@@ -37,20 +63,20 @@ pub(crate) fn MessageItem(
                                 src: "data:{att.media_type};base64,{att.data}",
                                 alt: "{att.name}",
                                 title: "{att.name}",
-                                class: "max-h-[180px] rounded-[14px] border border-b1 object-cover",
+                                class: "max-h-[180px] rounded-[14px] border border-border object-cover",
                             }
                         }
                     }
                 }
                 if !message.content.is_empty() {
-                    div { class: "markdown-sm bg-bubble rounded-[22px] px-4 py-2.5 max-w-[525px]",
+                    div { class: "markdown-sm bg-secondary rounded-[22px] px-4 py-2.5 max-w-[525px]",
                         dangerous_inner_html: "{markdown_to_html(&message.content)}"
                     }
                 }
-                div { class: "flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-75 pr-2",
+                div { class: "{MESSAGE_USER_ACTIONS}",
                     if !user_copy_src.is_empty() {
                         button {
-                            class: "size-5 rounded flex items-center justify-center text-label-3 hover:text-label-2 cursor-pointer border-none bg-transparent",
+                            class: "{MESSAGE_COPY_BTN}",
                             title: sh::BTN_COPY,
                             onclick: move |_| {
                                 let t = user_copy_src.clone();
@@ -61,7 +87,7 @@ pub(crate) fn MessageItem(
                             IconCopy { size: 11 }
                         }
                     }
-                    span { class: "text-[12px] leading-5 text-label-3",
+                    span { class: "role-caption",
                         "{message.timestamp}"
                     }
                 }
@@ -126,7 +152,7 @@ pub(crate) fn MessageItem(
                 if waiting {
                     // dsh turn 状态行：26px 高 shimmer
                     div { class: "h-[26px] flex items-center",
-                        span { class: "shimmer-text text-[14px] font-medium", {sh::MSG_THINKING} }
+                        span { class: "shimmer-text role-hint font-medium text-foreground", {sh::MSG_THINKING} }
                     }
                 } else {
                     // aui parts 模型：思考 / 工具 / 文本按真实发生顺序原位交替
@@ -146,16 +172,16 @@ pub(crate) fn MessageItem(
                     if streaming_tail {
                         div { class: "flex items-center gap-2 h-[26px]",
                             Spinner {}
-                            span { class: "text-[12px] leading-5 text-label-3", {sh::MSG_GENERATING} }
+                            span { class: "role-caption", {sh::MSG_GENERATING} }
                         }
                     }
                 }
                 // aui ActionBar（hideWhenRunning 对位）：生成全部结束后才出现
                 if !streaming_tail {
                     div {
-                        class: "flex items-center gap-2 -ml-1 h-5 opacity-0 group-hover:opacity-100 transition-opacity duration-75",
+                        class: "{MESSAGE_ASSISTANT_ACTIONS}",
                         button {
-                            class: "size-5 rounded flex items-center justify-center text-label-3 hover:text-label-2 cursor-pointer",
+                            class: "{MESSAGE_COPY_BTN_PLAIN}",
                             title: sh::BTN_COPY,
                             onclick: move |_| {
                                 let t = copy_src.clone();
@@ -165,7 +191,7 @@ pub(crate) fn MessageItem(
                             },
                             IconCopy { size: 11 }
                         }
-                        span { class: "text-[12px] leading-5 text-label-3", "{message.timestamp}" }
+                        span { class: "role-caption", "{message.timestamp}" }
                     }
                 }
             }
@@ -185,7 +211,7 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Eleme
     let count = parts.len();
     rsx! {
         div { class: "flex flex-col",
-            div { class: "h-6 flex items-center gap-1.5 cursor-pointer select-none w-fit text-[14px] leading-6 text-label-2 hover:text-label",
+            div { class: "{MESSAGE_PROCESS_HEADER}",
                 onclick: move |e: MouseEvent| {
                     e.stop_propagation();
                     toggle.set(Some(!open));
@@ -195,7 +221,7 @@ fn ProcessBlock(parts: Vec<MessagePart>, active: bool, streaming: bool) -> Eleme
                 } else {
                     {sh::LBL_WORK_PROGRESS}
                 } }
-                span { class: "text-caption", "· {count}" }
+                span { class: "text-muted-foreground", "· {count}" }
             }
             if open {
                 div { class: "pl-[22px] pt-1 flex flex-col gap-2",
@@ -240,9 +266,9 @@ fn ToolLine(tool: ToolCall) -> Element {
     let formatted = format_tool_output(&tool.kind, &tool.detail);
     // aui ToolCall running 态：标题加 shimmer 扫光（CSS 变量，随现有主题走）
     let title_class = if running {
-        "shimmer-text font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0"
+        "shimmer-text font-mono role-caption flex-1 truncate min-w-0"
     } else {
-        "font-mono text-[12px] leading-5 text-label-2 flex-1 truncate min-w-0"
+        "font-mono role-caption flex-1 truncate min-w-0"
     };
 
     rsx! {
@@ -253,41 +279,41 @@ fn ToolLine(tool: ToolCall) -> Element {
                     open.set(!open());
                 },
                 KindIcon { kind: "{tool.kind}" }
-                span { class: "{chip} font-mono text-[10px] font-semibold uppercase shrink-0",
+                span { class: "{chip} font-mono role-overline shrink-0",
                     "{label}"
                 }
-                span { class: "text-[12px] leading-5 text-label-3 shrink-0", "·" }
+                span { class: "role-caption shrink-0", "·" }
                 // aui ToolCall running 态：标题 shimmer 替代 spinner 独占注意力
                 span { class: "{title_class}", "{tool.title}" }
                 if running {
                     Spinner {}
                 }
                 if is_err {
-                    span { class: "text-[11px] leading-4 font-medium text-danger shrink-0", {sh::MSG_TOOL_FAILED} }
+                    span { class: "role-label font-medium text-destructive shrink-0", {sh::MSG_TOOL_FAILED} }
                 }
                 if !running && !is_err {
                     // aui ToolCall 完成勾
-                    IconCheck { size: 12, class: "shrink-0 text-success-2" }
+                    IconCheck { size: 12, class: "shrink-0 text-success-foreground" }
                 }
             }
             if open() {
                 div { class: "pl-[22px] pb-1 flex flex-col gap-1.5",
                     if !tool.summary.is_empty() {
-                        div { class: "text-[13px] leading-5 text-label-3", "{tool.summary}" }
+                        div { class: "role-caption", "{tool.summary}" }
                     }
-                    div { class: "tool-output bg-codeblock rounded-lg px-3 py-2 font-mono text-[12px] leading-[18px] text-label-2 whitespace-pre-wrap break-all",
+                    div { class: "{MESSAGE_TOOL_OUTPUT}",
                         for line in formatted.lines() {
                             if line.starts_with('+') && !line.starts_with("+++") {
-                                span { class: "text-success-2", "{line}\n" }
+                                span { class: "text-success-foreground", "{line}\n" }
                             } else if line.starts_with('-') && !line.starts_with("---") {
-                                span { class: "text-danger", "{line}\n" }
+                                span { class: "text-destructive", "{line}\n" }
                             } else if line.starts_with("@@") {
                                 span { class: "text-brand", "{line}\n" }
                             } else if line.starts_with('$') {
                                 // 终端观感：命令行亮于输出行
-                                span { class: "text-label", "{line}\n" }
+                                span { class: "text-foreground", "{line}\n" }
                             } else if line_is_error(line) {
-                                span { class: "text-danger", "{line}\n" }
+                                span { class: "text-destructive", "{line}\n" }
                             } else {
                                 span { "{line}\n" }
                             }
@@ -308,9 +334,9 @@ fn ToolLine(tool: ToolCall) -> Element {
 ///   （淡入 + 轻微上移）。
 /// - 结算后：`Thought · Ns`（aui "Thought for Ns" 词族；无真实耗时回退
 ///   `Thought`）。
-/// 默认**始终折叠**（运行时不自动展开，用户点击整行打开；
-/// #2 的无 chevron 决策）。思考正文走 markdown 渲染，左侧边框保留「过程
-/// 显示」观感。
+///   默认**始终折叠**（运行时不自动展开，用户点击整行打开；
+///   #2 的无 chevron 决策）。思考正文走 markdown 渲染，左侧边框保留「过程
+///   显示」观感。
 ///
 /// 「最后完成行」口径：只有到达换行符的行才算完成（当前未收尾的行仍在
 /// 生长，不进头行）；取最后一段非空行，截断到 80 字符（`truncate` 双保险）。
@@ -348,20 +374,20 @@ fn ReasoningBlock(text: String, running: bool, duration: Option<u64>) -> Element
                     toggle.set(Some(!open));
                 },
                 if running {
-                    span { class: "shimmer-text text-[12px] font-medium shrink-0", {sh::LBL_THINKING_EN} }
+                    span { class: "shimmer-text role-caption font-medium shrink-0", {sh::LBL_THINKING_EN} }
                     if let Some(l) = &line {
                         // key 随「最后完成行」内容变 → 节点重建 → think-line
                         // 换行动画每次播一次
-                        span { key: "{l}", class: "think-line text-[12px] leading-5 text-label-3 flex-1 min-w-0 truncate", "· {l}" }
+                        span { key: "{l}", class: "think-line role-caption flex-1 min-w-0 truncate", "· {l}" }
                     }
                     span { class: "ml-1 shrink-0", Spinner {} }
                 } else {
-                    span { class: "text-[12px] leading-5 text-label-3 hover:text-label-2 transition-colors", "{done_label}" }
+                    span { class: "role-caption hover:text-foreground transition-colors", "{done_label}" }
                 }
             }
             if open {
                 div {
-                    class: "mt-1 markdown-sm border-l border-b1 pl-3",
+                    class: "mt-1 markdown-sm border-l border-border pl-3",
                     dangerous_inner_html: "{markdown_to_html(&text)}"
                 }
             }

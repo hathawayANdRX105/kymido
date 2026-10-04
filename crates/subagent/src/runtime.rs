@@ -16,6 +16,10 @@ struct LiveRun {
     steerable: bool,
 }
 
+/// Hook fired once when a background run settles: `(session id, result)`.
+/// The daemon wires it to push a completion notice into the aside channel.
+type OnSettledHook = Arc<dyn Fn(&str, &SubagentResult) + Send + Sync>;
+
 /// Thread-safe registry of named subagent providers, plus the table of runs
 /// started through [`Self::start_run`] that are still in flight.
 ///
@@ -33,7 +37,7 @@ pub struct SubagentRuntimeService {
     /// Fired once when a background run settles. The daemon wires it to push
     /// a completion notice into the model's aside channel; a sync run that
     /// returned its result inline does not fire it.
-    on_settled: Mutex<Option<Arc<dyn Fn(&str, &SubagentResult) + Send + Sync>>>,
+    on_settled: Mutex<Option<OnSettledHook>>,
     run_seq: AtomicU64,
 }
 
@@ -126,7 +130,7 @@ impl SubagentRuntimeService {
 
     /// Register the hook fired when a background run settles. The daemon uses
     /// it to push a completion notice into the model's aside channel.
-    pub fn set_on_settled(&self, hook: Arc<dyn Fn(&str, &SubagentResult) + Send + Sync>) {
+    pub fn set_on_settled(&self, hook: OnSettledHook) {
         *self.on_settled.lock().unwrap() = Some(hook);
     }
 

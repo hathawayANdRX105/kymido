@@ -62,14 +62,11 @@ impl AttachTracker {
             return;
         }
         let mut counts = self.counts.lock().unwrap_or_else(|e| e.into_inner());
-        match counts.get_mut(session_id) {
-            Some(count) => {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    counts.remove(session_id);
-                }
+        if let Some(count) = counts.get_mut(session_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                counts.remove(session_id);
             }
-            None => {}
         }
     }
 

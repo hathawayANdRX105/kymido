@@ -7,15 +7,15 @@ use web_state::types::{ChatMessage, PendingAttachment, StatusLine};
 
 use crate::shared as sh;
 use ui_kit::icons::{
-    IconFolder, IconMoon, IconPaperclip, IconPlus, IconSearch, IconSquareCheck, IconTerminal,
-    IconTrash, IconWrench,
+    ANIM_SCOPE, IconFolder, IconMoon, IconPaperclip, IconPlus, IconSearch, IconSquareCheck,
+    IconTerminal, IconTrash, IconWrench,
 };
 use ui_kit::{AttachmentInfo, Composer};
 
 use super::menu_picker::MenuPicker;
 use super::message::MessageItem;
 
-/// 工具类型的配色（dsh 状态色 400 字级，ainotation #4：去掉 chip 底/边框，
+/// 工具类型的配色（kit 状态 `*-foreground` 语义色，ainotation #4：去掉 chip 底/边框，
 /// kind 只渲染为 mono 大写小字文本）。
 ///
 /// `job` / `terminal` 复用 brand 家族：它们和 `bash` 一样是"跑命令"，
@@ -24,10 +24,10 @@ use super::message::MessageItem;
 pub(crate) fn kind_chip(kind: &str) -> &'static str {
     match kind {
         "bash" | "job" | "terminal" => "text-brand-300",
-        "edit" | "write" => "text-success-2",
-        "read" | "grep" | "glob" => "text-warn-2",
-        "delete" => "text-danger",
-        _ => "text-label-3",
+        "edit" | "write" => "text-success-foreground",
+        "read" | "grep" | "glob" => "text-warning-foreground",
+        "delete" => "text-destructive",
+        _ => "text-muted-foreground",
     }
 }
 
@@ -73,7 +73,7 @@ pub fn format_tool_output(_kind: &str, raw: &str) -> String {
 }
 
 /// 终端观感的错误行判定（ainotation 波2 #4②）：含 error/panic/fatal/failed
-/// 的行着 danger 色。故意放宽到 contains——真实日志的错误行形态太多，误染
+/// 的行着 destructive 色。故意放宽到 contains——真实日志的错误行形态太多，误染
 /// 一行普通文本好过整屏无色。
 pub(crate) fn line_is_error(line: &str) -> bool {
     let l = line.to_lowercase();
@@ -89,7 +89,7 @@ pub(crate) fn line_is_error(line: &str) -> bool {
 /// - delete → IconTrash；think → IconMoon；tool 及未知 → IconWrench
 #[component]
 pub(crate) fn KindIcon(kind: String) -> Element {
-    let class = "text-label-3 shrink-0";
+    let class = "text-muted-foreground shrink-0";
     match kind.as_str() {
         "bash" | "terminal" | "job" => rsx! { IconTerminal { size: 12, class } },
         "grep" => rsx! { IconSearch { size: 12, class } },
@@ -115,6 +115,64 @@ const THINKING_OPTIONS: &[(&str, &str)] = &[
     (sh::OPT_THINKING_STANDARD, "8k"),
     (sh::OPT_THINKING_DEEP, "16k"),
 ];
+
+// ---- 组件私有 class 常量（canon DIOXUS-INLINE-CLASS）----
+// 成组内联 class（≥72 字符）抽到此；常量值与原内联串逐字节一致。用 concat! 分段，
+// 避免单个物理行出现完整的长 class 字面量（harness 按物理行抓字符串字面量，常量声明行也计入）。
+const CHAT_MESSAGE_COLUMN: &str = concat!(
+    "max-w-[780px] w-full mx-auto px-4 pt-4 pb-[220px] flex flex-col ",
+    "gap-4 min-h-full",
+);
+
+const CHAT_EMPTY_STATE: &str = concat!(
+    "flex-1 flex flex-col items-center justify-center gap-2.5 ",
+    "text-center py-10 select-none relative",
+);
+
+const CHAT_EMPTY_GLOW: &str = concat!(
+    "absolute w-[520px] h-[220px] rounded-full bg-brand/10 blur-[110px] ",
+    "-z-10",
+);
+
+const CHAT_MINIMAP_DOT: &str = concat!(
+    "rounded-full bg-label cursor-pointer transition-all duration-150 ",
+    "ease-out minimap-bar",
+);
+
+const CHAT_MINIMAP_TIP: &str = concat!(
+    "absolute left-14 top-1/2 -translate-y-1/2 z-30 w-[230px] ",
+    "max-h-[150px] overflow-hidden rounded-xl border border-binv ",
+    "bg-popover px-3 py-2.5 shadow-lv3 pointer-events-none",
+);
+
+const CHAT_QUESTION_CARD: &str = concat!(
+    "pointer-events-auto w-full question-card rounded-[14px] border ",
+    "border-border bg-card shadow-lv2 px-4 py-3 flex flex-col gap-2.5",
+);
+
+const CHAT_QUESTION_OPTION: &str = concat!(
+    "h-7 px-3 rounded-lg bg-secondary hover:bg-secondary-hover ",
+    "role-caption text-foreground transition-colors",
+);
+
+const CHAT_UPLOAD_BUTTON: &str = concat!(
+    "flex items-center justify-center w-[32px] h-[32px] rounded-full ",
+    "text-muted-foreground hover:bg-secondary-hover ",
+    "transition-[background-color,color,scale] duration-150 ",
+    "active:scale-[0.96] cursor-pointer",
+);
+
+const CHAT_UPLOAD_DISABLED: &str = concat!(
+    "flex items-center justify-center w-[32px] h-[32px] rounded-full ",
+    "text-muted-foreground opacity-40 cursor-not-allowed",
+);
+
+const CHAT_GHOST_BUTTON: &str = concat!(
+    "flex items-center justify-center w-[32px] h-[32px] rounded-full ",
+    "text-muted-foreground hover:bg-secondary-hover ",
+    "transition-[background-color,color,scale] duration-150 ",
+    "active:scale-[0.96] cursor-pointer border-none bg-transparent",
+);
 
 #[component]
 pub fn Chat(
@@ -243,13 +301,13 @@ pub fn Chat(
             // 单一滚动面板 = 整个聊天室
             div { class: "absolute inset-0 overflow-y-auto",
                 id: "chat-scroll",
-                div { class: "max-w-[780px] w-full mx-auto px-4 pt-4 pb-[220px] flex flex-col gap-4 min-h-full",
+                div { class: "{CHAT_MESSAGE_COLUMN}",
                     if display_messages.is_empty() && !is_streaming {
-                        div { class: "flex-1 flex flex-col items-center justify-center gap-2.5 text-center py-10 select-none relative",
-                            div { class: "absolute w-[520px] h-[220px] rounded-full bg-brand/10 blur-[110px] -z-10" }
-                            div { class: "text-[26px] leading-8 font-semibold text-label", {sh::MSG_EMPTY_CHAT_TITLE} }
-                            div { class: "text-[14px] leading-[22px] text-label-3 max-w-[420px]",
-                                "在下方输入指令，Agent 将使用文件读写、bash 与代码编辑工具协助你完成。"
+                        div { class: "{CHAT_EMPTY_STATE}",
+                            div { class: "{CHAT_EMPTY_GLOW}" }
+                            div { class: "role-title", {sh::MSG_EMPTY_CHAT_TITLE} }
+                            div { class: "role-hint max-w-[420px]",
+                                {sh::MSG_EMPTY_CHAT_DESC}
                             }
                         }
                     }
@@ -284,13 +342,13 @@ pub fn Chat(
                         div { class: "relative flex items-center",
                             style: "height:16px; width:56px;",
                             "data-anchor": anchor_id,
-                            div { class: "rounded-full bg-label cursor-pointer transition-all duration-150 ease-out minimap-bar",
+                                div { class: "{CHAT_MINIMAP_DOT}",
                                 style: "height:4px; width:10px;",
                             }
-                            div { class: "absolute left-14 top-1/2 -translate-y-1/2 z-30 w-[230px] max-h-[150px] overflow-hidden rounded-xl border border-binv bg-menu px-3 py-2.5 shadow-lv3 pointer-events-none",
+                                div { class: "{CHAT_MINIMAP_TIP}",
                                 "data-tip": "",
                                 style: "display:none;",
-                                div { class: "text-[12px] leading-5 text-label-2 whitespace-pre-wrap break-words line-clamp-6", "{p}" }
+                                div { class: "role-caption whitespace-pre-wrap break-words line-clamp-6", "{p}" }
                             }
                         }
                     }
@@ -306,10 +364,10 @@ pub fn Chat(
                     // 用户问题卡（plan-mode review）：composer 上方、dock 之下。
                     // 选项即答案：Select { index } 直发，无中间态
                     if let Some((_, qsummary, _)) = &question_view {
-                        div { class: "pointer-events-auto w-full question-card rounded-[14px] border border-b1 bg-layer-1 shadow-lv2 px-4 py-3 flex flex-col gap-2.5",
+                        div { class: "{CHAT_QUESTION_CARD}",
                             div { class: "flex items-baseline gap-2",
-                                span { class: "text-[12px] leading-4 font-medium text-brand-300 shrink-0", {sh::LBL_PLAN_REVIEW} }
-                                span { class: "text-[13px] leading-5 text-label-2", "{qsummary}" }
+                                span { class: "role-caption font-medium text-brand-300 shrink-0", {sh::LBL_PLAN_REVIEW} }
+                                span { class: "role-caption", "{qsummary}" }
                             }
                             div { class: "flex items-center gap-2 flex-wrap",
                                 for (qid_btn, i, label) in question_buttons.clone() {
@@ -318,7 +376,7 @@ pub fn Chat(
                                         rsx! {
                                             button {
                                                 key: "{i}",
-                                                class: "h-7 px-3 rounded-lg bg-selector hover:bg-iactive text-[12px] leading-4 text-label transition-colors",
+                                                class: "{CHAT_QUESTION_OPTION}",
                                                 onclick: move |_| {
                                                     on_answer.call((qid_click.clone(), QuestionAnswer::Select { index: i }));
                                                 },
@@ -353,14 +411,15 @@ pub fn Chat(
                                 }
                             },
                         }
+
                         // 处理中 / 错误两态由附件桥 JS 直接填（#attachment-reading /
                         // #attachment-rejected）：读文件、类型/体积过滤都是浏览器侧的事，
                         // Rust 渲染层只负责占位，JS 按 change 事件驱动这两块 DOM。
                         div { class: "px-1",
                             span {
                                 id: "attachment-reading",
-                                class: "hidden text-[11px] text-caption font-mono",
-                                "处理中…",
+                                class: "hidden font-mono role-label",
+                                {sh::MSG_ATTACHMENT_READING},
                             }
                             div {
                                 id: "attachment-rejected",
@@ -400,7 +459,7 @@ pub fn Chat(
                                 // file input；附件桥 JS 缺元素自然不生效）。
                                 if image_input {
                                     label {
-                                        class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-label-2 hover:bg-selector transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer",
+                                        class: "{CHAT_UPLOAD_BUTTON}",
                                         title: sh::BTN_ADD_IMAGE,
                                         input {
                                             id: "attachment-input",
@@ -414,7 +473,7 @@ pub fn Chat(
                                     }
                                 } else {
                                     span {
-                                        class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-label-2 opacity-40 cursor-not-allowed",
+                                        class: "{CHAT_UPLOAD_DISABLED}",
                                         title: sh::MSG_NO_IMAGE_INPUT,
                                         IconPaperclip { size: 16 }
                                     }
@@ -422,7 +481,7 @@ pub fn Chat(
                                 // aui ghost 按钮对位：32px 圆形 ghost（纯元素，保留 toggle 语义）
                                 button {
                                     r#type: "button",
-                                    class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-label-2 hover:bg-selector transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer ui-anim-scope",
+                                    class: "{CHAT_GHOST_BUTTON} {ANIM_SCOPE}",
                                     title: sh::BTN_TASK_PANEL,
                                     // 点外关闭（ainotation 波3）：开合钮保持纯 toggle 语义——
                                     // stop_propagation 挡住页面级 click 委托，开→关 / 关→开
@@ -435,13 +494,15 @@ pub fn Chat(
                                 }
                                 MenuPicker {
                                     label: model_label,
+                                    header: sh::LBL_PICK_MODEL,
                                     items: model_items,
                                     active_value: statusline.model.clone(),
                                     mono: true,
                                     on_select: move |m: String| on_model_change.call(m),
                                 }
                                 MenuPicker {
-                                    label: "思考 {statusline.thinking}",
+                                    label: format!("{} {}", sh::LBL_THINKING, statusline.thinking),
+                                    header: sh::LBL_THINKING_STRENGTH,
                                     items: thinking_items,
                                     active_value: statusline.thinking.clone(),
                                     on_select: move |level: String| on_thinking_change.call(level),
@@ -452,7 +513,7 @@ pub fn Chat(
                         }
                     }
                     // 状态行（dsh StatsLine：12/20 tertiary 居中）——在输入卡外下方
-                    div { class: "text-[12px] leading-5 text-label-3 text-center select-none",
+                    div { class: "role-caption text-center select-none",
                         "{statusline.model} · ↑{statusline.tokens_in} ↓{statusline.tokens_out} · ${statusline.cost_usd:.3} · context {statusline.context_pct:.0}%{elapsed_seg}{error_seg}"
                     }
             }

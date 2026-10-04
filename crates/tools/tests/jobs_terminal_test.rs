@@ -125,7 +125,7 @@ fn jobs_kill_stops_a_running_job() {
             let rows = list
                 .execute(&json!({}), &never())
                 .expect("jobs_list must answer");
-            rows.contains(&format!("{id}")) && rows.contains("killed")
+            rows.contains(&id.to_string()) && rows.contains("killed")
         },
         "job to reach killed state",
     );

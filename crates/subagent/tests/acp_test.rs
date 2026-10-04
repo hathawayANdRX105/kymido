@@ -184,16 +184,17 @@ impl FakeAgent {
     }
 }
 
-/// Wire a client to a fake agent on its own thread; also hand back the
-/// agent-to-client sender so a test can inject raw agent traffic.
-fn harness(
-    allowed_option: &str,
-) -> (
+/// Pipe client + fakes a test injects raw agent traffic through.
+type HarnessHandles = (
     AcpClient<PipeWrite, PipeRead>,
     Arc<FakeAgent>,
     Arc<TestHandlers>,
     SyncSender<Vec<u8>>,
-) {
+);
+
+/// Wire a client to a fake agent on its own thread; also hand back the
+/// agent-to-client sender so a test can inject raw agent traffic.
+fn harness(allowed_option: &str) -> HarnessHandles {
     let (client_tx, client_rx) = mpsc::sync_channel::<Vec<u8>>(16);
     let (agent_tx, agent_rx) = mpsc::sync_channel::<Vec<u8>>(16);
     let agent = Arc::new(FakeAgent {

@@ -162,8 +162,8 @@ where
     F: Fn(&T) -> Result<R, E> + Sync,
 {
     let sem = Semaphore::new(limit);
-    let results: Vec<Mutex<Option<Result<R, MapError<E>>>>> =
-        (0..items.len()).map(|_| Mutex::new(None)).collect();
+    type MappedSlot<R, E> = Mutex<Option<Result<R, MapError<E>>>>;
+    let results: Vec<MappedSlot<R, E>> = (0..items.len()).map(|_| Mutex::new(None)).collect();
     std::thread::scope(|s| {
         let f = &f;
         for (idx, item) in items.iter().enumerate() {
