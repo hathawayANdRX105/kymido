@@ -278,6 +278,12 @@ pub struct Sink {
     /// `Mutex<String>` (std has no atomic `String` cell); the lock is held
     /// for a single field assignment, never across I/O.
     active_session_id: Arc<Mutex<String>>,
+    /// Run id the engine's current turn belongs to (empty when unbound).
+    /// Refreshed by the dispatch prompt path alongside `set_active_run`, so
+    /// the orbit run thread — which is the only layer that sees a tool call's
+    /// provider id — can attribute the `tool_call` / `tool_result` ledger
+    /// events it records to the run that produced them.
+    active_run_id: Arc<Mutex<String>>,
     /// Next projection generation to commit. Monotonic within a worker —
     /// the store's `commit_projection` compares generations and only
     /// promotes a strictly newer one, so a per-worker counter suffices.
@@ -294,8 +300,65 @@ impl Sink {
             sessions,
             model_name,
             active_session_id: Arc::new(Mutex::new(String::new())),
+            active_run_id: Arc::new(Mutex::new(String::new())),
             next_generation: Mutex::new(0),
         })
+    }
+
+    /// Bind the sink to the run the current turn belongs to.  Sticky like the
+    /// handle's run slot: replaced by the next attributed prompt, cleared by
+    /// an unattributed one (`""`).
+    pub fn set_active_run(&self, run_id: &str) {
+        *self.active_run_id.lock().unwrap_or_else(|e| e.into_inner()) = run_id.to_string();
+    }
+
+    /// Read the current active run id (empty when unbound).
+    pub fn active_run_id(&self) -> String {
+        self.active_run_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Record one canonical event into the C01 ledger from the run thread.
+    /// `tool_call_id` is the provider-issued id carried by the wire event —
+    /// never invented here.  Best-effort: a storage failure is logged, not
+    /// propagated, so bookkeeping cannot break the turn.
+    pub fn record_event(
+        &self,
+        kind: session::ContextEventKind,
+        source_kind: session::SourceKind,
+        role: &str,
+        tool_call_id: Option<&str>,
+        payload: Value,
+        idempotency_key: String,
+    ) {
+        let session_id = self.active_session_id();
+        if session_id.is_empty() {
+            return;
+        }
+        let run_id = {
+            let guard = self.active_run_id.lock().unwrap_or_else(|e| e.into_inner());
+            (!guard.is_empty()).then(|| guard.clone())
+        };
+        let draft = session::ContextEventDraft {
+            event_id: format!("ev:{idempotency_key}"),
+            session_id: session_id.clone(),
+            branch_id: "main".to_string(),
+            epoch: 1,
+            turn_id: run_id.clone(),
+            run_id,
+            event_order: crate::state::next_event_order(),
+            role: role.to_string(),
+            kind,
+            payload,
+            source_kind,
+            tool_call_id: tool_call_id.map(str::to_string),
+            idempotency_key,
+        };
+        if let Err(e) = self.sessions.append_context_event(draft) {
+            eprintln!("daemon: context ledger event write failed for {session_id}: {e}");
+        }
     }
 
     /// Bind the sink to the session the current prompt / resume belongs to.
@@ -786,6 +849,11 @@ impl OrbitEngine {
                         // body so each prompt starts unmarked.
                         let marked = std::cell::Cell::new(false);
                         let fires = std::cell::Cell::new(0u32);
+                        // C01: per-run ordinal for ledger keys; the run thread
+                        // is the only layer that sees a tool call's provider
+                        // id, so tool events are recorded here rather than
+                        // from the (id-less) wire frames the event pump sees.
+                        let tool_seq = std::cell::Cell::new(0u64);
                         agent_loop::orbit::run_agent_streaming(
                             run_backend.as_ref(),
                             &run_model,
@@ -836,6 +904,32 @@ impl OrbitEngine {
                                         if spec.name == "mark_done" {
                                             marked.set(true);
                                         }
+                                        // C01: record the call (and the
+                                        // assistant message carrying it) with
+                                        // the provider id — the only layer
+                                        // that has it.
+                                        if let Some(sink) = persist_sink.as_ref() {
+                                            let n = tool_seq.get() + 1;
+                                            tool_seq.set(n);
+                                            let sid = sink.active_session_id();
+                                            let run = sink.active_run_id();
+                                            sink.record_event(
+                                                session::ContextEventKind::ToolCall,
+                                                session::SourceKind::Tool,
+                                                "tool",
+                                                Some(&spec.id),
+                                                serde_json::json!({ "name": spec.name, "input": spec.args }),
+                                                format!("turn:{sid}:tool_call:{run}:{n}"),
+                                            );
+                                            sink.record_event(
+                                                session::ContextEventKind::Assistant,
+                                                session::SourceKind::Model,
+                                                "assistant",
+                                                Some(&spec.id),
+                                                serde_json::json!({ "text": "", "name": spec.name }),
+                                                format!("turn:{sid}:assistant_call:{run}:{n}"),
+                                            );
+                                        }
                                         WorkerEvent::ToolExecutionStart {
                                             name: spec.name,
                                             input: spec.args,
@@ -847,15 +941,32 @@ impl OrbitEngine {
                                         ))
                                     }
                                     protocol::events::AgentEvent::ToolResult {
+                                        id,
                                         name,
                                         result,
                                         ..
-                                    } => WorkerEvent::ToolExecutionEnd {
-                                        name,
-                                        result: serde_json::from_str(&result)
-                                            .ok()
-                                            .or(Some(serde_json::Value::String(result))),
-                                    },
+                                    } => {
+                                        if let Some(sink) = persist_sink.as_ref() {
+                                            let n = tool_seq.get() + 1;
+                                            tool_seq.set(n);
+                                            let sid = sink.active_session_id();
+                                            let run = sink.active_run_id();
+                                            sink.record_event(
+                                                session::ContextEventKind::ToolResult,
+                                                session::SourceKind::Tool,
+                                                "tool",
+                                                Some(&id),
+                                                serde_json::json!({ "name": name, "result": result }),
+                                                format!("turn:{sid}:tool_result:{run}:{n}"),
+                                            );
+                                        }
+                                        WorkerEvent::ToolExecutionEnd {
+                                            name,
+                                            result: serde_json::from_str(&result)
+                                                .ok()
+                                                .or(Some(serde_json::Value::String(result))),
+                                        }
+                                    }
                                     protocol::events::AgentEvent::TurnEnd { stop_reason } => {
                                         WorkerEvent::AgentEnd {
                                             stop_reason: turn_stop_to_string(&stop_reason),

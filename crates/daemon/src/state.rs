@@ -166,6 +166,21 @@ impl RunLedger {
             .any(|r| r.session_id == session_id && r.finished_at_ms.is_none())
     }
 
+    /// Most recently started run id for `session_id`, finished or not.
+    /// C01 uses it to attribute a post-turn `session.append` (the client
+    /// persists the assistant reply right after the turn ends) to the run it
+    /// answers, so the import and the daemon's canonical `Assistant` event
+    /// share one ledger key instead of double-booking the same reply.
+    pub fn latest_run_id_for_session(&self, session_id: &str) -> Option<String> {
+        let inner = self.inner.lock().expect("run ledger poisoned");
+        inner
+            .runs
+            .iter()
+            .filter(|r| r.session_id == session_id)
+            .max_by_key(|r| r.started_at_ms)
+            .map(|r| r.run_id.clone())
+    }
+
     /// Aggregate the ledger into stats for `range` (see
     /// [`parse_stats_range`]).  `now_ms` is the aggregation reference time;
     /// dispatch passes [`now_ms()`].  Holds the lock only long enough to
@@ -743,6 +758,20 @@ impl SessionState {
         self.inner.closed_tool_groups(session_id, branch_id, epoch)
     }
 
+    /// Append one canonical event to the C01 ledger, idempotently by
+    /// `draft.idempotency_key`.  Returns `(event, inserted)`; `inserted=false`
+    /// means the key was already present and the stored row is returned
+    /// unchanged (the replay path, not an error).  This is the daemon's
+    /// single write seam into `context_events`: the prompt path, the orbit
+    /// event pump and the `session.append` import interface all route
+    /// through it so no caller invents its own SQL or its own key rules.
+    pub fn append_context_event(
+        &self,
+        draft: session::ContextEventDraft,
+    ) -> Result<(ContextEvent, bool), SessionError> {
+        self.inner.append_context_event(draft)
+    }
+
     /// Every ledger event belonging to one run, in `event_order`.
     pub fn context_events_for_run(
         &self,
@@ -837,6 +866,20 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d: std::time::Duration| d.as_millis() as i64)
         .unwrap_or_default()
+}
+
+/// Monotonic `event_order` allocator for the C01 ledger.  Event order is a
+/// per-scope sequence, but a process-wide counter seeded from the wall clock
+/// is enough: it is strictly increasing across every writer in this daemon
+/// (prompt path, event pump, `session.append` import), so two events written
+/// in the same millisecond cannot tie and the resume projection reads them
+/// back in write order.  A signed 64-bit counter seeded at `now_ms()` will
+/// not overflow within any realistic daemon lifetime.
+pub fn next_event_order() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static NEXT: std::sync::LazyLock<AtomicI64> =
+        std::sync::LazyLock::new(|| AtomicI64::new(now_ms()));
+    NEXT.fetch_add(1, Ordering::SeqCst)
 }
 
 /// Helper used by dispatch when a session command was missing a required
