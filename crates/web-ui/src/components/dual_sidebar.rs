@@ -98,7 +98,7 @@ pub fn SessionTreePanel(
                                 IconFolder { size: 16, class: "shrink-0 text-label-3" }
                                 span { class: "text-[14px] leading-5 text-label truncate min-w-0 flex-1", "{space.name}" }
                                 button {
-                                    class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none",
+                                    class: "shrink-0 flex items-center justify-center w-4 h-4 text-label-3 hover:text-label opacity-40 group-hover:opacity-100 transition-opacity cursor-pointer bg-transparent border-none {ANIM_SCOPE}",
                                     title: sh::BTN_NEW_CHAT_IN_SPACE,
                                     onclick: move |e: MouseEvent| {
                                         e.stop_propagation();
