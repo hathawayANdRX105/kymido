@@ -284,7 +284,7 @@ pub fn Chat(
                         div { class: "relative flex items-center",
                             style: "height:16px; width:56px;",
                             "data-anchor": anchor_id,
-                            div { class: "rounded-full bg-subtle cursor-pointer transition-all duration-150 ease-out minimap-bar",
+                            div { class: "rounded-full bg-label cursor-pointer transition-all duration-150 ease-out minimap-bar",
                                 style: "height:4px; width:10px;",
                             }
                             div { class: "absolute left-14 top-1/2 -translate-y-1/2 z-30 w-[230px] max-h-[150px] overflow-hidden rounded-xl border border-binv bg-menu px-3 py-2.5 shadow-lv3 pointer-events-none",
@@ -422,7 +422,7 @@ pub fn Chat(
                                 // aui ghost 按钮对位：32px 圆形 ghost（纯元素，保留 toggle 语义）
                                 button {
                                     r#type: "button",
-                                    class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-label-2 hover:bg-selector transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer border-none bg-transparent",
+                                    class: "flex items-center justify-center w-[32px] h-[32px] rounded-full text-label-2 hover:bg-selector transition-[background-color,color,scale] duration-150 active:scale-[0.96] cursor-pointer ui-anim-scope",
                                     title: sh::BTN_TASK_PANEL,
                                     // 点外关闭（ainotation 波3）：开合钮保持纯 toggle 语义——
                                     // stop_propagation 挡住页面级 click 委托，开→关 / 关→开

@@ -76,9 +76,10 @@
   --color-binv: rgba(255, 255, 255, 0.08);
   --color-mask-1: rgba(0, 0, 0, 0.5);
 
-  /* legacy aliases consumed by client JS (minimap gradient) — keep names */
-  --color-accent: #679efe;
-  --color-subtle: #3c3c3d;
+  /* 注意：不要覆写 ui-kit 的语义 token（--color-accent 等）——kit 的
+     DropdownMenuItem / Button Ghost 等组件的 hover 面就读它，覆写会把 kit
+     组件底色一起改掉（2026-10 批注轮：曾经把它设成品牌蓝，导致 kit 下拉选项
+     与 Ghost 按钮 hover 出蓝底）。需要品牌蓝请用 --color-brand-*。 */
 
   /* elevations */
   --shadow-lv1: 0 1px 4px rgba(0, 0, 0, 0.3);
