@@ -16,6 +16,9 @@ node_modules/
 # generated tailwind input (rewritten by build.rs each compile)
 crates/web/.tailwind.gen-input.css
 bin/web/.tailwind.gen-input.css
+# build.rs 产物在 OUT_DIR/tailwind.gen.css（app.rs include_str! 取该路径）；
+# assets/ 下同名文件只是 dx dev 的重复副本，不入库。
+bin/web/assets/tailwind.gen.css
 
 # Per-session agent control directory (ZCode plans, session logs).
 .zcode/
