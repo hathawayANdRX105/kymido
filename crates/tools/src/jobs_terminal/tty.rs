@@ -520,7 +520,7 @@ fn write_frame(path: &Path, body: &str) -> Result<(), ToolError> {
 /// filesystem accepts.
 #[cfg(debug_assertions)]
 fn screenshot_label(name: Option<&str>) -> String {
-    name.map_or_default(|raw| {
+    name.map_or_else(String::default, |raw| {
         raw.chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
