@@ -1411,14 +1411,6 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     &event.event_id,
                 );
             }
-            // The pump is also required in omp-compatible mode: it owns the
-            // streamed events that produce the assistant UI projection.
-            if let Err(e) = ctx
-                .worker
-                .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
-            {
-                return e;
-            }
 
             if let Err(e) = ctx.worker.ensure_started() {
                 if !run_id.is_empty() {
@@ -1437,6 +1429,14 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     },
                 );
                 record_terminal_event(&ctx.sessions, session_id, run_id, "spawn_failed", "failed");
+                return e;
+            }
+            // The pump owns streamed events for both worker modes so assistant
+            // and tool UI projections do not depend on explicit subscriptions.
+            if let Err(e) = ctx
+                .worker
+                .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
+            {
                 return e;
             }
             // G7-B: declare the run this turn's events belong to before the
