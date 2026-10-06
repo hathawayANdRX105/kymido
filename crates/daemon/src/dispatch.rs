@@ -15,7 +15,10 @@ use std::sync::mpsc::Sender;
 
 use crate::rpc::worker::WorkerEvent;
 use serde_json::{Value, json};
-use session::{SessionMessage, SessionRole, TurnRecord};
+use session::{
+    ContextEvent, ContextEventDraft, ContextEventKind, SessionError, SessionMessage, SessionRole,
+    SourceKind, ToolGroup, TurnRecord,
+};
 
 use crate::protocol::{Command, EventFrame, Request, Response, ResponseError};
 use crate::state::{EventBus, RunLedger, SessionState, require_str, require_u32};
@@ -23,13 +26,23 @@ use crate::state::{EventBus, RunLedger, SessionState, require_str, require_u32};
 /// Topic fed by the `rpc` worker's push event stream (R2 3.3).
 pub const WORKER_TOPIC: &str = "worker";
 
-/// How many persisted messages a resume replays into the worker's live
-/// context on a `worker.prompt` that carries a `session_id` (B2a).  A hard
-/// cap: the tail of a long session can be tens of thousands of rows, and the
-/// orbit context only needs a working window, not the whole history.  50
-/// recent messages is enough to keep the turn coherent without forcing a
-/// respawned engine to swallow an unbounded body.
-const RESUME_CONTEXT_LIMIT: u32 = 50;
+/// How many complete runs a resume replays into the worker's live context
+/// on a `worker.prompt` that carries a `session_id` (C01).  Bounded on the
+/// run count, not the event count: a run is an atomic unit of work and
+/// cutting a run in half would leave a half-paired tool group.  A caller
+/// that wants more history can raise this without touching the projection.
+const RESUME_RUN_WINDOW: u32 = 50;
+
+/// Branch id of the default (non-branching) session history.  The C01 event
+/// ledger requires an explicit scope; the daemon's resume path currently
+/// covers only the default branch — branched histories are a follow-up, and
+/// replaying the wrong branch would silently corrupt the worker's context.
+const DEFAULT_BRANCH: &str = "main";
+
+/// Epoch of the default (non-branching) session history.  Rewind / truncate
+/// advance the history epoch, but the resume path currently covers only the
+/// current default-branch epoch.
+const DEFAULT_EPOCH: i64 = 1;
 
 /// Default `task.list` page size when the client sends no `limit`.  The
 /// kanban board renders one screen; anything past the 50 most recently
@@ -69,6 +82,272 @@ where
         }
         Err(e) => Response::err(id, ResponseError::new("internal", format!("store: {e}"))),
     }
+}
+
+/// Convert one C01 [`ContextEvent`] into a [`SessionMessage`] suitable for
+/// [`WorkerHandle::resume_session`].  Returns `None` for events the orbit
+/// context does not consume (terminal markers, tool-side records — those
+/// travel as `tool_calls` payloads, not separate messages) or when the
+/// event's payload does not decode to a text field.
+///
+/// Never fabricates a success marker: an unpaired tool call keeps
+/// `result: null` so the resumed engine can distinguish interrupted work
+/// from completed work.  The pairing pass (`pair_tool_results`) fills in
+/// the result only for closed groups.
+fn event_to_message(session_id: &str, seq: i64, ev: &ContextEvent) -> Option<SessionMessage> {
+    let (role, text, tool_calls, attachments) = match ev.kind {
+        ContextEventKind::Prompt => {
+            let payload: Value = serde_json::from_str(&ev.payload_json).ok()?;
+            let text = payload.get("text").and_then(Value::as_str)?.to_string();
+            let attachments = payload
+                .get("attachments")
+                .and_then(|value| serde_json::from_value(value.clone()).ok())
+                .unwrap_or_default();
+            (SessionRole::User, text, Vec::new(), attachments)
+        }
+        ContextEventKind::Assistant => {
+            let payload: Value = serde_json::from_str(&ev.payload_json).unwrap_or(Value::Null);
+            let body = payload
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let tool_calls = ev.tool_call_id.as_deref().map(|id| {
+                vec![json!({
+                    "id": id,
+                    "name": payload.get("name").and_then(Value::as_str).unwrap_or_default(),
+                    "result": Value::Null,
+                })]
+            });
+            let tool_calls = tool_calls.unwrap_or_default();
+            if body.is_empty() && tool_calls.is_empty() {
+                return None;
+            }
+            (SessionRole::Assistant, body, tool_calls, Vec::new())
+        }
+        _ => return None,
+    };
+    Some(SessionMessage {
+        session_id: session_id.to_string(),
+        seq,
+        role,
+        text,
+        created_at_ms: ev.created_at,
+        attachments,
+        tool_calls,
+    })
+}
+
+/// Pair each assistant message's `tool_calls` entry with its closed result
+/// if a [`ToolGroup`] was found for its `tool_call_id`.  Unmatched calls
+/// keep `result: null` — that is the honest interruption marker.
+fn pair_tool_results(
+    msg: SessionMessage,
+    results: &std::collections::HashMap<String, Value>,
+) -> SessionMessage {
+    if msg.role != SessionRole::Assistant || msg.tool_calls.is_empty() {
+        return msg;
+    }
+    let tool_calls = msg
+        .tool_calls
+        .into_iter()
+        .map(|tc| {
+            let id = tc
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let mut v = tc;
+            if !id.is_empty() {
+                if let Some(r) = results.get(&id) {
+                    v["result"] = r.clone();
+                }
+            }
+            v
+        })
+        .collect();
+    SessionMessage { tool_calls, ..msg }
+}
+
+/// Idempotency key for one canonical turn event, derived from the turn
+/// identity `(session, role, run)` — never from message text, so two
+/// different turns that happen to say the same thing stay two events while a
+/// replay of one turn collapses onto one row.
+fn turn_event_key(session_id: &str, role: &str, run_id: &str) -> String {
+    format!("turn:{session_id}:{role}:{run_id}")
+}
+
+/// The caller-supplied half of one ledger event. Everything the writer fills
+/// in for itself (`event_id`, `branch_id`, `epoch`, `turn_id`, `event_order`)
+/// stays in [`record_context_event`] so those derivations cannot drift apart
+/// between call sites.
+struct LedgerEvent<'a> {
+    session_id: &'a str,
+    run_id: Option<&'a str>,
+    kind: ContextEventKind,
+    source_kind: SourceKind,
+    role: &'a str,
+    payload: Value,
+    tool_call_id: Option<&'a str>,
+    idempotency_key: String,
+}
+
+/// Write one canonical event into the C01 ledger. Returns the stored event and
+/// whether this call inserted it (`false` means an idempotent replay).
+fn record_context_event(
+    sessions: &SessionState,
+    event: LedgerEvent<'_>,
+) -> Option<(ContextEvent, bool)> {
+    if event.session_id.is_empty() {
+        return None;
+    }
+    let draft = ContextEventDraft {
+        event_id: format!("ev:{}", event.idempotency_key),
+        session_id: event.session_id.to_string(),
+        branch_id: DEFAULT_BRANCH.to_string(),
+        epoch: DEFAULT_EPOCH,
+        turn_id: event.run_id.map(str::to_string),
+        run_id: event.run_id.map(str::to_string),
+        event_order: crate::state::next_event_order(),
+        role: event.role.to_string(),
+        kind: event.kind,
+        payload: event.payload,
+        source_kind: event.source_kind,
+        tool_call_id: event.tool_call_id.map(str::to_string),
+        idempotency_key: event.idempotency_key,
+    };
+    match sessions.append_context_event(draft) {
+        Ok(result) => Some(result),
+        Err(e) => {
+            eprintln!("daemon: context ledger write failed: {e}");
+            None
+        }
+    }
+}
+
+/// Append one UI transcript projection after its canonical event is durable.
+/// The UI table remains a read projection; the event id makes replays safe.
+fn append_ui_message(
+    sessions: &SessionState,
+    session_id: &str,
+    role: SessionRole,
+    text: &str,
+    attachments: &[session::Attachment],
+    tool_calls: &[Value],
+    source_event_id: &str,
+) -> Option<i64> {
+    if text.is_empty() {
+        return None;
+    }
+    match sessions.append_message_for_event(
+        session_id,
+        role,
+        text,
+        attachments,
+        tool_calls,
+        source_event_id,
+    ) {
+        Ok((seq, _created_at)) => Some(seq),
+        Err(e) => {
+            eprintln!("daemon: UI transcript projection failed for {session_id}: {e}");
+            None
+        }
+    }
+}
+
+/// Add the daemon-assigned UI projection sequence to a prompt acknowledgement.
+/// Older callers ignore this optional field; TUI retry/edit consumes it.
+fn with_message_seq(mut value: Value, message_seq: Option<i64>) -> Value {
+    if let Some(seq) = message_seq
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("message_seq".to_string(), json!(seq));
+    }
+    value
+}
+
+/// Map a [`SessionRole`] to the canonical ledger `role` string.
+fn ledger_role(role: SessionRole) -> &'static str {
+    match role {
+        SessionRole::User => "user",
+        SessionRole::Assistant => "assistant",
+        SessionRole::System => "system",
+        SessionRole::Tool => "tool",
+    }
+}
+
+/// Build a resume context by walking complete runs + closed tool groups
+/// (C01).  Replaces the old "last 50 raw messages" tail slice with a
+/// run-bounded projection that keeps `tool_call_id` pairs intact.
+///
+/// Missing results are *not* synthesized: a tool call whose result is not
+/// yet in the ledger stays in the assistant message's `tool_calls` array
+/// with `result: null`, so a resumed engine can tell interrupted work
+/// from completed work.  This is the honest projection — inventing a
+/// success would poison the next LLM turn.
+///
+/// Scope: the default branch (`main`) at epoch 1.  Branched histories and
+/// rewound epochs are not covered by the current resume path — the caller
+/// (`worker.prompt` with a session id) targets one canonical history.
+///
+/// Besides the complete runs, events that belong to no run are replayed too
+/// (bounded by [`session::MAX_LIMIT`]): an explicit `session.append` import
+/// or a row written before the session ever ran is canonical history, but it
+/// carries no `run_id`, so the run walk alone would silently drop it.  A run
+/// still in flight is *not* replayed — only its `turn_end`/`abort` moves it
+/// into `recent_complete_runs`, which is exactly the boundary that keeps the
+/// just-arrived prompt out of its own resume context.
+fn build_resume_context(
+    sessions: &SessionState,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, SessionError> {
+    let runs = sessions.recent_complete_runs(session_id, RESUME_RUN_WINDOW)?;
+    let branch_id = DEFAULT_BRANCH;
+    let epoch = DEFAULT_EPOCH;
+
+    // Closed call/result pairs, keyed by tool_call_id for O(1) lookup
+    // while walking the run events below.  Only closed groups are
+    // returned by the store — unpaired results never enter this map, so
+    // they cannot leak into a paired call's result field.
+    let groups: Vec<ToolGroup> = sessions.closed_tool_groups(session_id, branch_id, epoch)?;
+    let mut result_by_call_id: std::collections::HashMap<String, Value> =
+        std::collections::HashMap::new();
+    for g in groups {
+        result_by_call_id.insert(g.tool_call_id, Value::String(g.result.payload_json.clone()));
+    }
+
+    // Gather every event the projection covers: all events of the complete
+    // runs, plus the run-less imported/legacy rows, then read them back in
+    // write order so the resumed context is chronological.
+    let mut events: Vec<ContextEvent> = Vec::new();
+    for run_id in runs.iter() {
+        events.extend(sessions.context_events_for_run(session_id, branch_id, epoch, run_id)?);
+    }
+    let imported = sessions.context_events_in_range(
+        session_id,
+        branch_id,
+        epoch,
+        i64::MIN,
+        i64::MAX,
+        session::MAX_LIMIT,
+    )?;
+    events.extend(imported.into_iter().filter(|e| e.run_id.is_none()));
+    events.sort_by(|a, b| {
+        a.event_order
+            .cmp(&b.event_order)
+            .then_with(|| a.event_id.cmp(&b.event_id))
+    });
+
+    let mut msgs = Vec::new();
+    let mut seq = 0i64;
+    for ev in &events {
+        if let Some(mut m) = event_to_message(session_id, seq, ev) {
+            m = pair_tool_results(m, &result_by_call_id);
+            seq += 1;
+            msgs.push(m);
+        }
+    }
+    Ok(msgs)
 }
 
 /// One worker behind a session key in the [`crate::registry::SessionRegistry`]
@@ -125,12 +404,25 @@ impl WorkerHandle {
     /// unattributed turn.
     pub fn set_active_run(&self, run_id: &str) {
         self.exec.set_running(run_id);
+        // C01: mirror the run slot into the persistence sink so the orbit run
+        // thread can attribute the tool events it records to this run.  An
+        // empty run id clears the sink's binding.
+        if let Some(setup) = self.orbit_setup.as_ref()
+            && let Some(sink) = setup.persistence_sink.as_ref()
+        {
+            sink.set_active_run(run_id);
+        }
     }
 
     /// Forget any active run (worker reset: a respawned worker owes the
     /// previous run nothing).
     pub fn clear_active_run(&self) {
         self.exec.idle();
+        if let Some(setup) = self.orbit_setup.as_ref()
+            && let Some(sink) = setup.persistence_sink.as_ref()
+        {
+            sink.set_active_run("");
+        }
     }
 
     /// S3/S5: whether a run (or a parked review) is in flight on this
@@ -275,23 +567,14 @@ impl WorkerHandle {
         let session_id = self.session_id.clone();
         active.store(true, Ordering::SeqCst);
         std::thread::spawn(move || {
-            // Ends when the worker dies (rpc pump clears its subscriber
-            // table).  Events with no subscribers are dropped by broadcast.
+            let mut assistant_text = String::new();
+            let mut tool_cards: Vec<Value> = Vec::new();
+            let mut tool_seq = 0u64;
             while let Ok(event) = rx.recv() {
                 let Ok(payload) = serde_json::to_value(&event) else {
                     continue;
                 };
                 let mut frame = EventFrame::new(WORKER_TOPIC, payload);
-                // G7-B: attribute the frame to the run the in-flight prompt
-                // declared, so subscribers route it to the owning run.
-                // Read-only here; a prompt on another connection may be
-                // setting the slot concurrently (the server serializes
-                // prompts by the worker mutex, but the pump keeps draining
-                // this run's events after that prompt returned).
-                //
-                // The run is snapshotted once and reused below: the finish
-                // must close exactly the run this frame was attributed to,
-                // not whatever a concurrent prompt left in the slot later.
                 let attributed = exec.running_run_id();
                 if let Some(run) = attributed.as_deref() {
                     frame = frame.with_run_id(run);
@@ -299,19 +582,80 @@ impl WorkerHandle {
                 if !session_id.is_empty() {
                     frame = frame.with_session_id(&session_id);
                 }
-                // G8: an orbit turn's terminal event is AgentEnd on this
-                // stream, not the prompt's ack. Close the ledger run and the
-                // turn log here, before the frame goes out, so a subscriber
-                // reading the end frame sees a run that is already closed.
-                // Then release the sticky slot (compare-and-set — see
-                // [`try_clear_active_run`]) so later unattributed events do
-                // not keep stamping a run that already ended.
-                if is_orbit
-                    && let WorkerEvent::AgentEnd { stop_reason } = &event
+                if attributed.is_some() {
+                    match &event {
+                        WorkerEvent::Message { text } => assistant_text.push_str(text),
+                        WorkerEvent::ToolExecutionStart { name, input } => {
+                            tool_seq += 1;
+                            let id = format!("{name}-{tool_seq}");
+                            tool_cards.push(json!({
+                                "id": id,
+                                "title": name,
+                                "kind": "tool",
+                                "summary": "正在执行...",
+                                "detail": serde_json::to_string_pretty(input).unwrap_or_default(),
+                                "status": "running",
+                            }));
+                        }
+                        WorkerEvent::ToolExecutionEnd { name, result } => {
+                            let result_text = result
+                                .as_ref()
+                                .map(|value| {
+                                    serde_json::to_string_pretty(value).unwrap_or_default()
+                                })
+                                .unwrap_or_default();
+                            let failed =
+                                result_text.starts_with("error") || result_text.contains("[exit ");
+                            if let Some(card) = tool_cards.iter_mut().rev().find(|card| {
+                                card.get("title").and_then(Value::as_str) == Some(name)
+                            }) {
+                                card["summary"] = json!(if failed {
+                                    "执行失败"
+                                } else {
+                                    "执行完成"
+                                });
+                                card["status"] = json!(if failed { "error" } else { "success" });
+                                card["detail"] = json!(result_text);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if let WorkerEvent::AgentEnd { stop_reason } = &event
                     && let Some(run) = attributed.as_deref()
                 {
-                    let user_paused = user_abort.load(std::sync::atomic::Ordering::SeqCst);
-                    close_run_on_agent_end(&runs, &sessions, run, stop_reason, user_paused);
+                    if !assistant_text.is_empty()
+                        && let Some((assistant_event, _)) = record_context_event(
+                            &sessions,
+                            LedgerEvent {
+                                session_id: &session_id,
+                                run_id: Some(run),
+                                kind: ContextEventKind::Assistant,
+                                source_kind: SourceKind::Model,
+                                role: "assistant",
+                                payload: json!({ "text": assistant_text }),
+                                tool_call_id: None,
+                                idempotency_key: turn_event_key(&session_id, "assistant", run),
+                            },
+                        )
+                    {
+                        let _ = append_ui_message(
+                            &sessions,
+                            &session_id,
+                            SessionRole::Assistant,
+                            &assistant_text,
+                            &[],
+                            &tool_cards,
+                            &assistant_event.event_id,
+                        );
+                    }
+                    assistant_text.clear();
+                    tool_cards.clear();
+                    tool_seq = 0;
+                    if is_orbit {
+                        let user_paused = user_abort.load(std::sync::atomic::Ordering::SeqCst);
+                        close_run_on_agent_end(&runs, &sessions, run, stop_reason, user_paused);
+                    }
                     exec.try_clear_run(run);
                 }
                 let Ok(line) = serde_json::to_string(&frame) else {
@@ -324,8 +668,6 @@ impl WorkerHandle {
         Ok(())
     }
 }
-
-/// Finish a run and append its `TurnEnd` when the orbit engine signals the
 /// end of the turn (G8).  Idempotent: a run already closed (a repeated
 /// `AgentEnd` for the same turn) is left alone, so the turn log keeps exactly
 /// one `TurnEnd` per `TurnStart` — that start/end balance is exactly what
@@ -367,6 +709,11 @@ fn close_run_on_agent_end(
             status: status.into(),
         },
     );
+    // C01: the run's terminal ledger event.  `recent_complete_runs` keys on
+    // `turn_end`/`abort`, so this row is what makes the run replayable; it
+    // MUST carry the run id.  An abort is booked as `Abort`, everything else
+    // as `TurnEnd` — one terminal event per run, never both.
+    record_terminal_event(sessions, &record.session_id, run_id, stop_reason, status);
 }
 
 /// Per-connection dispatch context.  Carries the shared state + the worker
@@ -667,11 +1014,57 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                 Ok(t) => t,
                 Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
             };
+            let run_id = req
+                .params
+                .get("run_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             match ctx
                 .sessions
                 .append_message(sid, role, text, &attachments, &tool_calls)
             {
-                Ok((seq, ts)) => Response::ok(id, json!({ "seq": seq, "created_at_ms": ts })),
+                Ok((seq, ts)) => {
+                    // `session.append` is the explicit history-import path.
+                    // It still populates the legacy UI read model, but its
+                    // ledger source is always Import so a client cannot claim
+                    // ownership of a daemon-controlled current run.
+                    let (kind, source_kind) = match role {
+                        SessionRole::User => (ContextEventKind::Prompt, SourceKind::Import),
+                        SessionRole::Assistant => (ContextEventKind::Assistant, SourceKind::Import),
+                        SessionRole::System | SessionRole::Tool => {
+                            (ContextEventKind::Imported, SourceKind::Import)
+                        }
+                    };
+                    let role_str = ledger_role(role);
+                    let attributed_run: Option<String> = if !run_id.is_empty() {
+                        Some(run_id.to_string())
+                    } else if role == SessionRole::Assistant {
+                        ctx.runs.latest_run_id_for_session(sid)
+                    } else {
+                        None
+                    };
+                    let key = match attributed_run.as_deref() {
+                        Some(run) if !run_id.is_empty() => turn_event_key(sid, role_str, run),
+                        Some(run) if role == SessionRole::Assistant => {
+                            turn_event_key(sid, "assistant", run)
+                        }
+                        _ => format!("import:{sid}:{role_str}:{seq}"),
+                    };
+                    record_context_event(
+                        &ctx.sessions,
+                        LedgerEvent {
+                            session_id: sid,
+                            run_id: attributed_run.as_deref(),
+                            kind,
+                            source_kind,
+                            role: role_str,
+                            payload: json!({ "text": text }),
+                            tool_call_id: None,
+                            idempotency_key: key,
+                        },
+                    );
+                    Response::ok(id, json!({ "seq": seq, "created_at_ms": ts }))
+                }
                 Err(e) => session_error_response(id, "session.append", e),
             }
         }
@@ -984,19 +1377,39 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     ts_ms: started,
                 },
             );
-            // G8: in orbit mode the run's AgentEnd is consumed by the event
-            // pump, which was previously started lazily on the first
-            // `event.subscribe`. A client that prompts without subscribing
-            // would leave every run half-open forever — the exact state
-            // this change exists to eliminate. Start the pump before the
-            // prompt goes out so the close path is wired regardless of
-            // subscriptions. Idempotent (`pump_active` guards the spawn).
-            if ctx.worker.is_orbit()
-                && let Err(e) = ctx
-                    .worker
-                    .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
+            let attachments = match crate::state::optional_attachments(&req.params) {
+                Ok(a) => a,
+                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
+            };
+            // C01: the daemon owns both the canonical prompt event and the
+            // legacy UI transcript projection.  `messages` remains a read
+            // model for existing clients; it is no longer a current-run
+            // write path owned by TUI/web-ui.
+            let mut message_seq = None;
+            if !run_id.is_empty()
+                && let Some((event, _inserted)) = record_context_event(
+                    &ctx.sessions,
+                    LedgerEvent {
+                        session_id,
+                        run_id: Some(run_id),
+                        kind: ContextEventKind::Prompt,
+                        source_kind: SourceKind::User,
+                        role: "user",
+                        payload: json!({ "text": msg, "attachments": attachments }),
+                        tool_call_id: None,
+                        idempotency_key: turn_event_key(session_id, "user", run_id),
+                    },
+                )
             {
-                return e;
+                message_seq = append_ui_message(
+                    &ctx.sessions,
+                    session_id,
+                    SessionRole::User,
+                    msg,
+                    &attachments,
+                    &[],
+                    &event.event_id,
+                );
             }
 
             if let Err(e) = ctx.worker.ensure_started() {
@@ -1015,21 +1428,36 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                         status: "failed".into(),
                     },
                 );
+                record_terminal_event(&ctx.sessions, session_id, run_id, "spawn_failed", "failed");
+                return e;
+            }
+            // The pump owns streamed events for both worker modes so assistant
+            // and tool UI projections do not depend on explicit subscriptions.
+            if let Err(e) = ctx
+                .worker
+                .ensure_event_pump(&ctx.events, &ctx.sessions, &ctx.runs)
+            {
                 return e;
             }
             // G7-B: declare the run this turn's events belong to before the
             // prompt goes out.  The pump stamps it on every frame it pushes
             // while the slot holds it (sticky — see `set_active_run`).
             ctx.worker.set_active_run(run_id);
-            // B2a resume: replay the session's persisted history into the
-            // worker's live context before the prompt so a restarted daemon
-            // (or a respawned engine) does not start from a blank slate.
-            // Best-effort — a load or replay failure must not block the
-            // prompt (the turn still runs, it just misses the history).
-            // In orbit mode the engine dedupes per session id, so calling
-            // this on every prompt is safe; in omp mode it is `Ok(0)`.
+            // B2a / C01 resume: replay the session's persisted history
+            // into the worker's live context before the prompt so a
+            // restarted daemon (or a respawned engine) does not start
+            // from a blank slate.  Best-effort — a load or replay failure
+            // must not block the prompt (the turn still runs, it just
+            // misses the history).  In orbit mode the engine dedupes per
+            // session id, so calling this on every prompt is safe; in
+            // omp mode it is `Ok(0)`.
+            //
+            // C01: context is rebuilt by walking complete runs and
+            // pairing closed tool groups, so `tool_call_id` pairs stay
+            // intact and missing results are surfaced as interruptions
+            // (never fabricated as successes).  See `build_resume_context`.
             if !session_id.is_empty() {
-                match ctx.sessions.load_messages(session_id, RESUME_CONTEXT_LIMIT) {
+                match build_resume_context(&ctx.sessions, session_id) {
                     Ok(msgs) => {
                         if let Err(e) = ctx.worker.resume_session(session_id, &msgs) {
                             eprintln!(
@@ -1039,15 +1467,11 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                     }
                     Err(e) => {
                         eprintln!(
-                            "daemon: could not load session {session_id} for resume (continuing without history): {e}"
+                            "daemon: could not rebuild session {session_id} context for resume (continuing without history): {e}"
                         );
                     }
                 }
             }
-            let attachments = match crate::state::optional_attachments(&req.params) {
-                Ok(a) => a,
-                Err(m) => return Response::err(id, ResponseError::new("protocol", m)),
-            };
             let w = ctx.worker.inner.as_mut().expect("ensured");
             let resp = w.prompt(msg, &attachments);
             let finished = crate::state::now_ms();
@@ -1065,7 +1489,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                         // `interrupted_run_closers` exists to repair could
                         // never appear in a live log.  Just ack the client;
                         // `ensure_event_pump` owns the close.
-                        return Response::ok(id, v.clone());
+                        return Response::ok(id, with_message_seq(v.clone(), message_seq));
                     }
                     // omp-compat: `prompt` blocks for the whole turn, so its
                     // return *is* the terminal state — close synchronously.
@@ -1084,7 +1508,8 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                             status: "ok".into(),
                         },
                     );
-                    Response::ok(id, v.clone())
+                    record_terminal_event(&ctx.sessions, session_id, run_id, "ok", "ok");
+                    Response::ok(id, with_message_seq(v.clone(), message_seq))
                 }
                 Err(e) => {
                     // The message never reached the engine (orbit: run
@@ -1106,6 +1531,7 @@ pub fn dispatch(ctx: &mut DispatchCtx<'_>, req: Request) -> Response {
                             status: "failed".into(),
                         },
                     );
+                    record_terminal_event(&ctx.sessions, session_id, run_id, "error", "failed");
                     Response::err(
                         id,
                         ResponseError::new("worker_prompt_failed", e.to_string()),
@@ -1241,6 +1667,42 @@ fn record_turn(sessions: &SessionState, session_id: &str, run_id: &str, record: 
     }
 }
 
+/// Append the run's terminal C01 ledger event at a synchronous close (the
+/// omp-compat prompt path, where the blocking prompt's return *is* the turn
+/// end, and the spawn-failed path).  Mirrors [`close_run_on_agent_end`],
+/// which owns the same write for orbit runs; both key on `turn_end` so
+/// `recent_complete_runs` sees exactly one terminal row per run.  An aborted
+/// stop is booked as `Abort`, everything else as `TurnEnd`.
+fn record_terminal_event(
+    sessions: &SessionState,
+    session_id: &str,
+    run_id: &str,
+    stop_reason: &str,
+    status: &str,
+) {
+    if session_id.is_empty() || run_id.is_empty() {
+        return;
+    }
+    let (kind, key_role) = if stop_reason == "aborted" {
+        (ContextEventKind::Abort, "abort")
+    } else {
+        (ContextEventKind::TurnEnd, "end")
+    };
+    record_context_event(
+        sessions,
+        LedgerEvent {
+            session_id,
+            run_id: Some(run_id),
+            kind,
+            source_kind: SourceKind::System,
+            role: "system",
+            payload: json!({ "status": status, "stop_reason": stop_reason }),
+            tool_call_id: None,
+            idempotency_key: format!("turn:{session_id}:{key_role}:{run_id}"),
+        },
+    );
+}
+
 fn session_error_response(
     id: Option<&str>,
     command: &'static str,
@@ -1260,6 +1722,7 @@ fn session_error_response(
         | SessionError::Io(_)
         | SessionError::RuntimeBuild(_)
         | SessionError::Archive(_) => "session_io",
+        SessionError::Context(_) => "context_error",
     };
     Response::err(id, ResponseError::new(code, format!("{command}: {e}")))
 }

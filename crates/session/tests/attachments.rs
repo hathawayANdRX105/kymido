@@ -87,6 +87,42 @@ fn message_without_attachments_reads_back_empty() {
 }
 
 #[test]
+fn daemon_projection_source_event_is_idempotent() {
+    let dir = tempdir().expect("temp dir");
+    let db = SessionDb::open(dir.path().join("sessions.db")).expect("open db");
+
+    let first = db
+        .append_message_for_event(
+            "projection-1",
+            SessionRole::User,
+            "同一轮",
+            &[],
+            &[],
+            Some("ev:turn:projection-1:user:r-1"),
+        )
+        .expect("first projection");
+    let replay = db
+        .append_message_for_event(
+            "projection-1",
+            SessionRole::User,
+            "同一轮",
+            &[],
+            &[],
+            Some("ev:turn:projection-1:user:r-1"),
+        )
+        .expect("replayed projection");
+
+    assert_eq!(replay, first, "replaying an event returns its existing seq");
+    assert_eq!(
+        db.load_messages("projection-1", 10)
+            .expect("load projected messages")
+            .len(),
+        1,
+        "one canonical event yields one UI projection"
+    );
+}
+
+#[test]
 fn corrupted_attachments_column_degrades_to_empty() {
     let dir = tempdir().expect("temp dir");
     let db = SessionDb::open(dir.path().join("sessions.db")).expect("open db");

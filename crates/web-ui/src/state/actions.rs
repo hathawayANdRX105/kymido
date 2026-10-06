@@ -425,7 +425,6 @@ pub fn send_message(
                 if let Err(e) = ensured {
                     eprintln!("[web] session ensure failed: {e}");
                 }
-                let _ = d.append_message(&sid_daemon, true, &text_daemon, &attachments_daemon, &[]);
                 if let Some(title) = title_for_daemon {
                     let persisted = retry_update(|| d.update_session_title(&sid_daemon, &title));
                     if let Err(e) = &persisted {

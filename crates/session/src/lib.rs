@@ -100,6 +100,12 @@ pub enum SessionError {
     /// partially restored.
     #[error("archive error: {0}")]
     Archive(String),
+
+    /// A C01 durable-context operation was rejected: a malformed reference, a
+    /// scope mismatch, an idempotency/id collision, or a failed integrity
+    /// check. The string names the specific violation.
+    #[error("context error: {0}")]
+    Context(String),
 }
 
 impl SessionError {
@@ -239,6 +245,10 @@ mod archive;
 pub use archive::*;
 mod turn_log;
 pub use turn_log::*;
+mod context_events;
+pub use context_events::*;
+mod context_projection;
+pub use context_projection::*;
 // -----------------------------------------------------------------------------
 // SessionDb
 // -----------------------------------------------------------------------------
@@ -255,10 +265,19 @@ pub struct SessionDb {
     inner: Arc<Inner>,
 }
 
-struct Inner {
-    path: PathBuf,
-    runtime: tokio::runtime::Runtime,
-    conn: Mutex<Connection>,
+pub(crate) struct Inner {
+    pub(crate) path: PathBuf,
+    pub(crate) runtime: tokio::runtime::Runtime,
+    pub(crate) conn: Mutex<Connection>,
+}
+
+impl SessionDb {
+    /// Borrow the shared inner state. `pub(crate)` so the C01 context modules
+    /// (siblings of this one) can run on the same connection/runtime instead
+    /// of opening a second one.
+    pub(crate) fn inner(&self) -> &Inner {
+        &self.inner
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -348,6 +367,7 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             created_at INTEGER NOT NULL,
             attachments TEXT,
             tool_calls TEXT,
+            source_event_id TEXT,
             PRIMARY KEY (session_id, seq),
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
          );
@@ -361,6 +381,7 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             created_at INTEGER NOT NULL,
             attachments TEXT,
             tool_calls TEXT,
+            source_event_id TEXT,
             identity TEXT NOT NULL,
             snapshotted_at INTEGER NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -369,6 +390,10 @@ async fn apply_schema(conn: &Connection) -> Result<(), SessionError> {
             ON message_snapshots(session_id);";
     run_with_lock_retry(|| async {
         conn.execute_batch(sql).await?;
+        conn.execute_batch(context_events::CONTEXT_EVENTS_SCHEMA)
+            .await?;
+        conn.execute_batch(context_projection::CONTEXT_PROJECTION_SCHEMA)
+            .await?;
         Ok(())
     })
     .await
@@ -523,6 +548,42 @@ async fn apply_tool_calls_column(conn: &Connection) -> Result<(), SessionError> 
     }
     Ok(())
 }
+/// Add the canonical event identity used to make UI projections idempotent.
+/// Legacy rows remain NULL; only daemon-owned current-run projections fill it.
+async fn apply_message_source_event_column(conn: &Connection) -> Result<(), SessionError> {
+    for table in ["messages", "message_snapshots"] {
+        let mut rows = conn
+            .query(&format!("PRAGMA table_info({table})"), ())
+            .await?;
+        let mut has_column = false;
+        while let Some(row) = rows.next().await? {
+            if row.get_str(1).is_ok_and(|name| name == "source_event_id") {
+                has_column = true;
+            }
+        }
+        drop(rows);
+        if has_column {
+            continue;
+        }
+        run_with_lock_retry(|| async {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN source_event_id TEXT;"
+            ))
+            .await?;
+            Ok(())
+        })
+        .await?;
+    }
+    run_with_lock_retry(|| async {
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_source_event \
+             ON messages(session_id, source_event_id) WHERE source_event_id IS NOT NULL;",
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+}
 
 async fn apply_pragmas(conn: &Connection) -> Result<(), SessionError> {
     conn.execute_batch("PRAGMA synchronous = NORMAL;").await?;
@@ -568,6 +629,7 @@ async fn init_database(conn: &Connection) -> Result<(), SessionError> {
     apply_messages_attachments_column(conn).await?;
     apply_last_access_column(conn).await?;
     apply_tool_calls_column(conn).await?;
+    apply_message_source_event_column(conn).await?;
     Ok(())
 }
 
@@ -1280,17 +1342,11 @@ fn parse_tool_calls(raw: Option<&str>) -> Vec<serde_json::Value> {
 }
 
 impl SessionDb {
-    /// Append a message to a session inside an `Immediate` transaction.
-    /// Returns the assigned `seq` (1-based, monotonic per session) and the
-    /// row's `created_at_ms`.
+    /// Append a message to the UI transcript.
     ///
-    /// Creates the session row if it does not yet exist (caller may have
-    /// forgotten to `ensure_session` first; the id doubles as the fallback
-    /// title).
-    ///
-    /// `attachments` are stored in the nullable `messages.attachments`
-    /// column as a JSON array; an empty slice binds `NULL` so a legacy
-    /// reader sees no attachments.
+    /// This is the legacy/import path and does not attach a canonical event
+    /// identity. Daemon-owned current-run projections use
+    /// [`Self::append_message_for_event`] instead.
     pub fn append_message(
         &self,
         session_id: &str,
@@ -1299,28 +1355,38 @@ impl SessionDb {
         attachments: &[Attachment],
         tool_calls: &[serde_json::Value],
     ) -> Result<(i64, i64), SessionError> {
+        self.append_message_for_event(session_id, role, text, attachments, tool_calls, None)
+    }
+
+    /// Append one UI transcript projection identified by its canonical event.
+    ///
+    /// Replaying the same `(session_id, source_event_id)` returns the existing
+    /// row instead of allocating a second sequence number. `None` preserves
+    /// the explicit historical-import behavior of [`Self::append_message`].
+    pub fn append_message_for_event(
+        &self,
+        session_id: &str,
+        role: SessionRole,
+        text: &str,
+        attachments: &[Attachment],
+        tool_calls: &[serde_json::Value],
+        source_event_id: Option<&str>,
+    ) -> Result<(i64, i64), SessionError> {
         SessionError::invalid_id_if_blank(session_id)?;
         if text.is_empty() {
             return Err(SessionError::InvalidMessageText);
         }
         let id_owned = session_id.to_string();
         let text_owned = text.to_string();
-        let attachments_json: Option<String> = if attachments.is_empty() {
-            None
-        } else {
-            Some(
-                serde_json::to_string(attachments)
-                    .expect("Attachment holds plain strings; serialization cannot fail"),
-            )
-        };
-        let tool_calls_json: Option<String> = if tool_calls.is_empty() {
-            None
-        } else {
-            Some(
-                serde_json::to_string(tool_calls)
-                    .expect("tool calls are pre-parsed JSON values; serialization cannot fail"),
-            )
-        };
+        let source_event_owned = source_event_id.map(str::to_string);
+        let attachments_json = (!attachments.is_empty()).then(|| {
+            serde_json::to_string(attachments)
+                .expect("Attachment holds plain strings; serialization cannot fail")
+        });
+        let tool_calls_json = (!tool_calls.is_empty()).then(|| {
+            serde_json::to_string(tool_calls)
+                .expect("tool calls are pre-parsed JSON values; serialization cannot fail")
+        });
 
         let guard = self.inner.conn.lock();
         self.inner.runtime.block_on(async move {
@@ -1330,17 +1396,26 @@ impl SessionDb {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .await?;
 
-            // Make sure the session row exists. We never overwrite an
-            // existing title — that would clobber user-set data inside the
-            // same transaction.
+            if let Some(source_event_id) = source_event_owned.as_deref() {
+                let mut existing = tx
+                    .query(
+                        "SELECT seq, created_at FROM messages \
+                         WHERE session_id = ?1 AND source_event_id = ?2",
+                        libsql::params![id_owned.as_str(), source_event_id],
+                    )
+                    .await?;
+                if let Some(row) = existing.next().await? {
+                    return Ok((row.get(0)?, row.get(1)?));
+                }
+            }
+
             let mut title_row = tx
                 .query(
                     "SELECT title FROM sessions WHERE id = ?1",
                     libsql::params![id_owned.as_str()],
                 )
                 .await?;
-            let have_session = title_row.next().await?.is_some();
-            if !have_session {
+            if title_row.next().await?.is_none() {
                 tx.execute(
                     "INSERT INTO sessions (id, title, created_at, updated_at) \
                      VALUES (?1, ?1, ?2, ?2)",
@@ -1349,14 +1424,13 @@ impl SessionDb {
                 .await?;
             }
 
-            // MAX(seq) + 1, atomically inside the tx.
             let mut seq_row = tx
                 .query(
                     "SELECT COALESCE(MAX(seq), 0) FROM messages WHERE session_id = ?1",
                     libsql::params![id_owned.as_str()],
                 )
                 .await?;
-            let next_seq: i64 = seq_row
+            let next_seq = seq_row
                 .next()
                 .await?
                 .map(|r| r.get::<i64>(0).unwrap_or(0))
@@ -1365,8 +1439,8 @@ impl SessionDb {
 
             tx.execute(
                 "INSERT INTO messages \
-                 (session_id, seq, role, text, created_at, attachments, tool_calls) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (session_id, seq, role, text, created_at, attachments, tool_calls, source_event_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 libsql::params![
                     id_owned.as_str(),
                     next_seq,
@@ -1375,19 +1449,15 @@ impl SessionDb {
                     now,
                     attachments_json,
                     tool_calls_json,
+                    source_event_owned,
                 ],
             )
             .await?;
-
-            // Bump session.updated_at so it surfaces to the top of list.
             tx.execute(
                 "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
                 libsql::params![now, id_owned.as_str()],
             )
             .await?;
-
-            // commit() consumes `tx`; on any error along the way, the
-            // libsql Drop impl rolls back, so the tx is never left open.
             tx.commit().await?;
             Ok((next_seq, now))
         })
@@ -1449,8 +1519,8 @@ impl SessionDb {
             let snapshotted = tx
                 .execute(
                     "INSERT INTO message_snapshots \
-                     (session_id, seq, role, text, created_at, attachments, tool_calls, identity, snapshotted_at) \
-                     SELECT session_id, seq, role, text, created_at, attachments, tool_calls, ?2, ?3 \
+                     (session_id, seq, role, text, created_at, attachments, tool_calls, source_event_id, identity, snapshotted_at) \
+                     SELECT session_id, seq, role, text, created_at, attachments, tool_calls, source_event_id, ?2, ?3 \
                      FROM messages WHERE session_id = ?1 AND seq >= ?4",
                     libsql::params![id_owned.as_str(), SNAPSHOT_IDENTITY, now_ms(), from_seq],
                 )

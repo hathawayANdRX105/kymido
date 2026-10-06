@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use session::{SessionDb, SessionError, SessionMessage, SessionRole, SessionSummary};
+use session::{
+    ContextEvent, SessionDb, SessionError, SessionMessage, SessionRole, SessionSummary, ToolGroup,
+};
 
 pub use session::RunRecord;
 
@@ -162,6 +164,21 @@ impl RunLedger {
             .runs
             .iter()
             .any(|r| r.session_id == session_id && r.finished_at_ms.is_none())
+    }
+
+    /// Most recently started run id for `session_id`, finished or not.
+    /// C01 uses it to attribute a post-turn `session.append` (the client
+    /// persists the assistant reply right after the turn ends) to the run it
+    /// answers, so the import and the daemon's canonical `Assistant` event
+    /// share one ledger key instead of double-booking the same reply.
+    pub fn latest_run_id_for_session(&self, session_id: &str) -> Option<String> {
+        let inner = self.inner.lock().expect("run ledger poisoned");
+        inner
+            .runs
+            .iter()
+            .filter(|r| r.session_id == session_id)
+            .max_by_key(|r| r.started_at_ms)
+            .map(|r| r.run_id.clone())
     }
 
     /// Aggregate the ledger into stats for `range` (see
@@ -704,6 +721,25 @@ impl SessionState {
         self.inner
             .append_message(session_id, role, text, attachments, tool_calls)
     }
+    /// Append a daemon-owned UI projection keyed by its canonical event id.
+    pub fn append_message_for_event(
+        &self,
+        session_id: &str,
+        role: SessionRole,
+        text: &str,
+        attachments: &[session::Attachment],
+        tool_calls: &[Value],
+        source_event_id: &str,
+    ) -> Result<(i64, i64), SessionError> {
+        self.inner.append_message_for_event(
+            session_id,
+            role,
+            text,
+            attachments,
+            tool_calls,
+            Some(source_event_id),
+        )
+    }
 
     /// Drop every message with `seq >= from_seq`; returns how many rows
     /// went away. Backs the `session.truncate` command (T12 retry/edit).
@@ -716,6 +752,90 @@ impl SessionState {
     /// were backed up. Backs the `session.rewind` command (T13 turn rewind).
     pub fn rewind_messages(&self, session_id: &str, from_seq: i64) -> Result<u64, SessionError> {
         self.inner.rewind_messages(session_id, from_seq)
+    }
+
+    /// Delegates to the C01 event ledger (`context_events`): ids of the most
+    /// recently *completed* runs (ended with `turn_end` or `abort`), newest
+    /// first. Used by resume to rebuild history by run instead of taking an
+    /// arbitrary tail of messages.
+    pub fn recent_complete_runs(
+        &self,
+        session_id: &str,
+        limit: u32,
+    ) -> Result<Vec<String>, SessionError> {
+        self.inner.recent_complete_runs(session_id, limit)
+    }
+
+    /// Tool calls whose result is also present in the same scope, paired by
+    /// `tool_call_id`. Used by resume to keep tool pairs intact.
+    pub fn closed_tool_groups(
+        &self,
+        session_id: &str,
+        branch_id: &str,
+        epoch: i64,
+    ) -> Result<Vec<ToolGroup>, SessionError> {
+        self.inner.closed_tool_groups(session_id, branch_id, epoch)
+    }
+
+    /// Append one canonical event to the C01 ledger, idempotently by
+    /// `draft.idempotency_key`.  Returns `(event, inserted)`; `inserted=false`
+    /// means the key was already present and the stored row is returned
+    /// unchanged (the replay path, not an error).  This is the daemon's
+    /// single write seam into `context_events`: the prompt path, the orbit
+    /// event pump and the `session.append` import interface all route
+    /// through it so no caller invents its own SQL or its own key rules.
+    pub fn append_context_event(
+        &self,
+        draft: session::ContextEventDraft,
+    ) -> Result<(ContextEvent, bool), SessionError> {
+        self.inner.append_context_event(draft)
+    }
+
+    /// Every ledger event belonging to one run, in `event_order`.
+    pub fn context_events_for_run(
+        &self,
+        session_id: &str,
+        branch_id: &str,
+        epoch: i64,
+        run_id: &str,
+    ) -> Result<Vec<ContextEvent>, SessionError> {
+        self.inner
+            .context_events_for_run(session_id, branch_id, epoch, run_id)
+    }
+
+    /// Bounded slice of ledger events by `event_order` range, for the
+    /// uncovered tail after a committed projection.
+    pub fn context_events_in_range(
+        &self,
+        session_id: &str,
+        branch_id: &str,
+        epoch: i64,
+        from_order: i64,
+        to_order: i64,
+        limit: u32,
+    ) -> Result<Vec<ContextEvent>, SessionError> {
+        self.inner
+            .context_events_in_range(session_id, branch_id, epoch, from_order, to_order, limit)
+    }
+
+    /// Commit a new authoritative projection into the C01 ledger.  Returns
+    /// `(projection, inserted)`; `inserted=false` when the commit was
+    /// superseded by a newer generation inside the store's own transaction
+    /// and the incoming draft was therefore not written.
+    pub fn commit_projection(
+        &self,
+        draft: session::ProjectionDraft,
+    ) -> Result<(session::ContextProjection, bool), SessionError> {
+        self.inner.commit_projection(draft)
+    }
+
+    /// Record the outcome of a request (compaction / call attempt) into the
+    /// C01 request-outcomes ledger.  Returns `(outcome, inserted)`.
+    pub fn record_request_outcome(
+        &self,
+        draft: session::RequestOutcomeDraft,
+    ) -> Result<(session::RequestOutcome, bool), SessionError> {
+        self.inner.record_request_outcome(draft)
     }
 
     pub fn load_messages(
@@ -765,6 +885,20 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d: std::time::Duration| d.as_millis() as i64)
         .unwrap_or_default()
+}
+
+/// Monotonic `event_order` allocator for the C01 ledger.  Event order is a
+/// per-scope sequence, but a process-wide counter seeded from the wall clock
+/// is enough: it is strictly increasing across every writer in this daemon
+/// (prompt path, event pump, `session.append` import), so two events written
+/// in the same millisecond cannot tie and the resume projection reads them
+/// back in write order.  A signed 64-bit counter seeded at `now_ms()` will
+/// not overflow within any realistic daemon lifetime.
+pub fn next_event_order() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static NEXT: std::sync::LazyLock<AtomicI64> =
+        std::sync::LazyLock::new(|| AtomicI64::new(now_ms()));
+    NEXT.fetch_add(1, Ordering::SeqCst)
 }
 
 /// Helper used by dispatch when a session command was missing a required
