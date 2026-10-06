@@ -140,6 +140,7 @@ fn setup(doc: serde_json::Value, backend: Arc<Shared>) -> OrbitSetup {
             plan_policy_section: None,
             aside_queue: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
         },
+        persistence_sink: None,
     }
 }
 

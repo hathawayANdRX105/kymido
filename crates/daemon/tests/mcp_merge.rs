@@ -214,6 +214,7 @@ fn orbit_setup_with_mcp_tools_stays_clone_and_shares_the_list() {
             plan_policy_section: None,
             aside_queue: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
         },
+        persistence_sink: None,
     };
 
     // Load-bearing for worker (re)spawn: the daemon clones the setup per

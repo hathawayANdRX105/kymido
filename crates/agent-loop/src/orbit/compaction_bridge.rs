@@ -39,7 +39,14 @@ pub fn select_compaction_cut(messages: &[Message], budget: usize) -> usize {
 
 /// Bridges the harness `Summarizer` hook onto orbit's [`LlmBackend`]: the
 /// summary stream runs against the same scripted/HTTP backend as the loop.
-pub struct LlmSummarizer<'a>(&'a dyn LlmBackend, &'a Model, &'a AtomicBool);
+pub struct LlmSummarizer<'a>(
+    /// Backend the summary stream runs against — `pub` so hosts that split
+    /// compute/persist (e.g. daemon's persist-before-swap compaction) can
+    /// construct the same summarizer instead of copying the prompt.
+    pub &'a dyn LlmBackend,
+    pub &'a Model,
+    pub &'a AtomicBool,
+);
 
 impl Summarizer for LlmSummarizer<'_> {
     fn summarize(&self, transcript: &str) -> Option<String> {
